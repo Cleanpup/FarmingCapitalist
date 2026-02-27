@@ -1,0 +1,10 @@
+{
+  "Name": "FarmingCapitalist",
+  "Author": "Cleanpup",
+  "Version": "1.0.0",
+  "Description": "Expanding the endgame of Stardew Valley with new gameplay mechanics, features, map locations, characters, and dialogue.",
+  "UniqueID": "Cleanpup.FarmingCapitalist",
+  "EntryDll": "FarmingCapitalist.dll",
+  "MinimumApiVersion": "3.18.0",
+  "UpdateKeys": []
+}

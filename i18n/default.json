@@ -1,4 +1,0 @@
-{
-  "config.enable-debug-logging.name": "Enable Debug Logging",
-  "config.enable-debug-logging.description": "Whether to write extra debug info to the SMAPI console."
-}

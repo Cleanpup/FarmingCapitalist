@@ -25,17 +25,32 @@ Solutions for #2:
 
 
 Additional Ideas:
+
 must be compatible with SVE and Ridgeside
+
 expand on the main story " return of Joja "
+
 manage an farming empire
+
 create more maps, zoza city, more farmland,
+
 possibly make more characters
+
 create other business ventures ( bakery, winery, etc), have the business cooperate with each other
+
 compete with rivals,
+
 Hire rivals in story lines,
+
 watch employees real time on the farm(and elsewhere) doing work
+
 kids can grow up and take over the empire
+
 Harbor, Pier, Global Trade Routes
 
-
+tangible Steps to begin:
+1) Outline for new Economy System
+2) Outline for a business feature( hiring, money management)
+3) add a couple new items for practice
+4) create a single new map or map edit, nothing crazy ( Harbor addition,, Zoza city corner)
 

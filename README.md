@@ -35,6 +35,7 @@ compete with rivals,
 Hire rivals in story lines,
 watch employees real time on the farm(and elsewhere) doing work
 kids can grow up and take over the empire
+Harbor, Pier, Global Trade Routes
 
 
 

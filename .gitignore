@@ -1,0 +1,21 @@
+# Build outputs
+bin/
+obj/
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# User-specific
+*.user
+*.userosscache
+*.suo
+*.swp
+*.DS_Store
+
+# VSCode
+.vscode/
+
+# Logs
+*.log

@@ -44,8 +44,7 @@ namespace FarmingCapitalist
             // Use the mod's UniqueID to form a unique Harmony instance ID to avoid collisions
             // with other mods. This supplies the required harmonyId parameter added
             // when refactoring ShopMenuPatches.Initialize.
-            var harmonyId = this.ModManifest.UniqueID + ".shopmenu";
-            ShopMenuPatches.Initialize(this.Monitor, harmonyId);
+        
             this.Monitor.Log("Game launched with Farming Capitalist!", LogLevel.Info);
         }
     }

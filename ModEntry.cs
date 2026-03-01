@@ -18,6 +18,7 @@ namespace FarmingCapitalist
         public override void Entry(IModHelper helper)
         {
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
+            helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
         }
 
 
@@ -35,6 +36,13 @@ namespace FarmingCapitalist
 
             // print button presses to the console window
             this.Monitor.Log($"{Game1.player.Name} pressed {e.Button}.", LogLevel.Debug);
+        }
+        
+        private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
+        {
+            // initialize Harmony patches for ShopMenu
+            ShopMenuPatches.Initialize(this.Monitor);
+            this.Monitor.Log("Game launched with Farming Capitalist!", LogLevel.Info);
         }
     }
 }

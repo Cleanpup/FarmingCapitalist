@@ -1,23 +1,40 @@
-﻿using StardewModdingAPI;
-using System;
+﻿using System;
+using Microsoft.Xna.Framework;
+using StardewModdingAPI;
+using StardewModdingAPI.Events;
+using StardewModdingAPI.Utilities;
+using StardewValley;
 
-namespace FarmingCapitalist; 
-
-public class ModEntry : Mod //base class for all SMAPI mods
+namespace FarmingCapitalist
 {
-    public override void Entry(IModHelper helper)  // creates entry function SMAPI can call to start the mod ( passing in an IMODHelper instance)
+    /// <summary>The mod entry point.</summary>
+    internal sealed class ModEntry : Mod
     {
-        // Log a message to indicate that the mod has loaded successfully
-        Monitor.Log("Farming Capitalist mod loaded successfully!", LogLevel.Info);
-        /*example code helper.Events.Gameloop.UpdateTicked += GameLoop_UpdateTicked; // subscribe to the 
-         UpdateTicked event, which is triggered every game tick (60 times per second) */
-    }
+        /*********
+        ** Public methods
+        *********/
+        /// <summary>The mod entry point, called after the mod is first loaded.</summary>
+        /// <param name="helper">Provides simplified APIs for writing mods.</param>
+        public override void Entry(IModHelper helper)
+        {
+            helper.Events.Input.ButtonPressed += this.OnButtonPressed;
+        }
 
-    private void GameLoop_UpdateTicked(object sender, EventArgs e)
-    {
-        // This method will be called every game tick. You can add your mod's logic here.
-        // For example, you could check for certain conditions and apply effects to the player or the game world.
 
-        Monitor.Log("Game tick occurred!", LogLevel.Debug); // Log a message every tick (for demonstration purposes) inside SMAPI's debug log
+        /*********
+        ** Private methods
+        *********/
+        /// <summary>Raised after the player presses a button on the keyboard, controller, or mouse.</summary>
+        /// <param name="sender">The event sender.</param>
+        /// <param name="e">The event data.</param>
+        private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
+        {
+            // ignore if player hasn't loaded a save yet
+            if (!Context.IsWorldReady)
+                return;
+
+            // print button presses to the console window
+            this.Monitor.Log($"{Game1.player.Name} pressed {e.Button}.", LogLevel.Debug);
+        }
     }
 }

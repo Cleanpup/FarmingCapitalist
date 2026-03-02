@@ -47,39 +47,48 @@ namespace FarmingCapitalist
         }
 
         private void OnMenuChanged(object? sender, MenuChangedEventArgs e)
+{
+    if (e.NewMenu is not StardewValley.Menus.ShopMenu shop)
+        return;
+
+    // Defer to next tick so itemPriceAndStock is populated.
+    void ApplyNextTick(object? s, StardewModdingAPI.Events.UpdateTickedEventArgs args)
+    {
+        this.Helper.Events.GameLoop.UpdateTicked -= ApplyNextTick;
+
+        try
         {
-            // Only act when a new menu opened and it's a ShopMenu (and currency is money 0).
-            if (e.NewMenu is not StardewValley.Menus.ShopMenu shop)
+            if (shop.currency != 0)
                 return;
 
-            try
+            int count = shop.itemPriceAndStock.Count;
+            this.Monitor.Log($"Shop '{shop.ShopId}' stock count on next tick = {count}", LogLevel.Info);
+
+            var keys = shop.itemPriceAndStock.Keys.ToList();
+            foreach (var item in keys)
             {
-                if (shop.currency != 0)
-                    return; // only money-priced shops
+                var stock = shop.itemPriceAndStock[item]; // struct copy
+                int vanillaPrice = stock.Price;
 
-                var keys = shop.itemPriceAndStock.Keys.ToList();
-                foreach (var item in keys)
-                {
-                    var stock = shop.itemPriceAndStock[item]; // struct copy
-                    int vanillaPrice = stock.Price;
-                    int adjusted = EconomyService.AdjustBuyPrice(vanillaPrice);
+                int adjusted = EconomyService.AdjustBuyPrice(vanillaPrice);
+                adjusted = Math.Max(1, adjusted);
 
-                    // Clamp buy price to at least 1 to avoid free purchases.
-                    adjusted = Math.Max(1, adjusted);
+                stock.Price = adjusted;
+                shop.itemPriceAndStock[item] = stock; // reassign struct
 
-                    stock.Price = adjusted;
-                    shop.itemPriceAndStock[item] = stock; // assign back
-
-                    this.Monitor.Log($"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {adjusted}", LogLevel.Trace);
-                }
-
-                this.Monitor.Log($"Adjusted buy prices for shop {shop.ShopId}", LogLevel.Info);
+                this.Monitor.Log($"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {adjusted}", LogLevel.Info);
             }
-            catch (Exception ex)
-            {
-                this.Monitor.Log($"Failed to adjust shop prices: {ex}", LogLevel.Error);
-            }
+
+            this.Monitor.Log($"Adjusted buy prices for shop {shop.ShopId}", LogLevel.Info);
         }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Failed to adjust shop prices: {ex}", LogLevel.Error);
+        }
+    }
+
+    this.Helper.Events.GameLoop.UpdateTicked += ApplyNextTick;
+}
 
         private string GetItemName(StardewValley.ISalable s)
         {

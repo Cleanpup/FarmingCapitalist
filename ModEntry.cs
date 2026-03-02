@@ -19,6 +19,7 @@ namespace FarmingCapitalist
         {
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
+            helper.Events.Display.MenuChanged += this.OnMenuChanged;
         }
 
 
@@ -34,18 +35,57 @@ namespace FarmingCapitalist
             if (!Context.IsWorldReady)
                 return;
 
-            // print button presses to the console window
-            this.Monitor.Log($"{Game1.player.Name} pressed {e.Button}.", LogLevel.Debug);
         }
         
         private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
         {
-            // initialize Harmony patches for ShopMenu
-            // Use the mod's UniqueID to form a unique Harmony instance ID to avoid collisions
-            // with other mods. This supplies the required harmonyId parameter added
-            // when refactoring ShopMenuPatches.Initialize.
-        
+            // initialize Harmony patches for Economy and ShopMenu
+            var harmonyId = this.ModManifest.UniqueID + ".economy";
+            EconomyPatches.Initialize(this.Monitor, harmonyId);
+
             this.Monitor.Log("Game launched with Farming Capitalist!", LogLevel.Info);
+        }
+
+        private void OnMenuChanged(object? sender, MenuChangedEventArgs e)
+        {
+            // Only act when a new menu opened and it's a ShopMenu (and currency is money 0).
+            if (e.NewMenu is not StardewValley.Menus.ShopMenu shop)
+                return;
+
+            try
+            {
+                if (shop.currency != 0)
+                    return; // only money-priced shops
+
+                var keys = shop.itemPriceAndStock.Keys.ToList();
+                foreach (var item in keys)
+                {
+                    var stock = shop.itemPriceAndStock[item]; // struct copy
+                    int vanillaPrice = stock.Price;
+                    int adjusted = EconomyService.AdjustBuyPrice(vanillaPrice);
+
+                    // Clamp buy price to at least 1 to avoid free purchases.
+                    adjusted = Math.Max(1, adjusted);
+
+                    stock.Price = adjusted;
+                    shop.itemPriceAndStock[item] = stock; // assign back
+
+                    this.Monitor.Log($"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {adjusted}", LogLevel.Trace);
+                }
+
+                this.Monitor.Log($"Adjusted buy prices for shop {shop.ShopId}", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"Failed to adjust shop prices: {ex}", LogLevel.Error);
+            }
+        }
+
+        private string GetItemName(StardewValley.ISalable s)
+        {
+            if (s is StardewValley.Object obj) return obj.Name;
+            if (s is StardewValley.Item it) return it.Name;
+            return s?.ToString() ?? "<unknown>";
         }
     }
 }

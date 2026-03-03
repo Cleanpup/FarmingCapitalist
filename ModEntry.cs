@@ -10,25 +10,14 @@ namespace FarmingCapitalist
     /// <summary>The mod entry point.</summary>
     internal sealed class ModEntry : Mod
     {
-        /*********
-        ** Public methods
-        *********/
-        /// <summary>The mod entry point, called after the mod is first loaded.</summary>
-        /// <param name="helper">Provides simplified APIs for writing mods.</param>
+        private ShopEditor _shopEditor = null!;
         public override void Entry(IModHelper helper)
         {
+            _shopEditor = new ShopEditor(this.Monitor);
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
             helper.Events.Display.MenuChanged += this.OnMenuChanged;
         }
-
-
-        /*********
-        ** Private methods
-        *********/
-        /// <summary>Raised after the player presses a button on the keyboard, controller, or mouse.</summary>
-        /// <param name="sender">The event sender.</param>
-        /// <param name="e">The event data.</param>
         private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
         {
             // ignore if player hasn't loaded a save yet
@@ -47,48 +36,31 @@ namespace FarmingCapitalist
         }
 
         private void OnMenuChanged(object? sender, MenuChangedEventArgs e)
-{
-    if (e.NewMenu is not StardewValley.Menus.ShopMenu shop)
-        return;
-
-    // Defer to next tick so itemPriceAndStock is populated.
-    void ApplyNextTick(object? s, StardewModdingAPI.Events.UpdateTickedEventArgs args)
-    {
-        this.Helper.Events.GameLoop.UpdateTicked -= ApplyNextTick;
-
-        try
         {
-            if (shop.currency != 0)
+            if (e.NewMenu is not StardewValley.Menus.ShopMenu shop)
                 return;
 
-            int count = shop.itemPriceAndStock.Count;
-            this.Monitor.Log($"Shop '{shop.ShopId}' stock count on next tick = {count}", LogLevel.Info);
+            DeferOneTick(() => _shopEditor.Apply(shop));
+        }
 
-            var keys = shop.itemPriceAndStock.Keys.ToList();
-            foreach (var item in keys)
+        private void DeferOneTick(Action action)
+        {
+            void ApplyNextTick(object? s, StardewModdingAPI.Events.UpdateTickedEventArgs args)
             {
-                var stock = shop.itemPriceAndStock[item]; // struct copy
-                int vanillaPrice = stock.Price;
+                this.Helper.Events.GameLoop.UpdateTicked -= ApplyNextTick;
 
-                int adjusted = EconomyService.AdjustBuyPrice(vanillaPrice);
-                adjusted = Math.Max(1, adjusted);
-
-                stock.Price = adjusted;
-                shop.itemPriceAndStock[item] = stock; // reassign struct
-
-                this.Monitor.Log($"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {adjusted}", LogLevel.Info);
+                try
+                {
+                    action();
+                }
+                catch (Exception e)
+                {
+                    this.Monitor.Log($"Failed to apply shop changes: {e}", LogLevel.Error);
+                }
             }
 
-            this.Monitor.Log($"Adjusted buy prices for shop {shop.ShopId}", LogLevel.Info);
+            this.Helper.Events.GameLoop.UpdateTicked += ApplyNextTick;
         }
-        catch (Exception ex)
-        {
-            this.Monitor.Log($"Failed to adjust shop prices: {ex}", LogLevel.Error);
-        }
-    }
-
-    this.Helper.Events.GameLoop.UpdateTicked += ApplyNextTick;
-}
 
         private string GetItemName(StardewValley.ISalable s)
         {
@@ -96,5 +68,6 @@ namespace FarmingCapitalist
             if (s is StardewValley.Item it) return it.Name;
             return s?.ToString() ?? "<unknown>";
         }
+
     }
 }

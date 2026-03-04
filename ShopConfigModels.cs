@@ -20,4 +20,5 @@ public class ShopItemConfig
     public int BasePrice { get; set; }
     public int Stock { get; set; } = -1;
     public string? SyncedKey { get; set; }
+    public List<string>? Seasons { get; set; }
 }

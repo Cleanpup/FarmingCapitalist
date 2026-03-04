@@ -13,7 +13,7 @@ namespace FarmingCapitalist
         private ShopEditor _shopEditor = null!;
         public override void Entry(IModHelper helper)
         {
-            _shopEditor = new ShopEditor(this.Monitor);
+            _shopEditor = new ShopEditor(helper, this.Monitor);
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
             helper.Events.Display.MenuChanged += this.OnMenuChanged;

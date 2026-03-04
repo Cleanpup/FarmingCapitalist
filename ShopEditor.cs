@@ -8,43 +8,151 @@ namespace FarmingCapitalist;
 public class ShopEditor
 {
     private readonly IMonitor _monitor;
+    private readonly ShopConfigRoot _shopConfigRoot;
 
-    public ShopEditor(IMonitor monitor)
+    public ShopEditor(IModHelper helper, IMonitor monitor)
     {
         _monitor = monitor;
+        _shopConfigRoot = helper.Data.ReadJsonFile<ShopConfigRoot>("assets/shops.json") ?? new ShopConfigRoot();
+
+        _monitor.Log($"Loaded {_shopConfigRoot.Shops.Count} configured shops from assets/shops.json.", LogLevel.Info);
     }
 
     public void Apply(ShopMenu shop)
     {
         if (shop.currency != 0)
-            return;
-
-        AddOrUpdateShopItem(shop, itemId: "745", price: 100, stock: int.MaxValue, syncedKey: "CustomStrawberry");
-        ApplyEconomyPricing(shop);
-    }
-
-    public void AddOrUpdateShopItem(ShopMenu shop, string itemId, int price, int stock, string syncedKey)
-    {
-        var item = new StardewValley.Object(itemId, 1);
-
-        bool inForSale = shop.forSale.Any(i => i is StardewValley.Object obj && obj.ItemId == itemId);
-        if (!inForSale)
         {
-            shop.forSale.Add(item);
-            _monitor.Log($"Added {GetItemName(item)} to shop", LogLevel.Info);
+            _monitor.Log($"Skipping shop {shop.ShopId} because currency {shop.currency} is not gold.", LogLevel.Trace);
+            return;
         }
 
-        shop.itemPriceAndStock[item] = new ItemStockInformation(
-            price: price,
-            stock: stock,
-            tradeItem: null,
-            tradeItemCount: null,
-            stockMode: LimitedStockMode.None,
-            syncedKey: syncedKey
-        );
+        if (!TryGetShopConfig(shop.ShopId, out ShopConfig config))
+            return;
+
+        if (!config.Enabled)
+        {
+            _monitor.Log($"Skipping disabled shop config: {shop.ShopId}", LogLevel.Trace);
+            return;
+        }
+
+        RemoveConfiguredItems(shop, config.RemoveItems);// shop items changes here
+        AddConfiguredItems(shop, config.AddItems);  // and here
+        ApplyEconomyPricing(shop, config.ShopPriceMultiplier); // item prices changes here
     }
 
-    public void ApplyEconomyPricing(ShopMenu shop)
+    private bool TryGetShopConfig(string? shopId, out ShopConfig config)
+    {
+        config = new ShopConfig();
+        if (string.IsNullOrWhiteSpace(shopId))
+            return false;
+
+        if (_shopConfigRoot.Shops.TryGetValue(shopId, out ShopConfig? exactConfig) && exactConfig is not null)
+        {
+            config = exactConfig;
+            return true;
+        }
+
+        foreach (var pair in _shopConfigRoot.Shops)
+        {
+            if (string.Equals(pair.Key, shopId, StringComparison.OrdinalIgnoreCase) && pair.Value is not null)
+            {
+                config = pair.Value;
+                return true;
+            }
+        }
+
+        _monitor.Log($"No shop config found for {shopId}.", LogLevel.Trace);
+        return false;
+    }
+
+    private void RemoveConfiguredItems(ShopMenu shop, List<string> removeItems)
+    {
+        if (removeItems.Count == 0)
+            return;
+
+        HashSet<string> removeSet = removeItems
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (removeSet.Count == 0)
+            return;
+
+        int removedForSale = shop.forSale.RemoveAll(salable => ItemMatchesAnyId(salable, removeSet));
+
+        List<ISalable> keysToRemove = shop.itemPriceAndStock.Keys
+            .Where(salable => ItemMatchesAnyId(salable, removeSet))
+            .ToList();
+
+        foreach (ISalable key in keysToRemove)
+            shop.itemPriceAndStock.Remove(key);
+
+        if (removedForSale > 0 || keysToRemove.Count > 0)
+        {
+            _monitor.Log(
+                $"Removed {removedForSale} forSale entries and {keysToRemove.Count} stock entries from shop {shop.ShopId}.",
+                LogLevel.Info
+            );
+        }
+    }
+
+    private void AddConfiguredItems(ShopMenu shop, List<ShopItemConfig> addItems)
+    {
+        foreach (ShopItemConfig addItem in addItems)
+        {
+            if (string.IsNullOrWhiteSpace(addItem.ItemId))
+                continue;
+
+            ISalable saleItem = EnsureSingleForSaleEntry(shop, addItem.ItemId);
+
+            List<ISalable> matchingStockKeys = shop.itemPriceAndStock.Keys
+                .Where(key => ItemMatchesId(key, addItem.ItemId))
+                .ToList();
+
+            foreach (ISalable key in matchingStockKeys)
+                shop.itemPriceAndStock.Remove(key);
+
+            int stock = addItem.Stock == -1 ? int.MaxValue : Math.Max(0, addItem.Stock);
+            int price = Math.Max(1, addItem.BasePrice);
+
+            shop.itemPriceAndStock[saleItem] = new ItemStockInformation(
+                price: price,
+                stock: stock,
+                tradeItem: null,
+                tradeItemCount: null,
+                stockMode: LimitedStockMode.None,
+                syncedKey: string.IsNullOrWhiteSpace(addItem.SyncedKey) ? null : addItem.SyncedKey
+            );
+
+            _monitor.Log($"Added/updated {GetItemName(saleItem)} ({addItem.ItemId}) in shop {shop.ShopId}.", LogLevel.Info);
+        }
+    }
+
+    private ISalable EnsureSingleForSaleEntry(ShopMenu shop, string itemId)
+    {
+        List<ISalable> matches = shop.forSale
+            .Where(item => ItemMatchesId(item, itemId))
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            ISalable newItem = new StardewValley.Object(itemId, 1);
+            shop.forSale.Add(newItem);
+            return newItem;
+        }
+
+        ISalable keep = matches[0];
+        if (matches.Count > 1)
+        {
+            foreach (ISalable duplicate in matches.Skip(1))
+                shop.forSale.Remove(duplicate);
+
+            _monitor.Log($"Removed duplicate forSale entries for item {itemId} in shop {shop.ShopId}.", LogLevel.Trace);
+        }
+
+        return keep;
+    }
+
+    private void ApplyEconomyPricing(ShopMenu shop, float shopPriceMultiplier)
     {
         var keys = shop.itemPriceAndStock.Keys.ToList();
 
@@ -52,17 +160,41 @@ public class ShopEditor
         {
             var stock = shop.itemPriceAndStock[item];
             int vanillaPrice = stock.Price;
+            int scaledPrice = (int)Math.Round(vanillaPrice * shopPriceMultiplier, MidpointRounding.AwayFromZero);
 
-            int adjusted = EconomyService.AdjustBuyPrice(vanillaPrice);
+            int adjusted = EconomyService.AdjustBuyPrice(scaledPrice);
             adjusted = Math.Max(1, adjusted);
 
             stock.Price = adjusted;
             shop.itemPriceAndStock[item] = stock;
 
-            _monitor.Log($"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {adjusted}", LogLevel.Info);
+            _monitor.Log(
+                $"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {scaledPrice} -> {adjusted}",
+                LogLevel.Info
+            );
         }
 
-        _monitor.Log($"Adjusted buy prices for shop {shop.ShopId}", LogLevel.Info);
+        _monitor.Log($"Adjusted buy prices for shop {shop.ShopId} (x{shopPriceMultiplier}).", LogLevel.Info);
+    }
+
+    private bool ItemMatchesAnyId(ISalable salable, HashSet<string> ids)
+    {
+        string? itemId = TryGetItemId(salable);
+        return itemId is not null && ids.Contains(itemId);
+    }
+
+    private bool ItemMatchesId(ISalable salable, string itemId)
+    {
+        string? salableId = TryGetItemId(salable);
+        return salableId is not null && string.Equals(salableId, itemId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string? TryGetItemId(ISalable salable)
+    {
+        if (salable is Item item && !string.IsNullOrWhiteSpace(item.ItemId))
+            return item.ItemId;
+
+        return null;
     }
 
     private string GetItemName(ISalable s)

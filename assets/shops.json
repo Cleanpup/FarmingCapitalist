@@ -1,0 +1,81 @@
+{
+  "Shops": {
+    "SeedShop": {
+      "DisplayName": "Pierre's General Store",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [
+        {
+          "ItemId": "745",
+          "BasePrice": 100,
+          "Stock": -1,
+          "SyncedKey": "SpringStrawberry"
+        }
+      ],
+      "RemoveItems": []
+    },
+    "AnimalShop": {
+      "DisplayName": "Marnie's Ranch",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    },
+    "FishShop": {
+      "DisplayName": "Willy's Fish Shop",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    },
+    "Blacksmith": {
+      "DisplayName": "Clint's Blacksmith",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    },
+    "Saloon": {
+      "DisplayName": "The Stardrop Saloon",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    },
+    "Sandy": {
+      "DisplayName": "Sandy's Oasis Shop",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    },
+    "Dwarf": {
+      "DisplayName": "Dwarf's Shop",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    },
+    "DesertTrader": {
+      "DisplayName": "Desert Trader",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    },
+    "Gunther": {
+      "DisplayName": "Museum Counter",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    },
+    "Krobus": {
+      "DisplayName": "Krobus' Shop",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
+    }
+  }
+}

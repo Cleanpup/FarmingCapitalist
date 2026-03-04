@@ -9,7 +9,8 @@
           "ItemId": "745",
           "BasePrice": 100,
           "Stock": -1,
-          "SyncedKey": "SpringStrawberry"
+          "SyncedKey": "Strawberry",
+          "Seasons": ["spring"]
         }
       ],
       "RemoveItems": []

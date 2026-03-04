@@ -102,6 +102,15 @@ public class ShopEditor
             if (string.IsNullOrWhiteSpace(addItem.ItemId))
                 continue;
 
+            if (!IsSeasonValid(addItem.Seasons))
+            {
+                _monitor.Log(
+                    $"Skipped seasonal item {addItem.ItemId} for {shop.ShopId}; current season is {Game1.currentSeason}.",
+                    LogLevel.Trace
+                );
+                continue;
+            }
+
             ISalable saleItem = EnsureSingleForSaleEntry(shop, addItem.ItemId);
 
             List<ISalable> matchingStockKeys = shop.itemPriceAndStock.Keys
@@ -125,6 +134,15 @@ public class ShopEditor
 
             _monitor.Log($"Added/updated {GetItemName(saleItem)} ({addItem.ItemId}) in shop {shop.ShopId}.", LogLevel.Info);
         }
+    }
+
+    private bool IsSeasonValid(List<string>? seasons)
+    {
+        if (seasons is null || seasons.Count == 0)
+            return true;
+
+        string currentSeason = Game1.currentSeason;
+        return seasons.Any(season => string.Equals(season, currentSeason, StringComparison.OrdinalIgnoreCase));
     }
 
     private ISalable EnsureSingleForSaleEntry(ShopMenu shop, string itemId)

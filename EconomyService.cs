@@ -15,24 +15,68 @@ namespace FarmingCapitalist
         // Test behaviour: double the sell price
         public static int AdjustSellPrice(int vanillaPrice)
         {
-            Monitor?.Log($"AdjustSellPrice: {vanillaPrice} -> {vanillaPrice * 2}", LogLevel.Trace);
-            return vanillaPrice * 2;
+            Monitor?.Log($"AdjustSellPrice: {vanillaPrice} -> {vanillaPrice}", LogLevel.Trace);
+            return vanillaPrice;
         }
 
         // Buy price adjustment: temporary friendship-only discount foundation.
         public static int AdjustBuyPrice(int vanillaPrice, ISalable item, string shopId, EconomyContext context)
         {
-            float maxDiscount = 0.15f;
-            float friendshipMultiplier = 1f - (context.HeartsWithShopkeeper / 10f) * maxDiscount;
+            float TotalModifier = 1f;
 
-            int adjusted = Math.Max(1, (int)(vanillaPrice * friendshipMultiplier));
+            float friendshipMultiplier = RelationshipModifier(Math.Clamp((float)context.HeartsWithShopkeeper, 0f, 10f), shopId); // ( hearts,shopid)
+            float dayMultiplier = DayModifier(context.DayOfMonth);
+
+             TotalModifier *= dayMultiplier * friendshipMultiplier;
+
+            int adjusted = Math.Max(1, (int)(vanillaPrice * TotalModifier));
+            
 
             Monitor?.Log(
-                $"AdjustBuyPrice: {vanillaPrice} -> {adjusted} (hearts: {context.HeartsWithShopkeeper})",
+                $"AdjustBuyPrice: {vanillaPrice} -> {adjusted} (hearts: {context.HeartsWithShopkeeper}) -> (total x{TotalModifier})",
                 LogLevel.Trace
             );
 
             return adjusted;
+        }
+
+        public static float RelationshipModifier(float hearts, string shopId)
+        {
+            if (shopId == "Joja")
+                return 1f;
+            float friendshipMultiplier;
+
+            if (hearts < 5f)
+            {
+                float maxMarkup = 0.10f;
+                friendshipMultiplier = 1f + ((5f - hearts) / 5f) * maxMarkup;
+            }
+            else
+            {
+                float maxDiscount = 0.15f;
+                friendshipMultiplier = 1f - ((hearts - 5f) / 5f) * maxDiscount;
+            }
+
+            return(friendshipMultiplier);
+        }
+        public static float DayModifier(int dayOfMonth)
+        {
+            float day = Math.Clamp(dayOfMonth, 1, 28);
+
+            if (day >= 25f)
+            {
+                float maxDiscount = 0.30f;      // big clearance
+                float t = (day - 25f) / 3f;     // 0..1
+                return 1f - t * maxDiscount;
+            }
+            else if (day > 15f)
+            {
+                float maxDiscount = 0.10f;      // gentle mid-season discount
+                float t = (day - 15f) / 10f;    // day 16..25 -> 0.1..1
+                return 1f - t * maxDiscount;    // down to 0.90 by day 25
+            }
+
+            return 1f;
         }
     }
 }

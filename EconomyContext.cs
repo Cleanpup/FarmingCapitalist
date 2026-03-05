@@ -1,4 +1,3 @@
-using System;
 using StardewValley;
 using StardewModdingAPI;
 
@@ -46,23 +45,13 @@ namespace FarmingCapitalist
                 }
             }
 
-            int tomorrowDay = Game1.dayOfMonth + 1;
-            Season tomorrowSeason = Game1.season;
-            const int daysPerSeason = 28;
+            bool festivalTomorrow = FestivalUtils.IsFestivalTomorrow();
+            string? festivalTomorrowName = FestivalUtils.GetFestivalTomorrowName();
 
-            if (tomorrowDay > daysPerSeason)
-            {
-                tomorrowDay = 1;
-                tomorrowSeason = (Season)(((int)tomorrowSeason + 1) % 4);
-            }
-
-            bool festivalTomorrow = Utility.isFestivalDay(tomorrowDay, tomorrowSeason);
-            string? festivalTomorrowName = null;
-
-            if (festivalTomorrow)
-            {
-                festivalTomorrowName = TryGetFestivalName(tomorrowDay, tomorrowSeason, monitor ?? Monitor);
-            }
+            (monitor ?? Monitor)?.Log(
+                $"Festival tomorrow check: {festivalTomorrow} (name: {festivalTomorrowName ?? "none"})",
+                LogLevel.Trace
+            );
 
             return new EconomyContext
             {
@@ -76,26 +65,6 @@ namespace FarmingCapitalist
                 MiningLevel = player?.MiningLevel ?? 0,
                 HeartsWithShopkeeper = hearts
             };
-        }
-
-        private static string? TryGetFestivalName(int day, Season season, IMonitor? monitor)
-        {
-            try
-            {
-                var getFestivalName = typeof(Utility).GetMethod("getFestivalName", new[] { typeof(int), typeof(Season) });
-                if (getFestivalName != null)
-                {
-                    return getFestivalName.Invoke(null, new object[] { day, season }) as string;
-                }
-
-                monitor?.Log("Utility.getFestivalName not found; festival name will be omitted.", LogLevel.Trace);
-            }
-            catch (Exception ex)
-            {
-                monitor?.Log($"Failed to retrieve festival name for day {day} of {season}: {ex.Message}", LogLevel.Trace);
-            }
-
-            return null;
         }
     }
 }

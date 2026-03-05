@@ -77,6 +77,13 @@
       "ShopPriceMultiplier": 1.0,
       "AddItems": [],
       "RemoveItems": []
+    },
+    "Joja": {
+      "DisplayName": "JojaMart",
+      "Enabled": true,
+      "ShopPriceMultiplier": 1.0,
+      "AddItems": [],
+      "RemoveItems": []
     }
   }
 }

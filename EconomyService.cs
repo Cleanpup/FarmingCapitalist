@@ -5,35 +5,49 @@ using StardewValley;
 namespace FarmingCapitalist
 {
     /// <summary>
-    /// Business logic for pricing adjustments. Kept separate from Harmony glue
-    /// so the patch methods remain minimal and testable.
-    /// </summary>
+        /// Business logic for pricing adjustments. Kept separate from Harmony glue
+        /// so the patch methods remain minimal and testable.
+        /// </summary>
     internal static class EconomyService
     {
         internal static IMonitor? Monitor;
 
-        // Test behaviour: double the sell price
-        public static int AdjustSellPrice(int vanillaPrice)
+        // Sell price adjustment: festival-driven demand shifts.
+        public static int AdjustSellPrice(int vanillaPrice, Item item, EconomyContext context)
         {
-            Monitor?.Log($"AdjustSellPrice: {vanillaPrice} -> {vanillaPrice}", LogLevel.Trace);
-            return vanillaPrice;
+            float totalModifier = FestivalEconomyRules.GetFestivalSellModifier(item, context);
+            int adjusted = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
+
+            Monitor?.Log(
+                $"AdjustSellPrice: {vanillaPrice} -> {adjusted} (festival: {context.FestivalTomorrowName ?? "none"}) -> (total x{totalModifier:0.###})",
+                LogLevel.Trace
+            );
+
+            return adjusted;
         }
 
         // Buy price adjustment: temporary friendship-only discount foundation.
         public static int AdjustBuyPrice(int vanillaPrice, ISalable item, string shopId, EconomyContext context)
         {
-            float TotalModifier = 1f;
+            float totalModifier = 1f;
 
             float friendshipMultiplier = RelationshipModifier(Math.Clamp((float)context.HeartsWithShopkeeper, 0f, 10f), shopId); // ( hearts,shopid)
             float dayMultiplier = DayModifier(context.DayOfMonth);
+            float festivalMultiplier = FestivalEconomyRules.GetFestivalBuyModifier(item, context);
 
-             TotalModifier *= dayMultiplier * friendshipMultiplier;
+            totalModifier *= dayMultiplier;
+            totalModifier *= friendshipMultiplier;
+            totalModifier *= festivalMultiplier;
+            Monitor?.Log(
+                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###} -> total x{totalModifier:0.###}",
+                LogLevel.Trace
+            );
 
-            int adjusted = Math.Max(1, (int)(vanillaPrice * TotalModifier));
+            int adjusted = Math.Max(1, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
             
 
             Monitor?.Log(
-                $"AdjustBuyPrice: {vanillaPrice} -> {adjusted} (hearts: {context.HeartsWithShopkeeper}) -> (total x{TotalModifier})",
+                $"AdjustBuyPrice: {vanillaPrice} -> {adjusted} (hearts: {context.HeartsWithShopkeeper}, festival: {context.FestivalTomorrowName ?? "none"}) -> (total x{totalModifier:0.###})",
                 LogLevel.Trace
             );
 

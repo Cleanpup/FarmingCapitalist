@@ -50,7 +50,8 @@ namespace FarmingCapitalist
             try
             {
                 int vanilla = __result;
-                int adjusted = EconomyService.AdjustSellPrice(vanilla);
+                EconomyContext context = EconomyContextBuilder.Build(shopkeeperName: null, monitor: Monitor);
+                int adjusted = EconomyService.AdjustSellPrice(vanilla, __instance, context);
 
                 // Clamp sell result to >= 0 (allow selling for 0 if needed).
                 __result = Math.Max(0, adjusted);

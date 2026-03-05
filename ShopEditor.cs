@@ -35,9 +35,12 @@ public class ShopEditor
             return;
         }
 
+        string? shopkeeperName = GetShopkeeperName(shop);
+        EconomyContext economyContext = EconomyContextBuilder.Build(shopkeeperName, _monitor);
+
         RemoveConfiguredItems(shop, config.RemoveItems);// shop items changes here
         AddConfiguredItems(shop, config.AddItems);  // and here
-        ApplyEconomyPricing(shop, config.ShopPriceMultiplier); // item prices changes here
+        ApplyEconomyPricing(shop, config.ShopPriceMultiplier, economyContext); // item prices changes here
     }
 
     private bool TryGetShopConfig(string? shopId, out ShopConfig config)
@@ -170,8 +173,9 @@ public class ShopEditor
         return keep;
     }
 
-    private void ApplyEconomyPricing(ShopMenu shop, float shopPriceMultiplier)
+    private void ApplyEconomyPricing(ShopMenu shop, float shopPriceMultiplier, EconomyContext context)
     {
+        string shopId = shop.ShopId ?? string.Empty;
         var keys = shop.itemPriceAndStock.Keys.ToList();
 
         foreach (var item in keys)
@@ -180,7 +184,7 @@ public class ShopEditor
             int vanillaPrice = stock.Price;
             int scaledPrice = (int)Math.Round(vanillaPrice * shopPriceMultiplier, MidpointRounding.AwayFromZero);
 
-            int adjusted = EconomyService.AdjustBuyPrice(scaledPrice);
+            int adjusted = EconomyService.AdjustBuyPrice(scaledPrice, item, shopId, context);
             adjusted = Math.Max(1, adjusted);
 
             stock.Price = adjusted;
@@ -193,6 +197,25 @@ public class ShopEditor
         }
 
         _monitor.Log($"Adjusted buy prices for shop {shop.ShopId} (x{shopPriceMultiplier}).", LogLevel.Info);
+    }
+
+    private string? GetShopkeeperName(ShopMenu shop)
+    {
+        ShopData? data = shop.ShopData;
+
+        if (data?.Owners is null || data.Owners.Count == 0)
+            return null;
+
+        foreach (ShopOwnerData owner in data.Owners)
+        {
+            if (!GameStateQuery.CheckConditions(owner.Condition))
+                continue;
+
+            if (owner.Type == ShopOwnerType.NamedNpc && !string.IsNullOrWhiteSpace(owner.Name))
+                return owner.Name;
+        }
+
+        return null;
     }
 
     private bool ItemMatchesAnyId(ISalable salable, HashSet<string> ids)

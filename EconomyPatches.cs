@@ -19,6 +19,7 @@ namespace FarmingCapitalist
         {
             Monitor = monitor;
             EconomyService.Monitor = monitor;
+            EconomyContextBuilder.Monitor = monitor;
             _harmony = new Harmony(harmonyId);
 
             try
@@ -67,6 +68,11 @@ namespace FarmingCapitalist
             {
                 _harmony?.UnpatchAll(_harmony.Id);
                 Monitor?.Log("Unpatched EconomyPatches.", LogLevel.Info);
+
+                // Clear monitors to avoid holding references after unload
+                EconomyService.Monitor = null;
+                EconomyContextBuilder.Monitor = null;
+                Monitor = null;
             }
             catch (Exception ex)
             {

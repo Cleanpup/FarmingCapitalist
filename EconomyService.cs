@@ -1,4 +1,6 @@
+using System;
 using StardewModdingAPI;
+using StardewValley;
 
 namespace FarmingCapitalist
 {
@@ -17,11 +19,20 @@ namespace FarmingCapitalist
             return vanillaPrice * 2;
         }
 
-        // Test behaviour: double the buy price
-        public static int AdjustBuyPrice(int vanillaPrice)
+        // Buy price adjustment: temporary friendship-only discount foundation.
+        public static int AdjustBuyPrice(int vanillaPrice, ISalable item, string shopId, EconomyContext context)
         {
-            Monitor?.Log($"AdjustBuyPrice: {vanillaPrice} -> {vanillaPrice * 2}", LogLevel.Trace);
-            return vanillaPrice * 2;
+            float maxDiscount = 0.15f;
+            float friendshipMultiplier = 1f - (context.HeartsWithShopkeeper / 10f) * maxDiscount;
+
+            int adjusted = Math.Max(1, (int)(vanillaPrice * friendshipMultiplier));
+
+            Monitor?.Log(
+                $"AdjustBuyPrice: {vanillaPrice} -> {adjusted} (hearts: {context.HeartsWithShopkeeper})",
+                LogLevel.Trace
+            );
+
+            return adjusted;
         }
     }
 }

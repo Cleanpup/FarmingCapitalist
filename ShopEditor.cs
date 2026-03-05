@@ -65,6 +65,7 @@ public class ShopEditor
         }
 
         _monitor.Log($"No shop config found for {shopId}.", LogLevel.Trace);
+        _monitor.Log($"Discovered shop: {shopId}", LogLevel.Trace);
         return false;
     }
 
@@ -182,17 +183,17 @@ public class ShopEditor
         {
             var stock = shop.itemPriceAndStock[item];
             int vanillaPrice = stock.Price;
-            int scaledPrice = (int)Math.Round(vanillaPrice * shopPriceMultiplier, MidpointRounding.AwayFromZero);
+            int basePrice = (int)Math.Round(vanillaPrice * shopPriceMultiplier, MidpointRounding.AwayFromZero);
 
-            int adjusted = EconomyService.AdjustBuyPrice(scaledPrice, item, shopId, context);
+            int adjusted = EconomyService.AdjustBuyPrice(basePrice, item, shopId, context);
             adjusted = Math.Max(1, adjusted);
 
             stock.Price = adjusted;
             shop.itemPriceAndStock[item] = stock;
 
             _monitor.Log(
-                $"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {scaledPrice} -> {adjusted}",
-                LogLevel.Info
+                $"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {basePrice} -> {adjusted}",
+                LogLevel.Trace
             );
         }
 

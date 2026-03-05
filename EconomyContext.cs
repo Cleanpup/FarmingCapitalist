@@ -28,6 +28,7 @@ namespace FarmingCapitalist
             Farmer? player = Game1.player;
 
             int hearts = 0;
+            Monitor?.Log($"Building EconomyContext for shopkeeper: {shopkeeperName}", LogLevel.Trace);
             if (!string.IsNullOrWhiteSpace(shopkeeperName))
             {
                 try

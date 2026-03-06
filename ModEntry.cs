@@ -51,7 +51,7 @@ namespace FarmingCapitalist
 
                 try
                 {
-                    action();
+                    action(); // many things going on here // shopeditor.apply being run
                 }
                 catch (Exception e)
                 {

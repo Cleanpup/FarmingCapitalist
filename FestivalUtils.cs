@@ -9,7 +9,7 @@ namespace FarmingCapitalist
     {
         public static bool IsFestivalDay(int dayOfMonth, Season season)
         {
-            return Utility.isFestivalDay(dayOfMonth, season, Game1.year.ToString());
+            return Utility.isFestivalDay(dayOfMonth, season);
         }
 
         public static string? GetFestivalName(int dayOfMonth, Season season)
@@ -18,6 +18,7 @@ namespace FarmingCapitalist
                 return null;
 
             string festivalId = $"{Utility.getSeasonKey(season)}{dayOfMonth}";
+            
             if (!Event.tryToLoadFestivalData(festivalId, out var _, out var data, out var _, out var _, out var _))
                 return null;
 

@@ -37,6 +37,11 @@ namespace FarmingCapitalist
                 return 1f;
 
             string festivalName = context.FestivalTomorrowName!;
+            if (IsFestival(festivalName, "Egg Festival"))
+            {
+                if (IsEgg(obj))
+                    return 1.15f;
+            }
 
             if (IsFestival(festivalName, "Flower Dance"))
             {

@@ -16,6 +16,8 @@ namespace FarmingCapitalist
             _shopEditor = new ShopEditor(helper, this.Monitor);
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
+            helper.Events.GameLoop.DayEnding += this.OnDayEnding;
+            helper.Events.GameLoop.DayStarted += this.OnDayStarted;
             helper.Events.Display.MenuChanged += this.OnMenuChanged;
         }
         private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
@@ -33,6 +35,27 @@ namespace FarmingCapitalist
             EconomyPatches.Initialize(this.Monitor, harmonyId);
 
             this.Monitor.Log("Game launched with Farming Capitalist!", LogLevel.Info);
+        }
+
+        private void OnDayEnding(object? sender, DayEndingEventArgs e)
+        {
+            EconomyContext context = EconomyContextBuilder.Build(shopkeeperName: null, monitor: this.Monitor);
+            EconomyPatches.FrozenOvernightSellContext = context;
+
+            this.Monitor.Log(
+                $"Captured frozen overnight sell context for {context.Season} {context.DayOfMonth}.",
+                LogLevel.Trace
+            );
+        }
+
+        private void OnDayStarted(object? sender, DayStartedEventArgs e)
+        {
+            if (EconomyPatches.FrozenOvernightSellContext != null)
+            {
+                this.Monitor.Log("Clearing frozen overnight sell context on DayStarted.", LogLevel.Trace);
+            }
+
+            EconomyPatches.FrozenOvernightSellContext = null;
         }
 
         private void OnMenuChanged(object? sender, MenuChangedEventArgs e)

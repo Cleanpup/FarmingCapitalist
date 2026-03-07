@@ -13,6 +13,7 @@ namespace FarmingCapitalist
     internal static class EconomyPatches
     {
         internal static IMonitor? Monitor;
+        internal static EconomyContext? FrozenOvernightSellContext;
         private static Harmony? _harmony;
 
         internal static void Initialize(IMonitor monitor, string harmonyId)
@@ -50,7 +51,20 @@ namespace FarmingCapitalist
             try
             {
                 int vanilla = __result;
-                EconomyContext context = EconomyContextBuilder.Build(shopkeeperName: null, monitor: Monitor);
+                EconomyContext context;
+                if (FrozenOvernightSellContext != null)
+                {
+                    context = FrozenOvernightSellContext;
+                    Monitor?.Log(
+                        $"SellToStorePrice_Postfix: using frozen overnight context ({context.Season} {context.DayOfMonth}).",
+                        LogLevel.Trace
+                    );
+                }
+                else
+                {
+                    context = EconomyContextBuilder.Build(shopkeeperName: null, monitor: Monitor);
+                }
+
                 int adjusted = EconomyService.AdjustSellPrice(vanilla, __instance, context);
 
                 // Clamp sell result to >= 0 (allow selling for 0 if needed).
@@ -73,6 +87,7 @@ namespace FarmingCapitalist
                 // Clear monitors to avoid holding references after unload
                 EconomyService.Monitor = null;
                 EconomyContextBuilder.Monitor = null;
+                FrozenOvernightSellContext = null;
                 Monitor = null;
             }
             catch (Exception ex)

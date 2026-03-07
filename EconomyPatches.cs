@@ -36,7 +36,7 @@ namespace FarmingCapitalist
                 }
 
                 _harmony.Patch(target, postfix: new HarmonyMethod(postfix));
-                Monitor?.Log("Patched StardewValley.Object.sellToStorePrice (explicit postfix).", LogLevel.Info);
+                Monitor?.Log("Patched StardewValley.Object.sellToStorePrice (explicit postfix).", LogLevel.Trace);
             }
             catch (Exception ex)
             {

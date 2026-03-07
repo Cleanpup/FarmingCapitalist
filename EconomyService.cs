@@ -15,11 +15,21 @@ namespace FarmingCapitalist
         // Sell price adjustment: festival-driven demand shifts.
         public static int AdjustSellPrice(int vanillaPrice, Item item, EconomyContext context)
         {
-            float totalModifier = FestivalEconomyRules.GetFestivalSellModifier(item, context);
+            float totalModifier = 1f;
+            float festivalModifier = FestivalEconomyRules.GetFestivalSellModifier(item, context);
+            float categoryModifier = CategoryEconomyRules.GetSellCategoryModifier(item, context);
+
+            totalModifier *= festivalModifier;
+            totalModifier *= categoryModifier;
             int adjusted = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
 
             Monitor?.Log(
-                $"AdjustSellPrice: {vanillaPrice} -> {adjusted} (festival: {context.FestivalTomorrowName ?? "none"}) -> (total x{totalModifier:0.###})",
+                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###} -> total x{totalModifier:0.###}",
+                LogLevel.Trace
+            );
+
+            Monitor?.Log(
+                $"AdjustSellPrice: {vanillaPrice} -> {adjusted} (festival: {context.FestivalTomorrowName ?? "none"})",
                 LogLevel.Trace
             );
 
@@ -33,13 +43,15 @@ namespace FarmingCapitalist
 
             float friendshipMultiplier = RelationshipModifier(Math.Clamp((float)context.HeartsWithShopkeeper, 0f, 10f), shopId); // ( hearts,shopid)
             float dayMultiplier = DayModifier(context.DayOfMonth);
-            float festivalMultiplier = FestivalEconomyRules.GetFestivalBuyModifier(item, context);
+            float festivalMultiplier = FestivalEconomyRules.GetFestivalBuyModifier(item, context); // handled in separate class
+            float categoryMultiplier = CategoryEconomyRules.GetBuyCategoryModifier(item, shopId, context);
 
             totalModifier *= dayMultiplier;
             totalModifier *= friendshipMultiplier;
             totalModifier *= festivalMultiplier;
+            totalModifier *= categoryMultiplier;
             Monitor?.Log(
-                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###} -> total x{totalModifier:0.###}",
+                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###}, category x{categoryMultiplier:0.###} -> total x{totalModifier:0.###}",
                 LogLevel.Trace
             );
 

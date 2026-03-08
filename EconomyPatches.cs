@@ -1,7 +1,8 @@
 using System;
-using System.Reflection;
 using HarmonyLib;
 using StardewModdingAPI;
+using StardewValley;
+using StardewValley.Menus;
 
 namespace FarmingCapitalist
 {
@@ -21,6 +22,8 @@ namespace FarmingCapitalist
             Monitor = monitor;
             EconomyService.Monitor = monitor;
             EconomyContextBuilder.Monitor = monitor;
+            DailyPurchaseTracker.Monitor = monitor;
+            ShopPriceRuntimeService.Monitor = monitor;
             _harmony = new Harmony(harmonyId);
 
             try
@@ -37,6 +40,42 @@ namespace FarmingCapitalist
 
                 _harmony.Patch(target, postfix: new HarmonyMethod(postfix));
                 Monitor?.Log("Patched StardewValley.Object.sellToStorePrice (explicit postfix).", LogLevel.Trace);
+
+                var shopPurchaseTarget = AccessTools.Method(
+                    typeof(ShopMenu),
+                    "tryToPurchaseItem",
+                    new[] { typeof(ISalable), typeof(ISalable), typeof(int), typeof(int), typeof(int) }
+                );
+                var shopPurchasePrefix = AccessTools.Method(typeof(EconomyPatches), nameof(ShopMenu_TryToPurchaseItem_Prefix));
+                var shopPurchasePostfix = AccessTools.Method(typeof(EconomyPatches), nameof(ShopMenu_TryToPurchaseItem_Postfix));
+
+                if (shopPurchaseTarget == null || shopPurchasePrefix == null || shopPurchasePostfix == null)
+                {
+                    Monitor?.Log("Failed to find ShopMenu.tryToPurchaseItem patch methods.", LogLevel.Error);
+                    return;
+                }
+
+                _harmony.Patch(
+                    shopPurchaseTarget,
+                    prefix: new HarmonyMethod(shopPurchasePrefix),
+                    postfix: new HarmonyMethod(shopPurchasePostfix)
+                );
+                Monitor?.Log("Patched ShopMenu.tryToPurchaseItem for bulk-buy pricing preview.", LogLevel.Info);
+
+                var chargePlayerTarget = AccessTools.Method(
+                    typeof(ShopMenu),
+                    "chargePlayer",
+                    new[] { typeof(Farmer), typeof(int), typeof(int) }
+                );
+                var chargePlayerPostfix = AccessTools.Method(typeof(EconomyPatches), nameof(ShopMenu_ChargePlayer_Postfix));
+                if (chargePlayerTarget == null || chargePlayerPostfix == null)
+                {
+                    Monitor?.Log("Failed to find ShopMenu.chargePlayer patch methods.", LogLevel.Error);
+                    return;
+                }
+
+                _harmony.Patch(chargePlayerTarget, postfix: new HarmonyMethod(chargePlayerPostfix));
+                Monitor?.Log("Patched ShopMenu.chargePlayer to confirm purchase completion.", LogLevel.Trace);
             }
             catch (Exception ex)
             {
@@ -77,6 +116,45 @@ namespace FarmingCapitalist
             }
         }
 
+        private static void ShopMenu_TryToPurchaseItem_Prefix(ShopMenu __instance, ISalable item, int stockToBuy)
+        {
+            try
+            {
+                ShopPriceRuntimeService.BeginPurchaseAttempt(__instance, item, stockToBuy);
+            }
+            catch (Exception ex)
+            {
+                Monitor?.Log($"ShopMenu_TryToPurchaseItem_Prefix exception: {ex}", LogLevel.Error);
+            }
+        }
+
+        private static void ShopMenu_TryToPurchaseItem_Postfix(ShopMenu __instance)
+        {
+            try
+            {
+                ShopPriceRuntimeService.CompletePurchaseAttempt(__instance);
+            }
+            catch (Exception ex)
+            {
+                Monitor?.Log($"ShopMenu_TryToPurchaseItem_Postfix exception: {ex}", LogLevel.Error);
+            }
+        }
+
+        private static void ShopMenu_ChargePlayer_Postfix(Farmer who, int currencyType, int amount)
+        {
+            _ = who;
+            _ = currencyType;
+
+            try
+            {
+                ShopPriceRuntimeService.MarkPurchaseCharged(amount);
+            }
+            catch (Exception ex)
+            {
+                Monitor?.Log($"ShopMenu_ChargePlayer_Postfix exception: {ex}", LogLevel.Error);
+            }
+        }
+
         internal static void Unload()
         {
             try
@@ -87,6 +165,9 @@ namespace FarmingCapitalist
                 // Clear monitors to avoid holding references after unload
                 EconomyService.Monitor = null;
                 EconomyContextBuilder.Monitor = null;
+                DailyPurchaseTracker.Monitor = null;
+                ShopPriceRuntimeService.Monitor = null;
+                ShopPriceRuntimeService.Clear();
                 FrozenOvernightSellContext = null;
                 Monitor = null;
             }

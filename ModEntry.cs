@@ -56,6 +56,7 @@ namespace FarmingCapitalist
             }
 
             EconomyPatches.FrozenOvernightSellContext = null;
+            DailyPurchaseTracker.ResetForNewDay();
         }
 
         private void OnMenuChanged(object? sender, MenuChangedEventArgs e)

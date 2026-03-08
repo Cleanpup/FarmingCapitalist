@@ -14,6 +14,7 @@ public class ShopEditor
     {
         _monitor = monitor;
         _shopConfigRoot = helper.Data.ReadJsonFile<ShopConfigRoot>("assets/shops.json") ?? new ShopConfigRoot();
+        ShopPriceRuntimeService.Monitor = monitor;
 
         _monitor.Log($"Loaded {_shopConfigRoot.Shops.Count} configured shops from assets/shops.json.", LogLevel.Info);
     }
@@ -176,27 +177,7 @@ public class ShopEditor
 
     private void ApplyEconomyPricing(ShopMenu shop, float shopPriceMultiplier, EconomyContext context)
     {
-        string shopId = shop.ShopId ?? string.Empty;
-        var keys = shop.itemPriceAndStock.Keys.ToList();
-
-        foreach (var item in keys)
-        {
-            var stock = shop.itemPriceAndStock[item];
-            int vanillaPrice = stock.Price;
-            int basePrice = (int)Math.Round(vanillaPrice * shopPriceMultiplier, MidpointRounding.AwayFromZero);
-
-            int adjusted = EconomyService.AdjustBuyPrice(basePrice, item, shopId, context);
-            adjusted = Math.Max(1, adjusted);
-
-            stock.Price = adjusted;
-            shop.itemPriceAndStock[item] = stock;
-
-            _monitor.Log(
-                $"Adjusted shop price: {GetItemName(item)} {vanillaPrice} -> {basePrice} -> {adjusted}",
-                LogLevel.Trace
-            );
-        }
-
+        ShopPriceRuntimeService.AttachShop(shop, shopPriceMultiplier, context);
         _monitor.Log($"Adjusted buy prices for shop {shop.ShopId} (x{shopPriceMultiplier}).", LogLevel.Info);
     }
 

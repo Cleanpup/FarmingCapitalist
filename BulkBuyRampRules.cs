@@ -14,8 +14,8 @@ namespace FarmingCapitalist
         private static readonly Dictionary<string, BulkBuyRampSettings> ShopOverrides = new(StringComparer.OrdinalIgnoreCase)
         {
             ["SeedShop"] = new BulkBuyRampSettings(Threshold: 50, Slope: 0.002f, MaxMultiplier: 1.90f),
-            ["Joja"] = new BulkBuyRampSettings(Threshold: 50, Slope: 0.002f, MaxMultiplier: 1.90f),
-            ["JojaMart"] = new BulkBuyRampSettings(Threshold: 50, Slope: 0.002f, MaxMultiplier: 1.90f)
+            ["Joja"] = new BulkBuyRampSettings(Threshold: 100, Slope: 0.001f, MaxMultiplier: 1.50f),
+            ["JojaMart"] = new BulkBuyRampSettings(Threshold: 100, Slope: 0.001f, MaxMultiplier: 1.50f)
         };
 
         public static BulkBuyRampSettings ResolveSettings(string? shopId)

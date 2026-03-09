@@ -4,19 +4,19 @@ namespace FarmingCapitalist
 {
     /// <summary>
     /// Broad crop balancing by crop behavior traits.
-    /// All values are intentionally neutral (1f) for infrastructure-first wiring.
+    /// This is the first-pass structural compression layer; exact tuning belongs in CropItemEconomyRules.
     /// </summary>
     internal static class CropTraitEconomyRules
     {
         private const float SingleHarvestBuyMultiplier = 1f;
         private const float SingleHarvestSellMultiplier = 1f;
         private const float RegrowthBuyMultiplier = 1f;
-        private const float RegrowthSellMultiplier = 1f;
+        private const float RegrowthSellMultiplier = 0.95f;
 
         private const float SingleYieldBuyMultiplier = 1f;
         private const float SingleYieldSellMultiplier = 1f;
         private const float MultiYieldBuyMultiplier = 1f;
-        private const float MultiYieldSellMultiplier = 1f;
+        private const float MultiYieldSellMultiplier = 0.95f;
 
         private const float FastCropBuyMultiplier = 1f;
         private const float FastCropSellMultiplier = 1f;

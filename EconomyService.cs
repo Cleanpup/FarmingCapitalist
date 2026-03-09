@@ -18,13 +18,17 @@ namespace FarmingCapitalist
             float totalModifier = 1f;
             float festivalModifier = FestivalEconomyRules.GetFestivalSellModifier(item, context);
             float categoryModifier = CategoryEconomyRules.GetSellCategoryModifier(item, context);
+            float cropTraitModifier = CropTraitEconomyRules.GetSellTraitModifier(item, context);
+            float cropItemModifier = CropItemEconomyRules.GetSellItemModifier(item, context);
 
             totalModifier *= festivalModifier;
             totalModifier *= categoryModifier;
+            totalModifier *= cropTraitModifier;
+            totalModifier *= cropItemModifier;
             int adjusted = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
 
             Monitor?.Log(
-                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###} -> total x{totalModifier:0.###}",
+                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###} -> total x{totalModifier:0.###}",
                 LogLevel.Trace
             );
 
@@ -52,6 +56,13 @@ namespace FarmingCapitalist
             float dayMultiplier = DayModifier(context.DayOfMonth, item);
             float festivalMultiplier = FestivalEconomyRules.GetFestivalBuyModifier(item, context); // handled in separate class
             float categoryMultiplier = CategoryEconomyRules.GetBuyCategoryModifier(item, shopId, context);
+            float cropTraitMultiplier = 1f;
+            float cropItemMultiplier = 1f;
+            if (item is Item asItem)
+            {
+                cropTraitMultiplier = CropTraitEconomyRules.GetBuyTraitModifier(asItem, context);
+                cropItemMultiplier = CropItemEconomyRules.GetBuyItemModifier(asItem, context);
+            }
             float bulkRampMultiplier = BulkBuyRampRules.GetMultiplier(
                 item,
                 shopId,
@@ -63,9 +74,11 @@ namespace FarmingCapitalist
             totalModifier *= friendshipMultiplier;
             totalModifier *= festivalMultiplier;
             totalModifier *= categoryMultiplier;
+            totalModifier *= cropTraitMultiplier;
+            totalModifier *= cropItemMultiplier;
             totalModifier *= bulkRampMultiplier;
             Monitor?.Log(
-                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###}, category x{categoryMultiplier:0.###}, bulk x{bulkRampMultiplier:0.###} (daily {cumulativePurchasedToday}, qty {purchaseQuantity}) -> total x{totalModifier:0.###}",
+                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###}, category x{categoryMultiplier:0.###}, cropTrait x{cropTraitMultiplier:0.###}, cropItem x{cropItemMultiplier:0.###}, bulk x{bulkRampMultiplier:0.###} (daily {cumulativePurchasedToday}, qty {purchaseQuantity}) -> total x{totalModifier:0.###}",
                 LogLevel.Trace
             );
 

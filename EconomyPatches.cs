@@ -24,6 +24,7 @@ namespace FarmingCapitalist
             EconomyContextBuilder.Monitor = monitor;
             DailyPurchaseTracker.Monitor = monitor;
             ShopPriceRuntimeService.Monitor = monitor;
+            CropTraitService.Monitor = monitor;
             _harmony = new Harmony(harmonyId);
 
             try
@@ -167,6 +168,7 @@ namespace FarmingCapitalist
                 EconomyContextBuilder.Monitor = null;
                 DailyPurchaseTracker.Monitor = null;
                 ShopPriceRuntimeService.Monitor = null;
+                CropTraitService.Monitor = null;
                 ShopPriceRuntimeService.Clear();
                 FrozenOvernightSellContext = null;
                 Monitor = null;

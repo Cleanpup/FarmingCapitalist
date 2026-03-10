@@ -109,7 +109,7 @@ namespace FarmingCapitalist
 
                 // Clamp sell result to >= 0 (allow selling for 0 if needed).
                 __result = Math.Max(0, adjusted);
-                Monitor?.Log($"SellToStorePrice_Postfix: {vanilla} -> {__result} for {__instance?.Name}", LogLevel.Trace);
+                VerbosePriceTraceLogger.Log($"SellToStorePrice_Postfix: {vanilla} -> {__result} for {__instance?.Name}");
             }
             catch (Exception ex)
             {

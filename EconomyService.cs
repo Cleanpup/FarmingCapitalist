@@ -28,14 +28,12 @@ namespace FarmingCapitalist
             totalModifier *= cropItemModifier;
             int adjusted = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
 
-            Monitor?.Log(
-                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###} -> total x{totalModifier:0.###}",
-                LogLevel.Trace
+            VerbosePriceTraceLogger.Log(
+                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###} -> total x{totalModifier:0.###}"
             );
 
-            Monitor?.Log(
-                $"AdjustSellPrice: {vanillaPrice} -> {adjusted} (festival: {context.FestivalTomorrowName ?? "none"})",
-                LogLevel.Trace
+            VerbosePriceTraceLogger.Log(
+                $"AdjustSellPrice: {vanillaPrice} -> {adjusted} (festival: {context.FestivalTomorrowName ?? "none"})"
             );
 
             return ClampStoreSellBackPrice(adjusted, item);
@@ -78,17 +76,15 @@ namespace FarmingCapitalist
             totalModifier *= cropTraitMultiplier;
             totalModifier *= cropItemMultiplier;
             totalModifier *= bulkRampMultiplier;
-            Monitor?.Log(
-                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###}, category x{categoryMultiplier:0.###}, cropTrait x{cropTraitMultiplier:0.###}, cropItem x{cropItemMultiplier:0.###}, bulk x{bulkRampMultiplier:0.###} (daily {cumulativePurchasedToday}, qty {purchaseQuantity}) -> total x{totalModifier:0.###}",
-                LogLevel.Trace
+            VerbosePriceTraceLogger.Log(
+                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###}, category x{categoryMultiplier:0.###}, cropTrait x{cropTraitMultiplier:0.###}, cropItem x{cropItemMultiplier:0.###}, bulk x{bulkRampMultiplier:0.###} (daily {cumulativePurchasedToday}, qty {purchaseQuantity}) -> total x{totalModifier:0.###}"
             );
 
             int adjusted = Math.Max(1, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
             
 
-            Monitor?.Log(
-                $"AdjustBuyPrice: {vanillaPrice} -> {adjusted} (hearts: {context.HeartsWithShopkeeper}, festival: {context.FestivalTomorrowName ?? "none"}) -> (total x{totalModifier:0.###})",
-                LogLevel.Trace
+            VerbosePriceTraceLogger.Log(
+                $"AdjustBuyPrice: {vanillaPrice} -> {adjusted} (hearts: {context.HeartsWithShopkeeper}, festival: {context.FestivalTomorrowName ?? "none"}) -> (total x{totalModifier:0.###})"
             );
 
             return adjusted;

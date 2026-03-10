@@ -28,29 +28,30 @@ namespace FarmingCapitalist
         public static EconomyContext Build(string? shopkeeperName, IMonitor? monitor = null)
         {
             Farmer? player = Game1.player;
+            IMonitor? resolvedMonitor = monitor ?? Monitor;
 
             int hearts = 0;
-            Monitor?.Log($"Building EconomyContext for shopkeeper: {shopkeeperName}", LogLevel.Trace);
+            VerbosePriceTraceLogger.Log($"Building EconomyContext for shopkeeper: {shopkeeperName}", resolvedMonitor);
             if (!string.IsNullOrWhiteSpace(shopkeeperName))
             {
                 try
                 {
                     hearts = player?.getFriendshipHeartLevelForNPC(shopkeeperName) ?? 0;
-                    (monitor ?? Monitor)?.Log($"Hearts with {shopkeeperName}: {hearts}", LogLevel.Trace);
+                    VerbosePriceTraceLogger.Log($"Hearts with {shopkeeperName}: {hearts}", resolvedMonitor);
                 }
                 catch
                 {
                     hearts = 0;
-                    (monitor ?? Monitor)?.Log($"Failed to retrieve friendship hearts for {shopkeeperName}.", LogLevel.Trace);
+                    resolvedMonitor?.Log($"Failed to retrieve friendship hearts for {shopkeeperName}.", LogLevel.Trace);
                 }
             }
 
             bool festivalTomorrow = FestivalUtils.IsFestivalTomorrow();
             string? festivalTomorrowName = FestivalUtils.GetFestivalTomorrowName();
 
-            (monitor ?? Monitor)?.Log(
+            VerbosePriceTraceLogger.Log(
                 $"Festival tomorrow check: {festivalTomorrow} (name: {festivalTomorrowName ?? "none"})",
-                LogLevel.Trace
+                resolvedMonitor
             );
 
             return new EconomyContext

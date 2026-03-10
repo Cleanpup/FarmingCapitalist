@@ -11,8 +11,12 @@ namespace FarmingCapitalist
     internal sealed class ModEntry : Mod
     {
         private ShopEditor _shopEditor = null!;
+
         public override void Entry(IModHelper helper)
         {
+            ModConfig config = helper.ReadConfig<ModConfig>();
+            VerbosePriceTraceLogger.Initialize(this.Monitor, config.EnableVerbosePriceTrace);
+
             _shopEditor = new ShopEditor(helper, this.Monitor);
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;

@@ -16,13 +16,13 @@ namespace FarmingCapitalist
                 return 1f;
 
             if (ItemCategoryRules.IsSeed(asItem))
-                return 1.02f;
+                return 1.00f;
 
             if (ItemCategoryRules.IsArtisanGood(asItem))
-                return 1.03f;
+                return 1.00f;
 
             if (ItemCategoryRules.IsFish(asItem))
-                return 1.01f;
+                return 1.00f;
 
             return 1f;
         }
@@ -32,13 +32,13 @@ namespace FarmingCapitalist
             _ = context;
 
             if (ItemCategoryRules.IsFish(item))
-                return 1.02f;
+                return 1.00f;
 
             if (ItemCategoryRules.IsGem(item) || ItemCategoryRules.IsMineral(item))
-                return 1.03f;
+                return 1.00f;
 
             if (ItemCategoryRules.IsArtisanGood(item))
-                return 1.02f;
+                return 1.00f;
 
             return 1f;
         }

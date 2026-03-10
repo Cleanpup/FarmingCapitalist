@@ -1,6 +1,7 @@
 using System;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Menus;
 
 namespace FarmingCapitalist
 {
@@ -37,7 +38,7 @@ namespace FarmingCapitalist
                 LogLevel.Trace
             );
 
-            return adjusted;
+            return ClampStoreSellBackPrice(adjusted, item);
         }
 
         // Buy price adjustment with friendship/day/festival/category plus bulk-buy ramp.
@@ -130,6 +131,29 @@ namespace FarmingCapitalist
             }
 
             return 1f;
+        }
+
+        private static int ClampStoreSellBackPrice(int calculatedSellPrice, Item item)
+        {
+            if (calculatedSellPrice <= 0)
+                return calculatedSellPrice;
+
+            if (Game1.activeClickableMenu is not ShopMenu shopMenu || shopMenu.currency != 0)
+                return calculatedSellPrice;
+
+            if (!ShopPriceRuntimeService.TryGetCurrentAdjustedBuyPrice(shopMenu, item, out int adjustedBuyPrice))
+                return calculatedSellPrice;
+
+            int clamped = Math.Min(calculatedSellPrice, adjustedBuyPrice);
+            if (clamped < calculatedSellPrice)
+            {
+                Monitor?.Log(
+                    $"Sell-back clamp applied in shop {shopMenu.ShopId ?? "<unknown>"} for {item.Name} ({item.QualifiedItemId}): sell {calculatedSellPrice} -> {clamped}, current buy {adjustedBuyPrice}.",
+                    LogLevel.Trace
+                );
+            }
+
+            return clamped;
         }
     }
 }

@@ -111,6 +111,37 @@ namespace FarmingCapitalist
             }
         }
 
+        public static bool TryGetCurrentAdjustedBuyPrice(ShopMenu shop, Item item, out int adjustedPrice)
+        {
+            adjustedPrice = 0;
+
+            if (shop.currency != 0)
+                return false;
+
+            if (!TryGetComparableItemKey(item, out string itemKey))
+                return false;
+
+            foreach (KeyValuePair<ISalable, ItemStockInformation> pair in shop.itemPriceAndStock)
+            {
+                if (!TryGetComparableItemKey(pair.Key, out string stockItemKey))
+                    continue;
+
+                if (!string.Equals(stockItemKey, itemKey, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (TryGetState(shop, out ShopSessionState state))
+                {
+                    adjustedPrice = Math.Max(1, GetAdjustedPriceForItem(state, pair.Key, pair.Value, pendingQuantity: 1));
+                    return true;
+                }
+
+                adjustedPrice = Math.Max(1, pair.Value.Price);
+                return true;
+            }
+
+            return false;
+        }
+
         private static void RecordConfirmedPurchase(ShopMenu shop, ISalable item, int purchasedQuantity)
         {
             if (!TryGetState(shop, out ShopSessionState state))
@@ -141,15 +172,19 @@ namespace FarmingCapitalist
             if (!shop.itemPriceAndStock.TryGetValue(item, out ItemStockInformation? stock) || stock is null)
                 return;
 
-            if (!state.VanillaPrices.TryGetValue(item, out int vanillaPrice))
-            {
-                vanillaPrice = stock.Price;
-                state.VanillaPrices[item] = vanillaPrice;
-            }
+            int adjusted = GetAdjustedPriceForItem(state, item, stock, pendingQuantity);
 
+            stock.Price = Math.Max(1, adjusted);
+            shop.itemPriceAndStock[item] = stock;
+        }
+
+        private static int GetAdjustedPriceForItem(ShopSessionState state, ISalable item, ItemStockInformation stock, int pendingQuantity)
+        {
+            int vanillaPrice = GetVanillaPrice(state, item, stock.Price);
             int basePrice = (int)Math.Round(vanillaPrice * state.ShopPriceMultiplier, MidpointRounding.AwayFromZero);
             int purchasedToday = DailyPurchaseTracker.GetPurchasedToday(state.ShopId, item);
-            int adjusted = EconomyService.AdjustBuyPrice(
+
+            return EconomyService.AdjustBuyPrice(
                 vanillaPrice: basePrice,
                 item: item,
                 shopId: state.ShopId,
@@ -157,9 +192,39 @@ namespace FarmingCapitalist
                 cumulativePurchasedToday: purchasedToday,
                 purchaseQuantity: pendingQuantity
             );
+        }
 
-            stock.Price = Math.Max(1, adjusted);
-            shop.itemPriceAndStock[item] = stock;
+        private static int GetVanillaPrice(ShopSessionState state, ISalable item, int fallbackPrice)
+        {
+            if (!state.VanillaPrices.TryGetValue(item, out int vanillaPrice))
+            {
+                vanillaPrice = fallbackPrice;
+                state.VanillaPrices[item] = vanillaPrice;
+            }
+
+            return vanillaPrice;
+        }
+
+        private static bool TryGetComparableItemKey(ISalable item, out string itemKey)
+        {
+            itemKey = string.Empty;
+
+            if (item is not Item asItem)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(asItem.QualifiedItemId))
+            {
+                itemKey = asItem.QualifiedItemId;
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(asItem.ItemId))
+            {
+                itemKey = asItem.ItemId;
+                return true;
+            }
+
+            return false;
         }
     }
 }

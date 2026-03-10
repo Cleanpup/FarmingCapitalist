@@ -4,15 +4,7 @@
       "DisplayName": "Pierre's General Store",
       "Enabled": true,
       "ShopPriceMultiplier": 1.0,
-      "AddItems": [
-        {
-          "ItemId": "745",
-          "BasePrice": 100,
-          "Stock": -1,
-          "SyncedKey": "Strawberry",
-          "Seasons": ["spring"]
-        }
-      ],
+      "AddItems": [],
       "RemoveItems": []
     },
     "AnimalShop": {

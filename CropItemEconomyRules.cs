@@ -16,38 +16,38 @@ namespace FarmingCapitalist
         private static readonly Dictionary<string, CropItemMultiplier> SeedOverrides = new(StringComparer.OrdinalIgnoreCase)
         {
             // Spring
-            ["472"] = new CropItemMultiplier(BuyMultiplier: 0.90f, SellMultiplier: 1.79f), // Parsnip Seeds
-            ["473"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.86f), // Bean Starter (Green Bean)
-            ["474"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.47f), // Cauliflower Seeds
-            ["475"] = new CropItemMultiplier(BuyMultiplier: 0.95f, SellMultiplier: 1.31f), // Potato Seeds
-            ["477"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.18f), // Kale Seeds
-            ["476"] = new CropItemMultiplier(BuyMultiplier: 0.95f, SellMultiplier: 1.16f), // Garlic Seeds
-            ["478"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.25f), // Rhubarb Seeds
-            ["745"] = new CropItemMultiplier(BuyMultiplier: 1.08f, SellMultiplier: 0.97f), // Strawberry Seeds
-            ["273"] = new CropItemMultiplier(BuyMultiplier: 0.90f, SellMultiplier: 3.20f), // Rice Shoot (Unmilled Rice)
+            ["472"] = new CropItemMultiplier(BuyMultiplier: 0.50f, SellMultiplier: 1.20f), // Parsnip Seeds
+            ["473"] = new CropItemMultiplier(BuyMultiplier: 0.33f, SellMultiplier: 1.50f), // Bean Starter (Green Bean)
+            ["474"] = new CropItemMultiplier(BuyMultiplier: 0.75f, SellMultiplier: 1.60f), // Cauliflower Seeds
+            ["475"] = new CropItemMultiplier(BuyMultiplier: 0.40f, SellMultiplier: 1.10f), // Potato Seeds
+            ["477"] = new CropItemMultiplier(BuyMultiplier: 0.70f, SellMultiplier: 1.30f), // Kale Seeds
+            ["476"] = new CropItemMultiplier(BuyMultiplier: 0.50f, SellMultiplier: 1.50f), // Garlic Seeds
+            ["478"] = new CropItemMultiplier(BuyMultiplier: 0.40f, SellMultiplier: 1.20f), // Rhubarb Seeds
+            ["745"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.00f), // Strawberry Seeds
+            ["273"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 3.00f), // Rice Shoot (Unmilled Rice)
 
             // Summer
-            ["481"] = new CropItemMultiplier(BuyMultiplier: 1.10f, SellMultiplier: 0.99f), // Blueberry Seeds
-            ["482"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.56f), // Pepper Seeds (Hot Pepper)
-            ["479"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.06f), // Melon Seeds
-            ["480"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.70f), // Tomato Seeds
-            ["487"] = new CropItemMultiplier(BuyMultiplier: 0.95f, SellMultiplier: 2.41f), // Corn Seeds
-            ["302"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.26f), // Hops Starter
-            ["483"] = new CropItemMultiplier(BuyMultiplier: 0.85f, SellMultiplier: 2.14f), // Wheat Seeds
-            ["484"] = new CropItemMultiplier(BuyMultiplier: 0.95f, SellMultiplier: 1.36f), // Radish Seeds
-            ["485"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 0.74f), // Red Cabbage Seeds
-            ["486"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.00f), // Starfruit Seeds
+            ["481"] = new CropItemMultiplier(BuyMultiplier: 1.25f, SellMultiplier: 1.00f), // Blueberry Seeds
+            ["482"] = new CropItemMultiplier(BuyMultiplier: 0.50f, SellMultiplier: 1.40f), // Pepper Seeds (Hot Pepper)
+            ["479"] = new CropItemMultiplier(BuyMultiplier: 0.625f, SellMultiplier: 1.10f), // Melon Seeds
+            ["480"] = new CropItemMultiplier(BuyMultiplier: 0.80f, SellMultiplier: 1.50f), // Tomato Seeds
+            ["487"] = new CropItemMultiplier(BuyMultiplier: 0.13f, SellMultiplier: 1.80f), // Corn Seeds
+            ["302"] = new CropItemMultiplier(BuyMultiplier: 1.33f, SellMultiplier: 1.00f), // Hops Starter
+            ["483"] = new CropItemMultiplier(BuyMultiplier: 0.85f, SellMultiplier: 2.00f), // Wheat Seeds
+            ["484"] = new CropItemMultiplier(BuyMultiplier: 0.50f, SellMultiplier: 1.30f), // Radish Seeds
+            ["485"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 0.95f), // Red Cabbage Seeds
+            ["486"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 0.90f), // Starfruit Seeds
 
             // Fall
-            ["493"] = new CropItemMultiplier(BuyMultiplier: 1.12f, SellMultiplier: 0.99f), // Cranberry Seeds
-            ["488"] = new CropItemMultiplier(BuyMultiplier: 0.95f, SellMultiplier: 1.59f), // Eggplant Seeds
+            ["493"] = new CropItemMultiplier(BuyMultiplier: 0.417f, SellMultiplier: 0.80f), // Cranberry Seeds
+            ["488"] = new CropItemMultiplier(BuyMultiplier: 0.50f, SellMultiplier: 1.50f), // Eggplant Seeds
             ["301"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.11f), // Grape Starter
-            ["299"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 0.91f), // Amaranth Seeds
-            ["494"] = new CropItemMultiplier(BuyMultiplier: 0.95f, SellMultiplier: 1.17f), // Beet Seeds
-            ["492"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.54f), // Yam Seeds
-            ["490"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 0.90f), // Pumpkin Seeds
-            ["489"] = new CropItemMultiplier(BuyMultiplier: 0.95f, SellMultiplier: 1.00f), // Artichoke Seeds
-            ["491"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 0.94f), // Bok Choy Seeds
+            ["299"] = new CropItemMultiplier(BuyMultiplier: 0.786f, SellMultiplier: 1.00f), // Amaranth Seeds
+            ["494"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.15f), // Beet Seeds
+            ["492"] = new CropItemMultiplier(BuyMultiplier: 0.833f, SellMultiplier: 1.60f), // Yam Seeds
+            ["490"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 0.95f), // Pumpkin Seeds
+            ["489"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.10f), // Artichoke Seeds
+            ["491"] = new CropItemMultiplier(BuyMultiplier: 0.50f, SellMultiplier: 1.00f), // Bok Choy Seeds
             ["347"] = new CropItemMultiplier(BuyMultiplier: 1.00f, SellMultiplier: 1.00f)  // Rare Seed (Sweet Gem Berry)
         };
 

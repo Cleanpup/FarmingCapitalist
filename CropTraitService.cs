@@ -13,8 +13,12 @@ namespace FarmingCapitalist
     {
         internal static IMonitor? Monitor;
 
+        private const int StandardSeasonLengthDays = 28;
+
         private const int FastCropMaxDays = 5;
         private const int MediumCropMaxDays = 9;
+        private const int LowHarvestFrequencyMaxHarvests = 2;
+        private const int MediumHarvestFrequencyMaxHarvests = 5;
 
         // Seed bucket thresholds are based on default player-facing seed prices:
         // Cheap: up to 40g, Mid: 50-199g, Expensive: 200g+.
@@ -85,6 +89,12 @@ namespace FarmingCapitalist
 
         public static bool IsSlowCrop(Item? item) => HasTrait(item, CropEconomicTrait.SlowCrop);
 
+        public static bool IsLowHarvestFrequencyCrop(Item? item) => HasTrait(item, CropEconomicTrait.LowHarvestFrequency);
+
+        public static bool IsMediumHarvestFrequencyCrop(Item? item) => HasTrait(item, CropEconomicTrait.MediumHarvestFrequency);
+
+        public static bool IsHighHarvestFrequencyCrop(Item? item) => HasTrait(item, CropEconomicTrait.HighHarvestFrequency);
+
         public static bool IsCheapSeedCrop(Item? item) => HasTrait(item, CropEconomicTrait.CheapSeed);
 
         public static bool IsMidSeedCrop(Item? item) => HasTrait(item, CropEconomicTrait.MidSeed);
@@ -133,6 +143,7 @@ namespace FarmingCapitalist
             traits |= GetHarvestTypeTrait(cropData);
             traits |= GetYieldTypeTrait(cropData);
             traits |= GetGrowthSpeedTrait(cropData);
+            traits |= GetHarvestFrequencyTrait(cropData);
 
             if (TryGetSeedPurchasePrice(seedItemId, sourceItem, out int seedPurchasePrice))
                 traits |= GetSeedCostTrait(seedPurchasePrice);
@@ -171,6 +182,40 @@ namespace FarmingCapitalist
                 return CropEconomicTrait.MediumCrop;
 
             return CropEconomicTrait.SlowCrop;
+        }
+
+        private static CropEconomicTrait GetHarvestFrequencyTrait(CropData cropData)
+        {
+            int estimatedHarvests = EstimateHarvestsPerSeason(cropData, StandardSeasonLengthDays);
+
+            if (estimatedHarvests <= LowHarvestFrequencyMaxHarvests)
+                return CropEconomicTrait.LowHarvestFrequency;
+
+            if (estimatedHarvests <= MediumHarvestFrequencyMaxHarvests)
+                return CropEconomicTrait.MediumHarvestFrequency;
+
+            return CropEconomicTrait.HighHarvestFrequency;
+        }
+
+        private static int EstimateHarvestsPerSeason(CropData cropData, int seasonLengthDays)
+        {
+            if (seasonLengthDays <= 0)
+                return 0;
+
+            int daysToFirstHarvest = GetDaysToFirstHarvest(cropData);
+            if (daysToFirstHarvest <= 0)
+                return 0;
+
+            if (cropData.RegrowDays > 0)
+            {
+                if (daysToFirstHarvest > seasonLengthDays)
+                    return 0;
+
+                int additionalHarvests = (seasonLengthDays - daysToFirstHarvest) / cropData.RegrowDays;
+                return 1 + Math.Max(0, additionalHarvests);
+            }
+
+            return seasonLengthDays / daysToFirstHarvest;
         }
 
         private static int GetDaysToFirstHarvest(CropData cropData)

@@ -11,12 +11,12 @@ namespace FarmingCapitalist
         private const float SingleHarvestBuyMultiplier = 1f;
         private const float SingleHarvestSellMultiplier = 1f;
         private const float RegrowthBuyMultiplier = 1f;
-        private const float RegrowthSellMultiplier = 0.95f;
+        private const float RegrowthSellMultiplier = 1f;
 
         private const float SingleYieldBuyMultiplier = 1f;
         private const float SingleYieldSellMultiplier = 1f;
         private const float MultiYieldBuyMultiplier = 1f;
-        private const float MultiYieldSellMultiplier = 0.95f;
+        private const float MultiYieldSellMultiplier = 1f;
 
         private const float FastCropBuyMultiplier = 1f;
         private const float FastCropSellMultiplier = 1f;
@@ -24,6 +24,13 @@ namespace FarmingCapitalist
         private const float MediumCropSellMultiplier = 1f;
         private const float SlowCropBuyMultiplier = 1f;
         private const float SlowCropSellMultiplier = 1f;
+
+        private const float LowHarvestFrequencyBuyMultiplier = 1f;
+        private const float LowHarvestFrequencySellMultiplier = 1f;
+        private const float MediumHarvestFrequencyBuyMultiplier = 1f;
+        private const float MediumHarvestFrequencySellMultiplier = 1f;
+        private const float HighHarvestFrequencyBuyMultiplier = 1f;
+        private const float HighHarvestFrequencySellMultiplier = 1f;
 
         private const float CheapSeedBuyMultiplier = 1f;
         private const float CheapSeedSellMultiplier = 1f;
@@ -48,6 +55,9 @@ namespace FarmingCapitalist
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.FastCrop, FastCropBuyMultiplier);
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.MediumCrop, MediumCropBuyMultiplier);
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.SlowCrop, SlowCropBuyMultiplier);
+            modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.LowHarvestFrequency, LowHarvestFrequencyBuyMultiplier);
+            modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.MediumHarvestFrequency, MediumHarvestFrequencyBuyMultiplier);
+            modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.HighHarvestFrequency, HighHarvestFrequencyBuyMultiplier);
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.CheapSeed, CheapSeedBuyMultiplier);
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.MidSeed, MidSeedBuyMultiplier);
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.ExpensiveSeed, ExpensiveSeedBuyMultiplier);
@@ -70,6 +80,9 @@ namespace FarmingCapitalist
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.FastCrop, FastCropSellMultiplier);
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.MediumCrop, MediumCropSellMultiplier);
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.SlowCrop, SlowCropSellMultiplier);
+            modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.LowHarvestFrequency, LowHarvestFrequencySellMultiplier);
+            modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.MediumHarvestFrequency, MediumHarvestFrequencySellMultiplier);
+            modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.HighHarvestFrequency, HighHarvestFrequencySellMultiplier);
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.CheapSeed, CheapSeedSellMultiplier);
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.MidSeed, MidSeedSellMultiplier);
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.ExpensiveSeed, ExpensiveSeedSellMultiplier);

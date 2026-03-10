@@ -21,7 +21,7 @@ public class ShopEditor
 
     public void Apply(ShopMenu shop)
     {
-        if (shop.currency != 0)
+        if (shop.currency != 0) // gold shop
         {
             _monitor.Log($"Skipping shop {shop.ShopId} because currency {shop.currency} is not gold.", LogLevel.Trace);
             return;

@@ -23,6 +23,10 @@ namespace FarmingCapitalist // holds enum values for new crop type/categories
 
         CheapSeed = 1 << 7,
         MidSeed = 1 << 8,
-        ExpensiveSeed = 1 << 9
+        ExpensiveSeed = 1 << 9,
+
+        LowHarvestFrequency = 1 << 10,
+        MediumHarvestFrequency = 1 << 11,
+        HighHarvestFrequency = 1 << 12
     }
 }

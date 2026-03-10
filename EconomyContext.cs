@@ -6,7 +6,7 @@ namespace FarmingCapitalist
     /// <summary>
     /// Immutable snapshot of economy-relevant state when a shop opens.
     /// </summary>
-    internal class EconomyContext
+    internal class EconomyContext //
     {
         public string Season { get; init; } = string.Empty;
         public int DayOfMonth { get; init; }

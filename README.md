@@ -1,56 +1,82 @@
-# FarmingCapitalist
-Expanding the Endgame of Stardew Valley with new Gameplay Mechanics and Features, New Map Locations, Characters, Dialogue and more to come
+FARMING CAPITALIST - BETA 1.0
 
-Brainstorm:
+Farming Capitalist is an economy overhaul mod for Stardew Valley.
+The goal is to make money-making more strategic, reduce easy profit exploits, and make crop and shop decisions feel more meaningful.
 
-Objective: Expand the Endgame for Stardew Valley
-
-Issue #1: Once money begins rolling in, incentive to play is reduced, less motivation to continue earning money
-you get to a rinse and repeat flow to push for the expensive late game items and gameplay 'high' runs out.
-
-Issue #2: to further accelerate money production, you are spending most of the day checking your farms, organizing and selling, tasks are repetitive and ruin the experience
-
-Solutions for #1:
-1) Add additional items
-2) Add additional Gameplay
-3) Create an Economy system to limit excessive money growth
-4) create an additional challenge to earning money
-
-Solutions for #2:
-1) further delve into automation methods
-2) create a method that compacts money earning methods, Ex. 1 parsnip produces 5x crops,
-3) create a robust organizing system
-4) Diversify tasks ( fix a scarecrow, rebuild a cask), chance based events
-5) extending 4 and 1 , manage staff to do the repetitive tasks
+This mod is currently in beta.
+Balance values, crop pricing, and economy behavior may change as testing continues.
 
 
-Additional Ideas:
+:: REQUIREMENTS ::
+• Stardew Valley up to date
+• SMAPI installed
 
-must be compatible with SVE and Ridgeside
 
-expand on the main story " return of Joja "
+:: FEATURES ::
+• Rebalanced crop economy
+• Dynamic shop pricing
+• Friendship-based vendor pricing effects
+• Festival-based price changes
+• Bulk purchase scaling
+• Anti-arbitrage sell-back protection
+• Runtime crop balancing using crop traits and crop-specific overrides
+• Runtime shop inventory and pricing edits
 
-manage an farming empire
 
-create more maps, zoza city, more farmland,
+:: GENERAL INFO ::
+• Crop prices are no longer treated as static
+• Many weaker crops have been adjusted to be more competitive
+• Some stronger crops have been reduced to shrink extreme profit gaps
+• Shop prices can change depending on context
+• Buying in larger quantities can affect price scaling
+• Selling items directly back to shops is protected against obvious buy/sell exploits
+• This mod is focused on economy systems first, with larger expansion plans intended later
 
-possibly make more characters
 
-create other business ventures ( bakery, winery, etc), have the business cooperate with each other
+:: CURRENT BETA NOTES ::
+• This is an active beta build
+• Balance is still being tuned
+• Some crops may still be stronger or weaker than intended
+• Pricing behavior may continue to change between versions
+• Feedback about economy balance, exploits, and odd shop behavior is useful
 
-compete with rivals,
 
-Hire rivals in story lines,
+:: PLANNED FEATURES ::
+• Dynamic supply and demand
+• Deeper vendor identity and pricing differences
+• Expanded long-term economy progression
+• More advanced business and ownership systems
+• Further balancing for crops, shops, and item categories
 
-watch employees real time on the farm(and elsewhere) doing work
 
-kids can grow up and take over the empire
+:: COMPATIBILITY ::
+• This mod uses Harmony to patch shop inventories, buy prices, and sell-price behavior
+• Mods that only add items to shop inventories should generally be fine
+• Compatibility cannot be guaranteed with mods that also patch shop logic, shop pricing, item sale values, or related ShopMenu behavior
+• Economy overhaul mods may overlap heavily
 
-Harbor, Pier, Global Trade Routes
 
-tangible Steps to begin:
-1) Outline for new Economy System
-2) Outline for a business feature( hiring, money management)
-3) add a couple new items for practice
-4) create a single new map or map edit, nothing crazy ( Harbor addition,, Zoza city corner)
+:: INSTALLATION ::
+• Install the latest version of SMAPI
+• Download Farming Capitalist
+• Extract the mod folder into your Stardew Valley Mods folder
+• Launch the game through SMAPI
 
+
+:: SOURCE CODE ::
+• GitHub:
+  https://github.com/Cleanpup/FarmingCapitalist
+
+
+:: KNOWN ISSUES ::
+• Balance is still in progress
+• Some UI-related price checks may still call economy logic more often than expected
+• Compatibility with other shop/economy mods may vary
+• Dynamic supply and demand is not implemented yet
+
+
+:: CREDITS ::
+• ConcernedApe for Stardew Valley
+• Pathoschild for SMAPI
+• Harmony contributors
+• Anyone testing the beta and providing feedback

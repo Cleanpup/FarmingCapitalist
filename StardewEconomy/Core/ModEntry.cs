@@ -16,10 +16,13 @@ namespace FarmingCapitalist
         {
             ModConfig config = helper.ReadConfig<ModConfig>();
             VerbosePriceTraceLogger.Initialize(this.Monitor, config.EnableVerbosePriceTrace);
+            SaveEconomyProfileService.Initialize(helper, this.Monitor);
 
             _shopEditor = new ShopEditor(helper, this.Monitor);
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
+            helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
+            helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
             helper.Events.GameLoop.DayEnding += this.OnDayEnding;
             helper.Events.GameLoop.DayStarted += this.OnDayStarted;
             helper.Events.Display.MenuChanged += this.OnMenuChanged;
@@ -39,6 +42,16 @@ namespace FarmingCapitalist
             EconomyPatches.Initialize(this.Monitor, harmonyId);
 
             this.Monitor.Log("Game launched with Farming Capitalist!", LogLevel.Info);
+        }
+
+        private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
+        {
+            SaveEconomyProfileService.LoadOrCreateForCurrentSave();
+        }
+
+        private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
+        {
+            SaveEconomyProfileService.ClearActiveProfile();
         }
 
         private void OnDayEnding(object? sender, DayEndingEventArgs e)

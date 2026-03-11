@@ -61,6 +61,7 @@ namespace FarmingCapitalist
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.CheapSeed, CheapSeedBuyMultiplier);
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.MidSeed, MidSeedBuyMultiplier);
             modifier *= GetBuyTraitMultiplier(traits, CropEconomicTrait.ExpensiveSeed, ExpensiveSeedBuyMultiplier);
+            modifier *= SaveEconomyProfileService.GetBuyModifierForTraits(traits);
             return modifier;
         }
 
@@ -86,6 +87,7 @@ namespace FarmingCapitalist
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.CheapSeed, CheapSeedSellMultiplier);
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.MidSeed, MidSeedSellMultiplier);
             modifier *= GetSellTraitMultiplier(traits, CropEconomicTrait.ExpensiveSeed, ExpensiveSeedSellMultiplier);
+            modifier *= SaveEconomyProfileService.GetSellModifierForTraits(traits);
             return modifier;
         }
 

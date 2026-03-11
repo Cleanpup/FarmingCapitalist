@@ -11,6 +11,7 @@ namespace FarmingCapitalist
     internal sealed class ModEntry : Mod
     {
         private ShopEditor _shopEditor = null!;
+        private CropEconomyCsvExporter _cropEconomyCsvExporter = null!;
 
         public override void Entry(IModHelper helper)
         {
@@ -19,6 +20,13 @@ namespace FarmingCapitalist
             SaveEconomyProfileService.Initialize(helper, this.Monitor);
 
             _shopEditor = new ShopEditor(helper, this.Monitor);
+            _cropEconomyCsvExporter = new CropEconomyCsvExporter(helper, this.Monitor);
+
+            helper.ConsoleCommands.Add(
+                "starecon_dump",
+                "Export crop economy debug CSV with modified seed/sell prices and 50-tile profit.",
+                this.OnStareconDumpCommand
+            );
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
             helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
@@ -52,6 +60,26 @@ namespace FarmingCapitalist
         private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
         {
             SaveEconomyProfileService.ClearActiveProfile();
+        }
+
+        private void OnStareconDumpCommand(string command, string[] args)
+        {
+            _ = command;
+            _ = args;
+
+            if (!Context.IsWorldReady)
+            {
+                this.Monitor.Log("Load a save before running starecon_dump.", LogLevel.Warn);
+                return;
+            }
+
+            if (_cropEconomyCsvExporter.TryExport(out string outputPath))
+            {
+                this.Monitor.Log($"starecon_dump export complete: {outputPath}", LogLevel.Info);
+                return;
+            }
+
+            this.Monitor.Log("starecon_dump export failed. Check prior log errors for details.", LogLevel.Error);
         }
 
         private void OnDayEnding(object? sender, DayEndingEventArgs e)

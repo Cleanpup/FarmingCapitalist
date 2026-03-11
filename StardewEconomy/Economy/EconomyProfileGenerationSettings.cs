@@ -8,8 +8,8 @@ namespace FarmingCapitalist
         public int BonusCategoryCount { get; init; } = 2;
         public int NerfCategoryCount { get; init; } = 2;
 
-        public float BonusSellMultiplier { get; init; } = 1.08f;
-        public float NerfSellMultiplier { get; init; } = 0.92f;
+        public float BonusSellMultiplier { get; init; } = 1.15f;
+        public float NerfSellMultiplier { get; init; } = 0.85f;
 
         public bool RandomizeBuyMultipliers { get; init; } = false;
         public float BonusBuyMultiplier { get; init; } = 1f;

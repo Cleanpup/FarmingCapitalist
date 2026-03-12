@@ -1,7 +1,7 @@
 {
   "Name": "[DLL]Farming Capitalist",
   "Author": "Cleanpup",
-  "Version": "1.0.0",
+  "Version": "0.1.0",
   "Description": "Revamping Stardew's Endgame",
   "UniqueID": "Cleanpup.FarmingCapitalist",
   "EntryDll": "FarmingCapitalist.dll",

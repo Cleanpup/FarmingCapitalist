@@ -3,6 +3,7 @@ using System.Text;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.GameData.Crops;
+using StardewValley.Internal;
 using SObject = StardewValley.Object;
 
 namespace FarmingCapitalist
@@ -14,7 +15,8 @@ namespace FarmingCapitalist
     {
         private const int SeasonLengthDays = 28;
         private const int TileCount = 50;
-        private const string SeedShopId = "SeedShop";
+        private const string SeedShopDataId = "SeedShop";
+        private const string PierreShopId = "Pierre";
 
         private readonly IModHelper _helper;
         private readonly IMonitor _monitor;
@@ -79,16 +81,32 @@ namespace FarmingCapitalist
         {
             List<CropEconomyCsvRow> rows = new();
             int farmingLevel = Math.Max(0, Game1.player?.FarmingLevel ?? 0);
+            EconomyContext pierreContext = EconomyContextBuilder.Build("Pierre", _monitor);
+            Dictionary<string, int> seedShopSeedPrices = BuildSeedShopSeedPriceMap(out float seedShopPriceMultiplier);
 
             foreach ((string seedItemId, CropData cropData) in Game1.cropData)
             {
                 if (!TryResolveCrop(seedItemId, cropData, out SObject seedItem, out SObject harvestedItem, out string cropName))
                     continue;
 
-                int modifiedSeedPrice = GetModifiedSeedPrice(seedItem, dayOfMonth: 1);
+                int vanillaSeedShopPrice = GetSeedShopBaselinePrice(seedItem, seedShopSeedPrices);
+                int modifiedSeedPrice = GetModifiedSeedPrice(
+                    seedItem,
+                    vanillaSeedShopPrice,
+                    seedShopPriceMultiplier,
+                    pierreContext,
+                    PierreShopId
+                );
                 int modifiedSellPrice = GetModifiedSellPrice(harvestedItem, dayOfMonth: 1);
                 double expectedYieldPerHarvest = GetExpectedYieldPerHarvest(cropData, farmingLevel);
-                double profitUsing50Tiles = CalculateProfitUsing50Tiles(seedItem, harvestedItem, cropData, expectedYieldPerHarvest);
+                double profitUsing50Tiles = CalculateProfitUsing50Tiles(
+                    seedItem,
+                    harvestedItem,
+                    cropData,
+                    expectedYieldPerHarvest,
+                    vanillaSeedShopPrice,
+                    seedShopPriceMultiplier
+                );
 
                 rows.Add(new CropEconomyCsvRow(cropName, modifiedSeedPrice, modifiedSellPrice, profitUsing50Tiles));
             }
@@ -148,7 +166,9 @@ namespace FarmingCapitalist
             SObject seedItem,
             SObject harvestedItem,
             CropData cropData,
-            double expectedYieldPerHarvest
+            double expectedYieldPerHarvest,
+            int vanillaSeedShopPrice,
+            float seedShopPriceMultiplier
         )
         {
             int daysToFirstHarvest = GetDaysToFirstHarvest(cropData);
@@ -158,7 +178,12 @@ namespace FarmingCapitalist
             double seedCostPerTile = 0d;
             double revenuePerTile = 0d;
 
-            seedCostPerTile += GetModifiedSeedPrice(seedItem, dayOfMonth: 1);
+            seedCostPerTile += GetModifiedSeedPriceForSimulation(
+                seedItem,
+                vanillaSeedShopPrice,
+                seedShopPriceMultiplier,
+                dayOfMonth: 1
+            );
             int firstHarvestDay = 1 + daysToFirstHarvest;
 
             if (cropData.RegrowDays > 0)
@@ -180,7 +205,12 @@ namespace FarmingCapitalist
                     int replantDay = firstHarvestDay;
                     while (replantDay + daysToFirstHarvest <= SeasonLengthDays)
                     {
-                        seedCostPerTile += GetModifiedSeedPrice(seedItem, replantDay);
+                        seedCostPerTile += GetModifiedSeedPriceForSimulation(
+                            seedItem,
+                            vanillaSeedShopPrice,
+                            seedShopPriceMultiplier,
+                            dayOfMonth: replantDay
+                        );
 
                         int harvestDay = replantDay + daysToFirstHarvest;
                         revenuePerTile += expectedYieldPerHarvest * GetModifiedSellPrice(harvestedItem, harvestDay);
@@ -192,18 +222,36 @@ namespace FarmingCapitalist
             return (revenuePerTile - seedCostPerTile) * TileCount;
         }
 
-        private int GetModifiedSeedPrice(SObject seedItem, int dayOfMonth)
+        private int GetModifiedSeedPrice(
+            SObject seedItem,
+            int vanillaSeedShopPrice,
+            float shopPriceMultiplier,
+            EconomyContext context,
+            string shopId
+        )
         {
-            int vanillaPrice = Math.Max(1, seedItem.Price);
-            EconomyContext context = BuildNeutralEconomyContext(dayOfMonth);
+            int basePrice = (int)Math.Round(vanillaSeedShopPrice * shopPriceMultiplier, MidpointRounding.AwayFromZero);
+            basePrice = Math.Max(1, basePrice);
+
             return EconomyService.AdjustBuyPrice(
-                vanillaPrice: vanillaPrice,
+                vanillaPrice: basePrice,
                 item: seedItem,
-                shopId: SeedShopId,
+                shopId: shopId,
                 context: context,
                 cumulativePurchasedToday: 0,
                 purchaseQuantity: 1
             );
+        }
+
+        private int GetModifiedSeedPriceForSimulation(
+            SObject seedItem,
+            int vanillaSeedShopPrice,
+            float shopPriceMultiplier,
+            int dayOfMonth
+        )
+        {
+            EconomyContext context = BuildNeutralEconomyContext(dayOfMonth);
+            return GetModifiedSeedPrice(seedItem, vanillaSeedShopPrice, shopPriceMultiplier, context, PierreShopId);
         }
 
         private int GetModifiedSellPrice(SObject harvestedItem, int dayOfMonth)
@@ -247,6 +295,92 @@ namespace FarmingCapitalist
                 expectedYield += extraHarvestChance / (1d - extraHarvestChance);
 
             return Math.Max(1d, expectedYield);
+        }
+
+        private Dictionary<string, int> BuildSeedShopSeedPriceMap(out float shopPriceMultiplier)
+        {
+            shopPriceMultiplier = 1f;
+            Dictionary<string, int> seedPrices = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (KeyValuePair<ISalable, ItemStockInformation> pair in ShopBuilder.GetShopStock(SeedShopDataId))
+            {
+                if (pair.Key is not Item item || string.IsNullOrWhiteSpace(item.ItemId))
+                    continue;
+
+                if (item is not SObject obj || obj.Category != SObject.SeedsCategory)
+                    continue;
+
+                seedPrices[item.ItemId] = Math.Max(1, pair.Value.Price);
+            }
+
+            ShopConfigRoot configRoot = _helper.Data.ReadJsonFile<ShopConfigRoot>("assets/shops.json") ?? new ShopConfigRoot();
+            if (!TryGetShopConfig(configRoot, SeedShopDataId, out ShopConfig config) || !config.Enabled)
+                return seedPrices;
+
+            shopPriceMultiplier = config.ShopPriceMultiplier;
+
+            foreach (string removeItem in config.RemoveItems)
+            {
+                if (!string.IsNullOrWhiteSpace(removeItem))
+                    seedPrices.Remove(removeItem);
+            }
+
+            foreach (ShopItemConfig addItem in config.AddItems)
+            {
+                if (string.IsNullOrWhiteSpace(addItem.ItemId))
+                    continue;
+
+                if (!IsSeasonValid(addItem.Seasons))
+                    continue;
+
+                seedPrices[addItem.ItemId] = Math.Max(1, addItem.BasePrice);
+            }
+
+            return seedPrices;
+        }
+
+        private static bool TryGetShopConfig(ShopConfigRoot root, string shopId, out ShopConfig config)
+        {
+            config = new ShopConfig();
+
+            if (root.Shops.TryGetValue(shopId, out ShopConfig? exactConfig) && exactConfig is not null)
+            {
+                config = exactConfig;
+                return true;
+            }
+
+            foreach (KeyValuePair<string, ShopConfig> pair in root.Shops)
+            {
+                if (!string.Equals(pair.Key, shopId, StringComparison.OrdinalIgnoreCase) || pair.Value is null)
+                    continue;
+
+                config = pair.Value;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsSeasonValid(List<string>? seasons)
+        {
+            if (seasons is null || seasons.Count == 0)
+                return true;
+
+            string currentSeason = Game1.currentSeason;
+            return seasons.Any(season => string.Equals(season, currentSeason, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static int GetSeedShopBaselinePrice(SObject seedItem, IReadOnlyDictionary<string, int> seedPrices)
+        {
+            if (!string.IsNullOrWhiteSpace(seedItem.ItemId)
+                && seedPrices.TryGetValue(seedItem.ItemId, out int seedShopPrice)
+                && seedShopPrice > 0)
+            {
+                return seedShopPrice;
+            }
+
+            // Fallback for seeds unavailable in the current SeedShop stock snapshot.
+            return Math.Max(1, seedItem.Price);
         }
 
         private EconomyContext BuildNeutralEconomyContext(int dayOfMonth)

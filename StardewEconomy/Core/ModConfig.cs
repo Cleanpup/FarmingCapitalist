@@ -7,6 +7,7 @@ public class ModConfig
 {
     public bool Enabled { get; set; } = true;
     public bool EnableVerbosePriceTrace { get; set; } = false;
+    public bool ApplySupplyDemandSellModifier { get; set; } = true;
 
     public BuyPriceConfig BuyPrices { get; set; } = new();
     public FriendshipConfig Friendship { get; set; } = new();

@@ -21,15 +21,31 @@ namespace FarmingCapitalist
             float categoryModifier = CategoryEconomyRules.GetSellCategoryModifier(item, context);
             float cropTraitModifier = CropTraitEconomyRules.GetSellTraitModifier(item, context);
             float cropItemModifier = CropItemEconomyRules.GetSellItemModifier(item, context);
+            float cropSupplyModifier = 1f;
+            bool applySupplyModifier = CropSupplyModifierService.ApplyToLiveSellPricing
+                || CropSupplyModifierService.HasDebugSellModifierOverride;
 
             totalModifier *= festivalModifier;
             totalModifier *= categoryModifier;
             totalModifier *= cropTraitModifier;
             totalModifier *= cropItemModifier;
+            if (applySupplyModifier)
+            {
+                cropSupplyModifier = CropSupplyModifierService.GetSellModifier(item);
+                totalModifier *= cropSupplyModifier;
+            }
+
             int adjusted = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
 
+            string supplyLabel = CropSupplyModifierService.HasDebugSellModifierOverride
+                ? "cropSupplyOverride"
+                : "cropSupply";
+            string supplyTrace = applySupplyModifier
+                ? $", {supplyLabel} x{cropSupplyModifier:0.###}"
+                : string.Empty;
+
             VerbosePriceTraceLogger.Log(
-                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###} -> total x{totalModifier:0.###}"
+                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###}{supplyTrace} -> total x{totalModifier:0.###}"
             );
 
             VerbosePriceTraceLogger.Log(

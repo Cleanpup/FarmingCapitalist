@@ -33,31 +33,30 @@ namespace FarmingCapitalist
                 this.OnStareconDumpCommand
             );
             helper.ConsoleCommands.Add(
-                "starecon_supply_dump",
+                "starecon_s_dump",
                 "Dump tracked crop supply scores and their current supply modifiers for this save.",
                 this.OnStareconSupplyDumpCommand
             );
             helper.ConsoleCommands.Add(
-                "starecon_supply_modifier",
+                "starecon_s_mod",
                 "Show the current supply score and modifier for a crop produce item ID or exact crop name.",
                 this.OnStareconSupplyModifierCommand
             );
             helper.ConsoleCommands.Add(
-                "starecon_supply_set_modifier",
+                "starecon_s_set",
                 "Set a debug override for the supply/demand sell modifier. Allowed range: 0.60 to 1.15.",
                 this.OnStareconSupplySetModifierCommand
             );
             helper.ConsoleCommands.Add(
-                "starecon_supply_clear_modifier",
+                "starecon_s_clear",
                 "Clear the debug override for the supply/demand sell modifier.",
                 this.OnStareconSupplyClearModifierCommand
             );
             helper.ConsoleCommands.Add(
-                "starecon_supply_show_modifier_override",
+                "starecon_s_show",
                 "Show the current debug override for the supply/demand sell modifier, if any.",
                 this.OnStareconSupplyShowModifierOverrideCommand
             );
-
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
             helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
@@ -205,8 +204,9 @@ namespace FarmingCapitalist
                 return;
             }
 
+            CropSupplyDataService.ResetTrackedSupply();
             this.Monitor.Log(
-                $"Supply/demand modifier override set to x{modifier:0.###}. This now replaces the computed supply modifier for crop items.",
+                $"Supply/demand modifier override set to x{modifier:0.###}. Tracked crop supply was reset, and supply tracking will stay suspended until the override is cleared.",
                 LogLevel.Info
             );
         }
@@ -254,9 +254,7 @@ namespace FarmingCapitalist
             _ = e;
 
             if (EconomyPatches.FrozenOvernightSellContext != null)
-            {
                 this.Monitor.Log("Clearing frozen overnight sell context on DayStarted.", LogLevel.Trace);
-            }
 
             EconomyPatches.FrozenOvernightSellContext = null;
             DailyPurchaseTracker.ResetForNewDay();
@@ -270,7 +268,10 @@ namespace FarmingCapitalist
             if (e.NewMenu is not StardewValley.Menus.ShopMenu shop)
                 return;
 
-            DeferOneTick(() => _shopEditor.Apply(shop));
+            DeferOneTick(() =>
+            {
+                _shopEditor.Apply(shop);
+            });
         }
 
         private void DeferOneTick(Action action)

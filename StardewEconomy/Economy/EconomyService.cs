@@ -22,6 +22,7 @@ namespace FarmingCapitalist
             float cropTraitModifier = CropTraitEconomyRules.GetSellTraitModifier(item, context);
             float cropItemModifier = CropItemEconomyRules.GetSellItemModifier(item, context);
             float cropSupplyModifier = 1f;
+            float supplyScore = CropSupplyDataService.NeutralSupplyScore;
             bool applySupplyModifier = CropSupplyModifierService.ApplyToLiveSellPricing
                 || CropSupplyModifierService.HasDebugSellModifierOverride;
 
@@ -32,10 +33,12 @@ namespace FarmingCapitalist
             if (applySupplyModifier)
             {
                 cropSupplyModifier = CropSupplyModifierService.GetSellModifier(item);
+                if (CropSupplyTracker.TryGetCropProduceInfo(item, out string produceItemId, out _))
+                    supplyScore = CropSupplyDataService.GetSupplyScore(produceItemId);
                 totalModifier *= cropSupplyModifier;
             }
 
-            int adjusted = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
+            int adjustedBeforeClamp = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
 
             string supplyLabel = CropSupplyModifierService.HasDebugSellModifierOverride
                 ? "cropSupplyOverride"
@@ -49,10 +52,10 @@ namespace FarmingCapitalist
             );
 
             VerbosePriceTraceLogger.Log(
-                $"AdjustSellPrice: {vanillaPrice} -> {adjusted} (festival: {context.FestivalTomorrowName ?? "none"})"
+                $"AdjustSellPrice: {vanillaPrice} -> {adjustedBeforeClamp} (festival: {context.FestivalTomorrowName ?? "none"})"
             );
 
-            return ClampStoreSellBackPrice(adjusted, item);
+            return ClampStoreSellBackPrice(adjustedBeforeClamp, item);
         }
 
         // Buy price adjustment with friendship/day/festival/category plus bulk-buy ramp.
@@ -102,7 +105,6 @@ namespace FarmingCapitalist
             VerbosePriceTraceLogger.Log(
                 $"AdjustBuyPrice: {vanillaPrice} -> {adjusted} (hearts: {context.HeartsWithShopkeeper}, festival: {context.FestivalTomorrowName ?? "none"}) -> (total x{totalModifier:0.###})"
             );
-
             return adjusted;
         }
 
@@ -154,7 +156,13 @@ namespace FarmingCapitalist
                 return calculatedSellPrice;
 
             if (!ShopPriceRuntimeService.TryGetCurrentAdjustedBuyPrice(shopMenu, item, out int adjustedBuyPrice))
+            {
+                Monitor?.Log(
+                    $"Sell-back clamp skipped in shop {shopMenu.ShopId ?? "<unknown>"} for {item.Name} ({item.QualifiedItemId}): no canonical buy price matched the current item.",
+                    LogLevel.Trace
+                );
                 return calculatedSellPrice;
+            }
 
             int clamped = Math.Min(calculatedSellPrice, adjustedBuyPrice);
             if (clamped < calculatedSellPrice)

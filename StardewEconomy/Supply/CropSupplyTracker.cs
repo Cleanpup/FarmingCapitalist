@@ -15,6 +15,9 @@ namespace FarmingCapitalist
             if (quantity <= 0)
                 return;
 
+            if (CropSupplyModifierService.HasDebugSellModifierOverride)
+                return;
+
             if (!TryGetCropProduceInfo(item, out string produceItemId, out string displayName))
                 return;
 
@@ -26,6 +29,9 @@ namespace FarmingCapitalist
             if (quantity <= 0)
                 return;
 
+            if (CropSupplyModifierService.HasDebugSellModifierOverride)
+                return;
+
             if (!TryNormalizeCropProduceItemId(produceItemId, out string normalizedProduceItemId))
                 return;
 
@@ -34,6 +40,9 @@ namespace FarmingCapitalist
 
         public static void TrackItems(IEnumerable<Item> items, string source)
         {
+            if (CropSupplyModifierService.HasDebugSellModifierOverride)
+                return;
+
             Dictionary<string, (string DisplayName, int Quantity)> totalsByCrop = new(StringComparer.OrdinalIgnoreCase);
             foreach (Item item in items)
             {

@@ -1,4 +1,3 @@
-using System;
 using HarmonyLib;
 using StardewModdingAPI;
 using StardewValley;
@@ -15,6 +14,7 @@ namespace FarmingCapitalist
     {
         internal static IMonitor? Monitor;
         internal static EconomyContext? FrozenOvernightSellContext;
+
         private static Harmony? _harmony;
 
         internal static void Initialize(IMonitor monitor, string harmonyId)
@@ -23,23 +23,20 @@ namespace FarmingCapitalist
             EconomyService.Monitor = monitor;
             EconomyContextBuilder.Monitor = monitor;
             DailyPurchaseTracker.Monitor = monitor;
-            ShopPriceRuntimeService.Monitor = monitor;
             CropTraitService.Monitor = monitor;
             _harmony = new Harmony(harmonyId);
 
             try
             {
-                // Locate target: Object.sellToStorePrice(long specificPlayerID = -1L)
-                var target = AccessTools.Method(typeof(StardewValley.Object), "sellToStorePrice", new Type[] { typeof(long) });
-                var postfix = AccessTools.Method(typeof(EconomyPatches), nameof(SellToStorePrice_Postfix));
-
-                if (target == null || postfix == null)
+                var sellToStorePriceTarget = AccessTools.Method(typeof(StardewValley.Object), "sellToStorePrice", new[] { typeof(long) });
+                var sellToStorePricePostfix = AccessTools.Method(typeof(EconomyPatches), nameof(SellToStorePrice_Postfix));
+                if (sellToStorePriceTarget == null || sellToStorePricePostfix == null)
                 {
-                    Monitor?.Log("Failed to find sellToStorePrice or postfix.", LogLevel.Error);
+                    Monitor?.Log("Failed to find sellToStorePrice patch methods.", LogLevel.Error);
                     return;
                 }
 
-                _harmony.Patch(target, postfix: new HarmonyMethod(postfix));
+                _harmony.Patch(sellToStorePriceTarget, postfix: new HarmonyMethod(sellToStorePricePostfix));
                 Monitor?.Log("Patched StardewValley.Object.sellToStorePrice (explicit postfix).", LogLevel.Trace);
 
                 var shopPurchaseTarget = AccessTools.Method(
@@ -49,7 +46,6 @@ namespace FarmingCapitalist
                 );
                 var shopPurchasePrefix = AccessTools.Method(typeof(EconomyPatches), nameof(ShopMenu_TryToPurchaseItem_Prefix));
                 var shopPurchasePostfix = AccessTools.Method(typeof(EconomyPatches), nameof(ShopMenu_TryToPurchaseItem_Postfix));
-
                 if (shopPurchaseTarget == null || shopPurchasePrefix == null || shopPurchasePostfix == null)
                 {
                     Monitor?.Log("Failed to find ShopMenu.tryToPurchaseItem patch methods.", LogLevel.Error);
@@ -61,7 +57,7 @@ namespace FarmingCapitalist
                     prefix: new HarmonyMethod(shopPurchasePrefix),
                     postfix: new HarmonyMethod(shopPurchasePostfix)
                 );
-                Monitor?.Log("Patched ShopMenu.tryToPurchaseItem for bulk-buy pricing preview.", LogLevel.Info);
+                Monitor?.Log("Patched ShopMenu.tryToPurchaseItem for purchase tracking.", LogLevel.Trace);
 
                 var chargePlayerTarget = AccessTools.Method(
                     typeof(ShopMenu),
@@ -76,7 +72,7 @@ namespace FarmingCapitalist
                 }
 
                 _harmony.Patch(chargePlayerTarget, postfix: new HarmonyMethod(chargePlayerPostfix));
-                Monitor?.Log("Patched ShopMenu.chargePlayer to confirm purchase completion.", LogLevel.Trace);
+                Monitor?.Log("Patched ShopMenu.chargePlayer for purchase tracking.", LogLevel.Trace);
 
                 var showEndOfNightTarget = AccessTools.Method(typeof(Game1), nameof(Game1.showEndOfNightStuff));
                 var showEndOfNightPrefix = AccessTools.Method(typeof(EconomyPatches), nameof(Game1_ShowEndOfNightStuff_Prefix));
@@ -87,7 +83,7 @@ namespace FarmingCapitalist
                 }
 
                 _harmony.Patch(showEndOfNightTarget, prefix: new HarmonyMethod(showEndOfNightPrefix));
-                Monitor?.Log("Patched Game1.showEndOfNightStuff for completed shipping tracking.", LogLevel.Trace);
+                Monitor?.Log("Patched Game1.showEndOfNightStuff for shipping tracking.", LogLevel.Trace);
 
                 var receiveLeftClickTarget = AccessTools.Method(
                     typeof(ShopMenu),
@@ -107,7 +103,7 @@ namespace FarmingCapitalist
                     prefix: new HarmonyMethod(receiveLeftClickPrefix),
                     postfix: new HarmonyMethod(receiveLeftClickPostfix)
                 );
-                Monitor?.Log("Patched ShopMenu.receiveLeftClick for completed sell tracking.", LogLevel.Trace);
+                Monitor?.Log("Patched ShopMenu.receiveLeftClick for sell tracking.", LogLevel.Trace);
 
                 var receiveRightClickTarget = AccessTools.Method(
                     typeof(ShopMenu),
@@ -127,38 +123,25 @@ namespace FarmingCapitalist
                     prefix: new HarmonyMethod(receiveRightClickPrefix),
                     postfix: new HarmonyMethod(receiveRightClickPostfix)
                 );
-                Monitor?.Log("Patched ShopMenu.receiveRightClick for partial-stack sell tracking.", LogLevel.Trace);
+                Monitor?.Log("Patched ShopMenu.receiveRightClick for sell tracking.", LogLevel.Trace);
             }
             catch (Exception ex)
             {
-                Monitor?.Log($"Failed to apply sellToStorePrice patch: {ex}", LogLevel.Error);
+                Monitor?.Log($"Failed to apply economy patches: {ex}", LogLevel.Error);
             }
         }
 
-        // Postfix bridge: receives vanilla computed value, calls EconomyService, writes back.
-        // Signature includes 'long specificPlayerID' to match the original parameter.
         private static void SellToStorePrice_Postfix(StardewValley.Object __instance, long specificPlayerID, ref int __result)
         {
+            _ = specificPlayerID;
+
             try
             {
                 int vanilla = __result;
-                EconomyContext context;
-                if (FrozenOvernightSellContext != null)
-                {
-                    context = FrozenOvernightSellContext;
-                    Monitor?.Log(
-                        $"SellToStorePrice_Postfix: using frozen overnight context ({context.Season} {context.DayOfMonth}).",
-                        LogLevel.Trace
-                    );
-                }
-                else
-                {
-                    context = EconomyContextBuilder.Build(shopkeeperName: null, monitor: Monitor);
-                }
+                EconomyContext context = FrozenOvernightSellContext
+                    ?? EconomyContextBuilder.Build(shopkeeperName: null, monitor: Monitor);
 
                 int adjusted = EconomyService.AdjustSellPrice(vanilla, __instance, context);
-
-                // Clamp sell result to >= 0 (allow selling for 0 if needed).
                 __result = Math.Max(0, adjusted);
                 VerbosePriceTraceLogger.Log($"SellToStorePrice_Postfix: {vanilla} -> {__result} for {__instance?.Name}");
             }
@@ -168,8 +151,12 @@ namespace FarmingCapitalist
             }
         }
 
-        private static void ShopMenu_TryToPurchaseItem_Prefix(ShopMenu __instance, ISalable item, int stockToBuy)
+        private static void ShopMenu_TryToPurchaseItem_Prefix(ShopMenu __instance, ISalable item, ISalable held_item, int stockToBuy, int x, int y)
         {
+            _ = held_item;
+            _ = x;
+            _ = y;
+
             try
             {
                 ShopPriceRuntimeService.BeginPurchaseAttempt(__instance, item, stockToBuy);
@@ -180,8 +167,11 @@ namespace FarmingCapitalist
             }
         }
 
-        private static void ShopMenu_TryToPurchaseItem_Postfix(ShopMenu __instance)
+        private static void ShopMenu_TryToPurchaseItem_Postfix(ShopMenu __instance, ISalable item, int stockToBuy)
         {
+            _ = item;
+            _ = stockToBuy;
+
             try
             {
                 ShopPriceRuntimeService.CompletePurchaseAttempt(__instance);
@@ -249,20 +239,23 @@ namespace FarmingCapitalist
             try
             {
                 if (shopMenu.readOnly || shopMenu.heldItem != null || shopMenu.onSell != null || shopMenu.currency != 0)
-                    return PendingShopSaleState.None;
+                    return PendingShopSaleState.CreateSkipped();
 
                 int inventoryIndex = shopMenu.inventory.getInventoryPositionOfClick(x, y);
                 if (inventoryIndex < 0 || inventoryIndex >= shopMenu.inventory.actualInventory.Count)
-                    return PendingShopSaleState.None;
+                    return PendingShopSaleState.CreateSkipped();
 
                 Item? clickedItem = shopMenu.inventory.actualInventory[inventoryIndex];
+                if (clickedItem is null)
+                    return PendingShopSaleState.CreateSkipped();
+
                 if (!CropSupplyTracker.TryGetCropProduceInfo(clickedItem, out string produceItemId, out string displayName))
-                    return PendingShopSaleState.None;
+                    return PendingShopSaleState.CreateSkipped();
 
                 return new PendingShopSaleState(
                     ShouldTrack: true,
                     SlotIndex: inventoryIndex,
-                    QualifiedItemId: clickedItem!.QualifiedItemId,
+                    QualifiedItemId: clickedItem.QualifiedItemId,
                     ProduceItemId: produceItemId,
                     DisplayName: displayName,
                     OriginalStack: clickedItem.Stack
@@ -271,14 +264,13 @@ namespace FarmingCapitalist
             catch (Exception ex)
             {
                 Monitor?.Log($"CapturePendingShopSale exception: {ex}", LogLevel.Error);
-                return PendingShopSaleState.None;
+                return PendingShopSaleState.CreateSkipped();
             }
         }
 
         private static void CompletePendingShopSale(ShopMenu shopMenu, PendingShopSaleState state, string interactionKind)
         {
-            if (!state.ShouldTrack)
-                return;
+            _ = interactionKind;
 
             try
             {
@@ -291,12 +283,13 @@ namespace FarmingCapitalist
                         : 0;
                 int soldQuantity = Math.Max(0, state.OriginalStack - remainingStack);
 
-                if (soldQuantity <= 0)
+                if (!state.ShouldTrack || soldQuantity <= 0)
                     return;
 
                 string shopId = string.IsNullOrWhiteSpace(shopMenu.ShopId)
                     ? "<unknown>"
                     : shopMenu.ShopId;
+
                 CropSupplyTracker.TrackProduceSale(
                     state.ProduceItemId,
                     state.DisplayName,
@@ -317,11 +310,9 @@ namespace FarmingCapitalist
                 _harmony?.UnpatchAll(_harmony.Id);
                 Monitor?.Log("Unpatched EconomyPatches.", LogLevel.Info);
 
-                // Clear monitors to avoid holding references after unload
                 EconomyService.Monitor = null;
                 EconomyContextBuilder.Monitor = null;
                 DailyPurchaseTracker.Monitor = null;
-                ShopPriceRuntimeService.Monitor = null;
                 CropTraitService.Monitor = null;
                 ShopPriceRuntimeService.Clear();
                 FrozenOvernightSellContext = null;
@@ -343,14 +334,17 @@ namespace FarmingCapitalist
             int OriginalStack
         )
         {
-            public static PendingShopSaleState None { get; } = new(
-                ShouldTrack: false,
-                SlotIndex: -1,
-                QualifiedItemId: string.Empty,
-                ProduceItemId: string.Empty,
-                DisplayName: string.Empty,
-                OriginalStack: 0
-            );
+            public static PendingShopSaleState CreateSkipped()
+            {
+                return new PendingShopSaleState(
+                    ShouldTrack: false,
+                    SlotIndex: -1,
+                    QualifiedItemId: string.Empty,
+                    ProduceItemId: string.Empty,
+                    DisplayName: string.Empty,
+                    OriginalStack: 0
+                );
+            }
         }
     }
 }

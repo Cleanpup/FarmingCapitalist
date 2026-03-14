@@ -14,7 +14,6 @@ public class ShopEditor
     {
         _monitor = monitor;
         _shopConfigRoot = helper.Data.ReadJsonFile<ShopConfigRoot>("assets/shops.json") ?? new ShopConfigRoot();
-        ShopPriceRuntimeService.Monitor = monitor;
 
         _monitor.Log($"Loaded {_shopConfigRoot.Shops.Count} configured shops from assets/shops.json.", LogLevel.Info);
     }
@@ -98,6 +97,7 @@ public class ShopEditor
                 LogLevel.Info
             );
         }
+
     }
 
     private void AddConfiguredItems(ShopMenu shop, List<ShopItemConfig> addItems)

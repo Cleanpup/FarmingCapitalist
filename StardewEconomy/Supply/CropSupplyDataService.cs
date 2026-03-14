@@ -66,6 +66,18 @@ namespace FarmingCapitalist
             _activeData = null;
         }
 
+        public static void ResetTrackedSupply()
+        {
+            CropSupplySaveData data = EnsureActiveData();
+            if (data.CropSupplyScores.Count == 0)
+                return;
+
+            data.CropSupplyScores.Clear();
+            TryWriteActiveData();
+
+            _monitor?.Log("Cleared all tracked crop supply scores and restored the neutral supply baseline.", LogLevel.Info);
+        }
+
         public static IReadOnlyDictionary<string, float> GetSnapshot()
         {
             if (_activeData is null || _activeData.CropSupplyScores.Count == 0)
@@ -99,6 +111,9 @@ namespace FarmingCapitalist
             float previousScore = GetSupplyScore(normalizedProduceItemId);
 
             float updatedScore = previousScore + amount;
+            if (updatedScore == previousScore)
+                return updatedScore;
+
             data.CropSupplyScores[normalizedProduceItemId] = updatedScore;
             TryWriteActiveData();
 
@@ -146,10 +161,12 @@ namespace FarmingCapitalist
             float decayMultiplier = MathF.Pow(DailyDecayFactor, elapsedDays);
             foreach (string cropKey in data.CropSupplyScores.Keys.ToList())
             {
-                float decayedScore = data.CropSupplyScores[cropKey] * decayMultiplier;
-                data.CropSupplyScores[cropKey] = decayedScore <= ZeroSnapThreshold
+                float previousScore = data.CropSupplyScores[cropKey];
+                float decayedScore = previousScore * decayMultiplier;
+                float updatedScore = decayedScore <= ZeroSnapThreshold
                     ? 0f
                     : decayedScore;
+                data.CropSupplyScores[cropKey] = updatedScore;
             }
 
             data.LastDecayDay = currentDay;

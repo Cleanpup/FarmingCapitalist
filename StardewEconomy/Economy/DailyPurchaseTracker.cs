@@ -19,10 +19,11 @@ namespace FarmingCapitalist
             if (!BulkBuyRampRules.TryGetItemKey(item, out string itemKey))
                 return 0;
 
-            if (!PurchasedByShop.TryGetValue(NormalizeShopId(shopId), out Dictionary<string, int>? shopMap))
+            string resolvedShopId = NormalizeShopId(shopId);
+            if (!PurchasedByShop.TryGetValue(resolvedShopId, out Dictionary<string, int>? shopMap))
                 return 0;
 
-            return shopMap.TryGetValue(itemKey, out int count) ? count : 0;
+            return shopMap.TryGetValue(itemKey, out int existingCount) ? existingCount : 0;
         }
 
         public static void RecordPurchase(string? shopId, ISalable item, int quantity)
@@ -53,11 +54,18 @@ namespace FarmingCapitalist
         public static void ResetForNewDay()
         {
             if (PurchasedByShop.Count > 0)
-            {
                 Monitor?.Log("DailyPurchaseTracker reset for new day.", LogLevel.Trace);
-            }
 
             PurchasedByShop.Clear();
+        }
+
+        public static IReadOnlyDictionary<string, int> GetSnapshotForShop(string? shopId)
+        {
+            string resolvedShopId = NormalizeShopId(shopId);
+            if (!PurchasedByShop.TryGetValue(resolvedShopId, out Dictionary<string, int>? shopMap))
+                return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            return new Dictionary<string, int>(shopMap, StringComparer.OrdinalIgnoreCase);
         }
 
         private static string NormalizeShopId(string? shopId)

@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Menus;
 
@@ -11,7 +10,10 @@ namespace FarmingCapitalist
     /// </summary>
     internal static class ShopPriceRuntimeService
     {
-        internal static IMonitor? Monitor;
+        private sealed class CanonicalStockEntry
+        {
+            public int VanillaPrice { get; init; }
+        }
 
         private sealed class ShopSessionState
         {
@@ -19,6 +21,7 @@ namespace FarmingCapitalist
             public float ShopPriceMultiplier { get; init; }
             public EconomyContext Context { get; init; } = new();
             public Dictionary<ISalable, int> VanillaPrices { get; init; } = new();
+            public Dictionary<string, CanonicalStockEntry> CanonicalVanillaBuyPrices { get; init; } = new(StringComparer.OrdinalIgnoreCase);
         }
 
         private sealed class PendingPurchaseState
@@ -30,6 +33,7 @@ namespace FarmingCapitalist
         }
 
         private static ConditionalWeakTable<ShopMenu, ShopSessionState> Sessions = new();
+
         [ThreadStatic]
         private static PendingPurchaseState? CurrentPendingPurchase;
 
@@ -39,9 +43,19 @@ namespace FarmingCapitalist
                 Sessions.Remove(shop);
 
             Dictionary<ISalable, int> vanillaPrices = new();
+            Dictionary<string, CanonicalStockEntry> canonicalVanillaBuyPrices = new(StringComparer.OrdinalIgnoreCase);
             foreach (KeyValuePair<ISalable, ItemStockInformation> pair in shop.itemPriceAndStock)
             {
                 vanillaPrices[pair.Key] = pair.Value.Price;
+                if (TryGetComparableItemKey(pair.Key, out string itemKey)
+                    && !canonicalVanillaBuyPrices.ContainsKey(itemKey)
+                    && !IsPlayerSoldStock(pair.Value))
+                {
+                    canonicalVanillaBuyPrices[itemKey] = new CanonicalStockEntry
+                    {
+                        VanillaPrice = pair.Value.Price
+                    };
+                }
             }
 
             ShopSessionState state = new ShopSessionState
@@ -49,7 +63,8 @@ namespace FarmingCapitalist
                 ShopId = shop.ShopId ?? string.Empty,
                 ShopPriceMultiplier = shopPriceMultiplier,
                 Context = context,
-                VanillaPrices = vanillaPrices
+                VanillaPrices = vanillaPrices,
+                CanonicalVanillaBuyPrices = canonicalVanillaBuyPrices
             };
 
             Sessions.Add(shop, state);
@@ -64,19 +79,20 @@ namespace FarmingCapitalist
             if (shop.currency != 0)
                 return;
 
+            int quantity = Math.Max(1, pendingQuantity);
             CurrentPendingPurchase = new PendingPurchaseState
             {
                 Shop = shop,
                 Item = item,
-                Quantity = Math.Max(1, pendingQuantity)
+                Quantity = quantity
             };
 
-            ApplyPriceToItem(shop, state, item, Math.Max(1, pendingQuantity));
+            ApplyPriceToItem(shop, state, item, quantity);
         }
 
         public static void MarkPurchaseCharged(int amount)
         {
-            if (amount < 0 || CurrentPendingPurchase is null)
+            if (CurrentPendingPurchase is null || amount < 0)
                 return;
 
             CurrentPendingPurchase.WasCharged = true;
@@ -87,9 +103,7 @@ namespace FarmingCapitalist
             if (CurrentPendingPurchase is not null && ReferenceEquals(CurrentPendingPurchase.Shop, shop))
             {
                 if (CurrentPendingPurchase.WasCharged)
-                {
                     RecordConfirmedPurchase(shop, CurrentPendingPurchase.Item, CurrentPendingPurchase.Quantity);
-                }
 
                 CurrentPendingPurchase = null;
             }
@@ -121,25 +135,20 @@ namespace FarmingCapitalist
             if (!TryGetComparableItemKey(item, out string itemKey))
                 return false;
 
-            foreach (KeyValuePair<ISalable, ItemStockInformation> pair in shop.itemPriceAndStock)
-            {
-                if (!TryGetComparableItemKey(pair.Key, out string stockItemKey))
-                    continue;
+            if (!TryGetState(shop, out ShopSessionState state))
+                return false;
 
-                if (!string.Equals(stockItemKey, itemKey, StringComparison.OrdinalIgnoreCase))
-                    continue;
+            if (!state.CanonicalVanillaBuyPrices.TryGetValue(itemKey, out CanonicalStockEntry? canonicalEntry) || canonicalEntry is null)
+                return false;
 
-                if (TryGetState(shop, out ShopSessionState state))
-                {
-                    adjustedPrice = Math.Max(1, GetAdjustedPriceForItem(state, pair.Key, pair.Value, pendingQuantity: 1));
-                    return true;
-                }
+            adjustedPrice = Math.Max(1, GetAdjustedPriceForVanillaBaseline(state, item, canonicalEntry.VanillaPrice, pendingQuantity: 1));
+            return true;
+        }
 
-                adjustedPrice = Math.Max(1, pair.Value.Price);
-                return true;
-            }
-
-            return false;
+        public static void Clear()
+        {
+            Sessions = new ConditionalWeakTable<ShopMenu, ShopSessionState>();
+            CurrentPendingPurchase = null;
         }
 
         private static void RecordConfirmedPurchase(ShopMenu shop, ISalable item, int purchasedQuantity)
@@ -148,11 +157,6 @@ namespace FarmingCapitalist
                 return;
 
             DailyPurchaseTracker.RecordPurchase(state.ShopId, item, purchasedQuantity);
-        }
-
-        public static void Clear()
-        {
-            Sessions = new ConditionalWeakTable<ShopMenu, ShopSessionState>();
         }
 
         private static bool TryGetState(ShopMenu shop, out ShopSessionState state)
@@ -173,7 +177,6 @@ namespace FarmingCapitalist
                 return;
 
             int adjusted = GetAdjustedPriceForItem(state, item, stock, pendingQuantity);
-
             stock.Price = Math.Max(1, adjusted);
             shop.itemPriceAndStock[item] = stock;
         }
@@ -181,6 +184,11 @@ namespace FarmingCapitalist
         private static int GetAdjustedPriceForItem(ShopSessionState state, ISalable item, ItemStockInformation stock, int pendingQuantity)
         {
             int vanillaPrice = GetVanillaPrice(state, item, stock.Price);
+            return GetAdjustedPriceForVanillaBaseline(state, item, vanillaPrice, pendingQuantity);
+        }
+
+        private static int GetAdjustedPriceForVanillaBaseline(ShopSessionState state, ISalable item, int vanillaPrice, int pendingQuantity)
+        {
             int basePrice = (int)Math.Round(vanillaPrice * state.ShopPriceMultiplier, MidpointRounding.AwayFromZero);
             int purchasedToday = DailyPurchaseTracker.GetPurchasedToday(state.ShopId, item);
 
@@ -203,6 +211,12 @@ namespace FarmingCapitalist
             }
 
             return vanillaPrice;
+        }
+
+        private static bool IsPlayerSoldStock(ItemStockInformation stock)
+        {
+            return !string.IsNullOrWhiteSpace(stock.SyncedKey)
+                && stock.SyncedKey.StartsWith("ITEMS_SOLD_BY_PLAYER", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool TryGetComparableItemKey(ISalable item, out string itemKey)

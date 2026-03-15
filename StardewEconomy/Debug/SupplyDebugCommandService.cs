@@ -1,0 +1,577 @@
+using System;
+using System.Globalization;
+using StardewModdingAPI;
+using StardewValley;
+
+namespace FarmingCapitalist
+{
+    internal sealed class SupplyDebugCommandService
+    {
+        private readonly IMonitor _monitor;
+
+        public SupplyDebugCommandService(IMonitor monitor)
+        {
+            _monitor = monitor;
+        }
+
+        public void Register(IModHelper helper)
+        {
+            helper.ConsoleCommands.Add(
+                "starecon_s_dump",
+                "Dump tracked supply scores and modifiers. Usage: starecon_s_dump [crop|fish|all].",
+                this.OnStareconSupplyDumpCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_s_mod",
+                "Show the current supply score and modifier. Usage: starecon_s_mod [crop|fish] <item id or exact name>.",
+                this.OnStareconSupplyModifierCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_s_add",
+                "Add tracked supply for debugging. Usage: starecon_s_add [crop|fish] <item id or exact name> <amount>.",
+                this.OnStareconSupplyAddCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_s_reset",
+                "Clear tracked supply scores. Usage: starecon_s_reset [crop|fish|all].",
+                this.OnStareconSupplyResetCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_s_decay",
+                "Apply category-specific debug decay. Usage: starecon_s_decay [fish] [days].",
+                this.OnStareconSupplyDecayCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_s_set",
+                "Set a debug override for the supply/demand sell modifier. Usage: starecon_s_set [crop|fish] <value>.",
+                this.OnStareconSupplySetModifierCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_s_clear",
+                "Clear the debug override for the supply/demand sell modifier. Usage: starecon_s_clear [crop|fish|all].",
+                this.OnStareconSupplyClearModifierCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_s_show",
+                "Show the current debug override for the supply/demand sell modifier, if any. Usage: starecon_s_show [crop|fish|all].",
+                this.OnStareconSupplyShowModifierOverrideCommand
+            );
+        }
+
+        private void OnStareconSupplyDumpCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_s_dump.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length > 1)
+            {
+                _monitor.Log("Usage: starecon_s_dump [crop|fish|all]", LogLevel.Warn);
+                return;
+            }
+
+            if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
+            {
+                _monitor.Log("Usage: starecon_s_dump [crop|fish|all]", LogLevel.Warn);
+                return;
+            }
+
+            bool wroteAny = false;
+            if (scope is SupplyDebugScope.Crop or SupplyDebugScope.All)
+                wroteAny |= DumpSupplyForCategory(SupplyDebugCategory.Crop);
+
+            if (scope is SupplyDebugScope.Fish or SupplyDebugScope.All)
+                wroteAny |= DumpSupplyForCategory(SupplyDebugCategory.Fish);
+
+            if (!wroteAny)
+                _monitor.Log("No supply scores are currently tracked for the requested category.", LogLevel.Info);
+        }
+
+        private void OnStareconSupplyModifierCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_s_mod.", LogLevel.Warn);
+                return;
+            }
+
+            if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
+            {
+                _monitor.Log("Usage: starecon_s_mod [crop|fish] <item id or exact name>", LogLevel.Warn);
+                return;
+            }
+
+            if (argIndex >= args.Length)
+            {
+                _monitor.Log("Usage: starecon_s_mod [crop|fish] <item id or exact name>", LogLevel.Warn);
+                return;
+            }
+
+            string query = string.Join(" ", args.Skip(argIndex));
+            if (!TryResolveSupplyItem(category, query, out string itemId, out string displayName))
+            {
+                _monitor.Log(GetSupplyResolveFailureMessage(category, query), LogLevel.Warn);
+                return;
+            }
+
+            _monitor.Log(GetSupplyDebugSummary(category, itemId, displayName), LogLevel.Info);
+        }
+
+        private void OnStareconSupplyAddCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_s_add.", LogLevel.Warn);
+                return;
+            }
+
+            if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
+            {
+                _monitor.Log("Usage: starecon_s_add [crop|fish] <item id or exact name> <amount>", LogLevel.Warn);
+                return;
+            }
+
+            int amountIndex = args.Length - 1;
+            if (amountIndex < argIndex)
+            {
+                _monitor.Log("Usage: starecon_s_add [crop|fish] <item id or exact name> <amount>", LogLevel.Warn);
+                return;
+            }
+
+            if (!float.TryParse(args[amountIndex], NumberStyles.Float, CultureInfo.InvariantCulture, out float amount) || amount <= 0f)
+            {
+                _monitor.Log($"Could not parse '{args[amountIndex]}' as a positive numeric supply amount.", LogLevel.Error);
+                return;
+            }
+
+            string query = string.Join(" ", args.Skip(argIndex).Take(amountIndex - argIndex));
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                _monitor.Log("Usage: starecon_s_add [crop|fish] <item id or exact name> <amount>", LogLevel.Warn);
+                return;
+            }
+
+            if (!TryResolveSupplyItem(category, query, out string itemId, out string displayName))
+            {
+                _monitor.Log(GetSupplyResolveFailureMessage(category, query), LogLevel.Warn);
+                return;
+            }
+
+            float updatedScore = AddSupplyForCategory(category, itemId, displayName, amount);
+            float modifier = GetSupplyModifierForCategory(category, itemId, displayName);
+            _monitor.Log(
+                $"Added {amount:0.##} {GetSupplyCategoryLabel(category)} supply for {displayName} ({itemId}). New score: {updatedScore:0.##}, modifier x{modifier:0.###}.",
+                LogLevel.Info
+            );
+        }
+
+        private void OnStareconSupplyResetCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_s_reset.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length > 1)
+            {
+                _monitor.Log("Usage: starecon_s_reset [crop|fish|all]", LogLevel.Warn);
+                return;
+            }
+
+            if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
+            {
+                _monitor.Log("Usage: starecon_s_reset [crop|fish|all]", LogLevel.Warn);
+                return;
+            }
+
+            bool resetAny = false;
+            if (scope is SupplyDebugScope.Crop or SupplyDebugScope.All)
+            {
+                if (CropSupplyDataService.GetSnapshot().Count > 0)
+                {
+                    CropSupplyDataService.ResetTrackedSupply();
+                    resetAny = true;
+                }
+            }
+
+            if (scope is SupplyDebugScope.Fish or SupplyDebugScope.All)
+            {
+                if (FishSupplyDataService.GetSnapshot().Count > 0)
+                {
+                    FishSupplyDataService.ResetTrackedSupply();
+                    resetAny = true;
+                }
+            }
+
+            if (!resetAny)
+                _monitor.Log("No supply scores are currently tracked for the requested category.", LogLevel.Info);
+        }
+
+        private void OnStareconSupplyDecayCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_s_decay.", LogLevel.Warn);
+                return;
+            }
+
+            SupplyDebugCategory category = SupplyDebugCategory.Fish;
+            int argIndex = 0;
+            if (args.Length > 0 && TryParseSupplyCategory(args[0], out SupplyDebugCategory explicitCategory))
+            {
+                category = explicitCategory;
+                argIndex = 1;
+            }
+
+            if (category != SupplyDebugCategory.Fish)
+            {
+                _monitor.Log("Crop supply does not expose a direct decay command. Use starecon_s_decay [fish] [days].", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length - argIndex > 1)
+            {
+                _monitor.Log("Usage: starecon_s_decay [fish] [days]", LogLevel.Warn);
+                return;
+            }
+
+            int days = 1;
+            if (argIndex < args.Length && (!int.TryParse(args[argIndex], NumberStyles.Integer, CultureInfo.InvariantCulture, out days) || days <= 0))
+            {
+                _monitor.Log($"Could not parse '{args[argIndex]}' as a positive day count.", LogLevel.Error);
+                return;
+            }
+
+            if (!FishSupplyDataService.ApplyDebugDecay(days))
+            {
+                _monitor.Log(
+                    "Fish supply decay made no changes. Either no fish are tracked yet, the tracked fish are already neutral, or the save is not ready.",
+                    LogLevel.Info
+                );
+            }
+        }
+
+        private void OnStareconSupplySetModifierCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
+            {
+                _monitor.Log(
+                    $"Usage: starecon_s_set [crop|fish] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
+                    LogLevel.Warn
+                );
+                return;
+            }
+
+            if (args.Length - argIndex != 1)
+            {
+                _monitor.Log(
+                    $"Usage: starecon_s_set [crop|fish] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
+                    LogLevel.Warn
+                );
+                return;
+            }
+
+            if (!float.TryParse(args[argIndex], NumberStyles.Float, CultureInfo.InvariantCulture, out float modifier))
+            {
+                _monitor.Log($"Could not parse '{args[argIndex]}' as a numeric modifier.", LogLevel.Error);
+                return;
+            }
+
+            if (!TrySetSupplyModifierOverride(category, modifier, out string error))
+            {
+                _monitor.Log(error, LogLevel.Error);
+                return;
+            }
+
+            ResetTrackedSupplyForCategory(category);
+            _monitor.Log(
+                $"Supply/demand modifier override for {GetSupplyCategoryLabel(category)} set to x{modifier:0.###}. Tracked {GetSupplyCategoryLabel(category)} supply was reset, and supply tracking will stay suspended until the override is cleared.",
+                LogLevel.Info
+            );
+        }
+
+        private void OnStareconSupplyClearModifierCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (args.Length > 1)
+            {
+                _monitor.Log("Usage: starecon_s_clear [crop|fish|all]", LogLevel.Warn);
+                return;
+            }
+
+            if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
+            {
+                _monitor.Log("Usage: starecon_s_clear [crop|fish|all]", LogLevel.Warn);
+                return;
+            }
+
+            bool clearedAny = false;
+            if (scope is SupplyDebugScope.Crop or SupplyDebugScope.All)
+                clearedAny |= ClearSupplyModifierOverride(SupplyDebugCategory.Crop);
+
+            if (scope is SupplyDebugScope.Fish or SupplyDebugScope.All)
+                clearedAny |= ClearSupplyModifierOverride(SupplyDebugCategory.Fish);
+
+            if (clearedAny)
+                return;
+
+            _monitor.Log("No supply/demand modifier override is active for the requested category.", LogLevel.Info);
+        }
+
+        private void OnStareconSupplyShowModifierOverrideCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (args.Length > 1)
+            {
+                _monitor.Log("Usage: starecon_s_show [crop|fish|all]", LogLevel.Warn);
+                return;
+            }
+
+            if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
+            {
+                _monitor.Log("Usage: starecon_s_show [crop|fish|all]", LogLevel.Warn);
+                return;
+            }
+
+            bool showedAny = false;
+            if (scope is SupplyDebugScope.Crop or SupplyDebugScope.All)
+                showedAny |= ShowSupplyModifierOverride(SupplyDebugCategory.Crop);
+
+            if (scope is SupplyDebugScope.Fish or SupplyDebugScope.All)
+                showedAny |= ShowSupplyModifierOverride(SupplyDebugCategory.Fish);
+
+            if (!showedAny)
+                _monitor.Log("No supply/demand modifier override is active for the requested category.", LogLevel.Info);
+        }
+
+        private bool DumpSupplyForCategory(SupplyDebugCategory category)
+        {
+            IReadOnlyDictionary<string, float> supplyScores = GetSupplySnapshot(category);
+            if (supplyScores.Count == 0)
+                return false;
+
+            string categoryLabel = GetSupplyCategoryLabel(category);
+            _monitor.Log(
+                $"Tracked {categoryLabel} supply scores ({supplyScores.Count} {GetSupplyCategoryPlural(category)}):",
+                LogLevel.Info
+            );
+
+            foreach (KeyValuePair<string, float> pair in supplyScores.OrderByDescending(p => p.Value).ThenBy(p => p.Key))
+            {
+                string displayName = GetSupplyDisplayName(category, pair.Key);
+                _monitor.Log(GetSupplyDebugSummary(category, pair.Key, displayName), LogLevel.Info);
+            }
+
+            return true;
+        }
+
+        private static IReadOnlyDictionary<string, float> GetSupplySnapshot(SupplyDebugCategory category)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? CropSupplyDataService.GetSnapshot()
+                : FishSupplyDataService.GetSnapshot();
+        }
+
+        private static string GetSupplyDisplayName(SupplyDebugCategory category, string itemId)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? CropSupplyTracker.GetCropDisplayName(itemId)
+                : FishSupplyTracker.GetFishDisplayName(itemId);
+        }
+
+        private static string GetSupplyDebugSummary(SupplyDebugCategory category, string itemId, string displayName)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? CropSupplyModifierService.GetDebugSummary(itemId, displayName)
+                : FishSupplyModifierService.GetDebugSummary(itemId, displayName);
+        }
+
+        private static float AddSupplyForCategory(SupplyDebugCategory category, string itemId, string displayName, float amount)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? CropSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command")
+                : FishSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command");
+        }
+
+        private static float GetSupplyModifierForCategory(SupplyDebugCategory category, string itemId, string displayName)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? CropSupplyModifierService.GetSellModifier(itemId, displayName)
+                : FishSupplyModifierService.GetSellModifier(itemId, displayName);
+        }
+
+        private static bool TrySetSupplyModifierOverride(SupplyDebugCategory category, float modifier, out string error)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? CropSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error)
+                : FishSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error);
+        }
+
+        private static void ResetTrackedSupplyForCategory(SupplyDebugCategory category)
+        {
+            if (category == SupplyDebugCategory.Crop)
+            {
+                CropSupplyDataService.ResetTrackedSupply();
+                return;
+            }
+
+            FishSupplyDataService.ResetTrackedSupply();
+        }
+
+        private bool ClearSupplyModifierOverride(SupplyDebugCategory category)
+        {
+            if (!TryGetSupplyModifierOverride(category, out _))
+                return false;
+
+            if (category == SupplyDebugCategory.Crop)
+                CropSupplyModifierService.ClearDebugSellModifierOverride();
+            else
+                FishSupplyModifierService.ClearDebugSellModifierOverride();
+
+            _monitor.Log($"Cleared the {GetSupplyCategoryLabel(category)} supply/demand modifier override.", LogLevel.Info);
+            return true;
+        }
+
+        private bool ShowSupplyModifierOverride(SupplyDebugCategory category)
+        {
+            if (!TryGetSupplyModifierOverride(category, out float modifier))
+                return false;
+
+            _monitor.Log($"{GetSupplyCategoryLabel(category)} supply/demand modifier override is active at x{modifier:0.###}.", LogLevel.Info);
+            return true;
+        }
+
+        private static bool TryGetSupplyModifierOverride(SupplyDebugCategory category, out float modifier)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? CropSupplyModifierService.TryGetDebugSellModifierOverride(out modifier)
+                : FishSupplyModifierService.TryGetDebugSellModifierOverride(out modifier);
+        }
+
+        private static bool TryResolveSupplyItem(SupplyDebugCategory category, string query, out string itemId, out string displayName)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? CropSupplyTracker.TryResolveCropProduceItemId(query, out itemId, out displayName)
+                : FishSupplyTracker.TryResolveFishItemId(query, out itemId, out displayName);
+        }
+
+        private static string GetSupplyResolveFailureMessage(SupplyDebugCategory category, string query)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? $"Could not resolve '{query}' to a crop produce item. Use an exact crop name or produce item ID."
+                : $"Could not resolve '{query}' to a fish item. Use an exact fish name or fish item ID.";
+        }
+
+        private static bool TryResolveSupplyCategory(
+            string[] args,
+            SupplyDebugCategory defaultCategory,
+            out SupplyDebugCategory category,
+            out int argIndex
+        )
+        {
+            if (args.Length > 0 && TryParseSupplyCategory(args[0], out category))
+            {
+                argIndex = 1;
+                return true;
+            }
+
+            category = defaultCategory;
+            argIndex = 0;
+            return true;
+        }
+
+        private static bool TryResolveSupplyScope(string[] args, SupplyDebugScope defaultScope, out SupplyDebugScope scope)
+        {
+            if (args.Length == 0)
+            {
+                scope = defaultScope;
+                return true;
+            }
+
+            return TryParseSupplyScope(args[0], out scope);
+        }
+
+        private static bool TryParseSupplyCategory(string? raw, out SupplyDebugCategory category)
+        {
+            if (string.Equals(raw, "crop", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(raw, "crops", StringComparison.OrdinalIgnoreCase))
+            {
+                category = SupplyDebugCategory.Crop;
+                return true;
+            }
+
+            if (string.Equals(raw, "fish", StringComparison.OrdinalIgnoreCase))
+            {
+                category = SupplyDebugCategory.Fish;
+                return true;
+            }
+
+            category = default;
+            return false;
+        }
+
+        private static bool TryParseSupplyScope(string? raw, out SupplyDebugScope scope)
+        {
+            if (string.Equals(raw, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                scope = SupplyDebugScope.All;
+                return true;
+            }
+
+            if (TryParseSupplyCategory(raw, out SupplyDebugCategory category))
+            {
+                scope = category == SupplyDebugCategory.Crop
+                    ? SupplyDebugScope.Crop
+                    : SupplyDebugScope.Fish;
+                return true;
+            }
+
+            scope = default;
+            return false;
+        }
+
+        private static string GetSupplyCategoryLabel(SupplyDebugCategory category)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? "crop"
+                : "fish";
+        }
+
+        private static string GetSupplyCategoryPlural(SupplyDebugCategory category)
+        {
+            return category == SupplyDebugCategory.Crop
+                ? "crops"
+                : "fish";
+        }
+
+        private enum SupplyDebugCategory
+        {
+            Crop,
+            Fish
+        }
+
+        private enum SupplyDebugScope
+        {
+            Crop,
+            Fish,
+            All
+        }
+    }
+}

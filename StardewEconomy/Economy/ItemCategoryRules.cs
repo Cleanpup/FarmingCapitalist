@@ -4,12 +4,36 @@ using SObject = StardewValley.Object;
 
 namespace FarmingCapitalist
 {
+    internal enum FishEconomyClassification
+    {
+        None,
+        RawFish,
+        SmokedFish,
+        Roe,
+        AgedRoe,
+        SeaweedAlgae
+    }
+
     /// <summary>
     /// Shared item/category checks used by multiple economy rule layers.
     /// Keep festival logic out of this file so category rules stay reusable.
     /// </summary>
     internal static class ItemCategoryRules
     {
+        private static readonly HashSet<string> SeaweedAndAlgaeIds = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "152",
+            "153",
+            "157"
+        };
+
+        private static FishEconomyClassificationConfig _fishClassificationConfig = new();
+
+        public static void Initialize(FishEconomyClassificationConfig? fishClassificationConfig)
+        {
+            _fishClassificationConfig = fishClassificationConfig ?? new FishEconomyClassificationConfig();
+        }
+
         public static int GetCategory(Item item)
         {
             return item?.Category ?? int.MinValue;
@@ -53,6 +77,79 @@ namespace FarmingCapitalist
         public static bool IsFlower(Item item) => HasCategory(item, SObject.flowersCategory);
 
         public static bool IsFish(Item item) => HasCategory(item, SObject.FishCategory);
+
+        public static bool IsFishEconomyEligible(Item? item)
+        {
+            FishEconomyClassification classification = GetFishEconomyClassification(item);
+            return classification != FishEconomyClassification.None
+                && IsFishEconomyClassificationEnabled(classification);
+        }
+
+        public static bool TryGetFishEconomyClassification(
+            Item? item,
+            out FishEconomyClassification classification,
+            out bool isEligible,
+            bool logDecision = false,
+            string? context = null
+        )
+        {
+            classification = GetFishEconomyClassification(item);
+            isEligible = classification != FishEconomyClassification.None
+                && IsFishEconomyClassificationEnabled(classification);
+
+            if (classification == FishEconomyClassification.None)
+                return false;
+
+            if (logDecision)
+                LogFishEconomyClassification(item, classification, isEligible, context);
+
+            return true;
+        }
+
+        public static FishEconomyClassification GetFishEconomyClassification(Item? item)
+        {
+            if (item is not SObject obj || string.IsNullOrWhiteSpace(obj.ItemId))
+                return FishEconomyClassification.None;
+
+            if (TryGetFishPreserveClassification(obj, out FishEconomyClassification preserveClassification))
+                return preserveClassification;
+
+            if (IsSeaweedOrAlgae(obj))
+                return FishEconomyClassification.SeaweedAlgae;
+
+            return IsFish(obj)
+                ? FishEconomyClassification.RawFish
+                : FishEconomyClassification.None;
+        }
+
+        public static bool TryGetFishPreserveSourceItemId(Item? item, out string sourceItemId)
+        {
+            sourceItemId = string.Empty;
+            return item is SObject obj
+                && TryGetFishPreserveSourceItemId(obj, out sourceItemId);
+        }
+
+        public static bool TryGetFishPreserveSourceItemId(SObject obj, out string sourceItemId)
+        {
+            sourceItemId = string.Empty;
+            if (string.IsNullOrWhiteSpace(obj.preservedParentSheetIndex.Value))
+                return false;
+
+            return TryNormalizeItemId(obj.preservedParentSheetIndex.Value, out sourceItemId);
+        }
+
+        public static string GetFishEconomyClassificationLabel(FishEconomyClassification classification)
+        {
+            return classification switch
+            {
+                FishEconomyClassification.RawFish => "RawFish",
+                FishEconomyClassification.SmokedFish => "SmokedFish",
+                FishEconomyClassification.Roe => "Roe",
+                FishEconomyClassification.AgedRoe => "AgedRoe",
+                FishEconomyClassification.SeaweedAlgae => "SeaweedAlgae",
+                _ => "None"
+            };
+        }
 
         public static bool IsArtisanGood(Item item) => HasCategory(item, SObject.artisanGoodsCategory);
 
@@ -116,6 +213,77 @@ namespace FarmingCapitalist
                 return true;
 
             return string.Equals(obj.ItemId, "Pumpkin", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsFishEconomyClassificationEnabled(FishEconomyClassification classification)
+        {
+            return classification switch
+            {
+                FishEconomyClassification.RawFish => _fishClassificationConfig.IncludeRawFish,
+                FishEconomyClassification.SmokedFish => _fishClassificationConfig.IncludeSmokedFish,
+                FishEconomyClassification.Roe => _fishClassificationConfig.IncludeRoe,
+                FishEconomyClassification.AgedRoe => _fishClassificationConfig.IncludeAgedRoe,
+                FishEconomyClassification.SeaweedAlgae => _fishClassificationConfig.IncludeSeaweedAlgae,
+                _ => false
+            };
+        }
+
+        private static bool TryGetFishPreserveClassification(SObject obj, out FishEconomyClassification classification)
+        {
+            classification = FishEconomyClassification.None;
+            if (!obj.preserve.Value.HasValue)
+                return false;
+
+            classification = obj.preserve.Value.Value switch
+            {
+                SObject.PreserveType.SmokedFish => FishEconomyClassification.SmokedFish,
+                SObject.PreserveType.Roe => FishEconomyClassification.Roe,
+                SObject.PreserveType.AgedRoe => FishEconomyClassification.AgedRoe,
+                _ => FishEconomyClassification.None
+            };
+
+            return classification != FishEconomyClassification.None;
+        }
+
+        private static bool IsSeaweedOrAlgae(SObject obj)
+        {
+            return TryNormalizeItemId(obj.ItemId, out string normalizedItemId)
+                && SeaweedAndAlgaeIds.Contains(normalizedItemId);
+        }
+
+        private static bool TryNormalizeItemId(string? rawItemId, out string normalizedItemId)
+        {
+            normalizedItemId = string.Empty;
+            if (string.IsNullOrWhiteSpace(rawItemId))
+                return false;
+
+            string candidate = rawItemId.Trim();
+            if (candidate.StartsWith("(O)", StringComparison.OrdinalIgnoreCase))
+                candidate = candidate.Substring(3);
+
+            if (string.IsNullOrWhiteSpace(candidate))
+                return false;
+
+            normalizedItemId = candidate;
+            return true;
+        }
+
+        private static void LogFishEconomyClassification(
+            Item? item,
+            FishEconomyClassification classification,
+            bool isEligible,
+            string? context
+        )
+        {
+            string displayName = item?.DisplayName ?? item?.Name ?? "<unknown>";
+            string qualifiedItemId = item?.QualifiedItemId ?? "<none>";
+            string reason = string.IsNullOrWhiteSpace(context)
+                ? "fish-economy"
+                : context.Trim();
+
+            VerbosePriceTraceLogger.Log(
+                $"{reason}: {displayName} ({qualifiedItemId}) classified as {GetFishEconomyClassificationLabel(classification)} -> {(isEligible ? "included" : "excluded")}"
+            );
         }
     }
 }

@@ -1,9 +1,6 @@
 using System;
-using System.Globalization;
-using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
-using StardewModdingAPI.Utilities;
 using StardewValley;
 
 namespace FarmingCapitalist
@@ -15,49 +12,30 @@ namespace FarmingCapitalist
 
         private ShopEditor _shopEditor = null!;
         private CropEconomyCsvExporter _cropEconomyCsvExporter = null!;
+        private SupplyDebugCommandService _supplyDebugCommands = null!;
 
         public override void Entry(IModHelper helper)
         {
             Config = helper.ReadConfig<ModConfig>();
+            ItemCategoryRules.Initialize(Config.FishClassification);
             VerbosePriceTraceLogger.Initialize(this.Monitor, Config.EnableVerbosePriceTrace);
             SaveEconomyProfileService.Initialize(helper, this.Monitor);
             CropSupplyDataService.Initialize(helper, this.Monitor);
-            MarketSimulationService.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
+            FishSupplyDataService.Initialize(helper, this.Monitor);
+            CropMarketSimulationService.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             CropSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
+            FishSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
 
             _shopEditor = new ShopEditor(helper, this.Monitor);
             _cropEconomyCsvExporter = new CropEconomyCsvExporter(helper, this.Monitor);
+            _supplyDebugCommands = new SupplyDebugCommandService(this.Monitor);
 
             helper.ConsoleCommands.Add(
                 "starecon_dump",
                 "Export crop economy debug CSV with modified seed/sell prices and 50-tile profit.",
                 this.OnStareconDumpCommand
             );
-            helper.ConsoleCommands.Add(
-                "starecon_s_dump",
-                "Dump tracked crop supply scores and their current supply modifiers for this save.",
-                this.OnStareconSupplyDumpCommand
-            );
-            helper.ConsoleCommands.Add(
-                "starecon_s_mod",
-                "Show the current supply score and modifier for a crop produce item ID or exact crop name.",
-                this.OnStareconSupplyModifierCommand
-            );
-            helper.ConsoleCommands.Add(
-                "starecon_s_set",
-                "Set a debug override for the supply/demand sell modifier. Allowed range: 0.60 to 1.15.",
-                this.OnStareconSupplySetModifierCommand
-            );
-            helper.ConsoleCommands.Add(
-                "starecon_s_clear",
-                "Clear the debug override for the supply/demand sell modifier.",
-                this.OnStareconSupplyClearModifierCommand
-            );
-            helper.ConsoleCommands.Add(
-                "starecon_s_show",
-                "Show the current debug override for the supply/demand sell modifier, if any.",
-                this.OnStareconSupplyShowModifierOverrideCommand
-            );
+            _supplyDebugCommands.Register(helper);
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
             helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
@@ -94,7 +72,8 @@ namespace FarmingCapitalist
 
             SaveEconomyProfileService.LoadOrCreateForCurrentSave();
             CropSupplyDataService.LoadOrCreateForCurrentSave();
-            MarketSimulationService.LoadOrCreateForCurrentSave();
+            FishSupplyDataService.LoadOrCreateForCurrentSave();
+            CropMarketSimulationService.LoadOrCreateForCurrentSave();
         }
 
         private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
@@ -104,7 +83,8 @@ namespace FarmingCapitalist
 
             SaveEconomyProfileService.ClearActiveProfile();
             CropSupplyDataService.ClearActiveData();
-            MarketSimulationService.ClearActiveData();
+            FishSupplyDataService.ClearActiveData();
+            CropMarketSimulationService.ClearActiveData();
         }
 
         private void OnStareconDumpCommand(string command, string[] args)
@@ -125,116 +105,6 @@ namespace FarmingCapitalist
             }
 
             this.Monitor.Log("starecon_dump export failed. Check prior log errors for details.", LogLevel.Error);
-        }
-
-        private void OnStareconSupplyDumpCommand(string command, string[] args)
-        {
-            _ = command;
-            _ = args;
-
-            if (!Context.IsWorldReady)
-            {
-                this.Monitor.Log("Load a save before running starecon_supply_dump.", LogLevel.Warn);
-                return;
-            }
-
-            IReadOnlyDictionary<string, float> supplyScores = CropSupplyDataService.GetSnapshot();
-            if (supplyScores.Count == 0)
-            {
-                this.Monitor.Log("No crop supply scores are currently tracked for this save.", LogLevel.Info);
-                return;
-            }
-
-            this.Monitor.Log($"Tracked crop supply scores ({supplyScores.Count} crops):", LogLevel.Info);
-            foreach (KeyValuePair<string, float> pair in supplyScores.OrderByDescending(p => p.Value).ThenBy(p => p.Key))
-            {
-                string displayName = CropSupplyTracker.GetCropDisplayName(pair.Key);
-                this.Monitor.Log(CropSupplyModifierService.GetDebugSummary(pair.Key, displayName), LogLevel.Info);
-            }
-        }
-
-        private void OnStareconSupplyModifierCommand(string command, string[] args)
-        {
-            _ = command;
-
-            if (!Context.IsWorldReady)
-            {
-                this.Monitor.Log("Load a save before running starecon_supply_modifier.", LogLevel.Warn);
-                return;
-            }
-
-            if (args.Length == 0)
-            {
-                this.Monitor.Log("Usage: starecon_supply_modifier <crop item id or exact crop name>", LogLevel.Warn);
-                return;
-            }
-
-            string query = string.Join(" ", args);
-            if (!CropSupplyTracker.TryResolveCropProduceItemId(query, out string produceItemId, out string displayName))
-            {
-                this.Monitor.Log(
-                    $"Could not resolve '{query}' to a crop produce item. Use an exact crop name or produce item ID.",
-                    LogLevel.Warn
-                );
-                return;
-            }
-
-            this.Monitor.Log(CropSupplyModifierService.GetDebugSummary(produceItemId, displayName), LogLevel.Info);
-        }
-
-        private void OnStareconSupplySetModifierCommand(string command, string[] args)
-        {
-            _ = command;
-
-            if (args.Length != 1)
-            {
-                this.Monitor.Log(
-                    $"Usage: starecon_supply_set_modifier <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
-                    LogLevel.Warn
-                );
-                return;
-            }
-
-            if (!float.TryParse(args[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float modifier))
-            {
-                this.Monitor.Log($"Could not parse '{args[0]}' as a numeric modifier.", LogLevel.Error);
-                return;
-            }
-
-            if (!CropSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out string error))
-            {
-                this.Monitor.Log(error, LogLevel.Error);
-                return;
-            }
-
-            CropSupplyDataService.ResetTrackedSupply();
-            this.Monitor.Log(
-                $"Supply/demand modifier override set to x{modifier:0.###}. Tracked crop supply was reset, and supply tracking will stay suspended until the override is cleared.",
-                LogLevel.Info
-            );
-        }
-
-        private void OnStareconSupplyClearModifierCommand(string command, string[] args)
-        {
-            _ = command;
-            _ = args;
-
-            CropSupplyModifierService.ClearDebugSellModifierOverride();
-            this.Monitor.Log("Cleared the supply/demand modifier override.", LogLevel.Info);
-        }
-
-        private void OnStareconSupplyShowModifierOverrideCommand(string command, string[] args)
-        {
-            _ = command;
-            _ = args;
-
-            if (CropSupplyModifierService.TryGetDebugSellModifierOverride(out float modifier))
-            {
-                this.Monitor.Log($"Supply/demand modifier override is active at x{modifier:0.###}.", LogLevel.Info);
-                return;
-            }
-
-            this.Monitor.Log("No supply/demand modifier override is active.", LogLevel.Info);
         }
 
         private void OnDayEnding(object? sender, DayEndingEventArgs e)
@@ -261,7 +131,8 @@ namespace FarmingCapitalist
 
             EconomyPatches.FrozenOvernightSellContext = null;
             DailyPurchaseTracker.ResetForNewDay();
-            MarketSimulationService.RunDailyUpdateIfNeeded();
+            CropMarketSimulationService.RunDailyUpdateIfNeeded();
+            FishSupplyDataService.ApplyDailyDecayIfNeeded();
         }
 
         private void OnMenuChanged(object? sender, MenuChangedEventArgs e)

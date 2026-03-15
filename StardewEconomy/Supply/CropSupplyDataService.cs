@@ -10,8 +10,6 @@ namespace FarmingCapitalist
     {
         private const string SaveDataKey = "crop-supply";
         internal const float NeutralSupplyScore = 100f;
-        private const float DailyDecayFactor = 0.79f;
-        private const float ZeroSnapThreshold = 0.01f;
 
         private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
 
@@ -147,60 +145,6 @@ namespace FarmingCapitalist
             );
 
             return updatedScore;
-        }
-
-        public static bool ApplyDailyDecayIfNeeded()
-        {
-            if (!Context.IsWorldReady)
-                return false;
-
-            CropSupplySaveData data = EnsureActiveData();
-            int currentDay = GetCurrentDayKey();
-            if (currentDay < 0)
-                return false;
-
-            if (data.LastDecayDay < 0)
-            {
-                data.LastDecayDay = currentDay;
-                TryWriteActiveData();
-                return false;
-            }
-
-            int elapsedDays = currentDay - data.LastDecayDay;
-            if (elapsedDays <= 0)
-                return false;
-
-            if (data.CropSupplyScores.Count == 0)
-            {
-                data.LastDecayDay = currentDay;
-                TryWriteActiveData();
-
-                _monitor?.Log(
-                    $"Crop supply decay checked for {elapsedDays} day(s); no tracked crops required updates.",
-                    LogLevel.Trace
-                );
-                return false;
-            }
-
-            float decayMultiplier = MathF.Pow(DailyDecayFactor, elapsedDays);
-            foreach (string cropKey in data.CropSupplyScores.Keys.ToList())
-            {
-                float previousScore = data.CropSupplyScores[cropKey];
-                float decayedScore = previousScore * decayMultiplier;
-                float updatedScore = decayedScore <= ZeroSnapThreshold
-                    ? 0f
-                    : decayedScore;
-                data.CropSupplyScores[cropKey] = updatedScore;
-            }
-
-            data.LastDecayDay = currentDay;
-            TryWriteActiveData();
-
-            _monitor?.Log(
-                $"Applied crop supply decay for {elapsedDays} day(s) at x{DailyDecayFactor:0.###}/day. Tracked crops: {data.CropSupplyScores.Count}. Neutral baseline remains {NeutralSupplyScore:0.##}.",
-                LogLevel.Info
-            );
-            return true;
         }
 
         private static CropSupplySaveData EnsureActiveData()

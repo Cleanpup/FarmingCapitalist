@@ -8,6 +8,7 @@ public class ModConfig
     public bool Enabled { get; set; } = true;
     public bool EnableVerbosePriceTrace { get; set; } = true;
     public bool ApplySupplyDemandSellModifier { get; set; } = true;
+    public FishEconomyClassificationConfig FishClassification { get; set; } = new();
 
     public BuyPriceConfig BuyPrices { get; set; } = new();
     public FriendshipConfig Friendship { get; set; } = new();
@@ -66,4 +67,13 @@ public class CategoryConfig
 public class DebugConfig
 {
     public bool VerboseLogs { get; set; } = true;
+}
+
+public class FishEconomyClassificationConfig
+{
+    public bool IncludeRawFish { get; set; } = true;
+    public bool IncludeSmokedFish { get; set; } = false;
+    public bool IncludeRoe { get; set; } = false;
+    public bool IncludeAgedRoe { get; set; } = false;
+    public bool IncludeSeaweedAlgae { get; set; } = false;
 }

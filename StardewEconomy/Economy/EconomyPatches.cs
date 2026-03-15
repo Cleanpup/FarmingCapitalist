@@ -205,6 +205,7 @@ namespace FarmingCapitalist
                     return;
 
                 CropSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
+                FishSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
             }
             catch (Exception ex)
             {
@@ -249,15 +250,20 @@ namespace FarmingCapitalist
                 if (clickedItem is null)
                     return PendingShopSaleState.CreateSkipped();
 
-                if (!CropSupplyTracker.TryGetCropProduceInfo(clickedItem, out string produceItemId, out string displayName))
+                bool shouldTrackCrop = CropSupplyTracker.TryGetCropProduceInfo(clickedItem, out string produceItemId, out string cropDisplayName);
+                bool shouldTrackFish = FishSupplyTracker.TryGetFishInfo(clickedItem, out string fishItemId, out string fishDisplayName);
+                if (!shouldTrackCrop && !shouldTrackFish)
                     return PendingShopSaleState.CreateSkipped();
 
                 return new PendingShopSaleState(
-                    ShouldTrack: true,
+                    ShouldTrackCrop: shouldTrackCrop,
+                    CropProduceItemId: produceItemId,
+                    CropDisplayName: cropDisplayName,
+                    ShouldTrackFish: shouldTrackFish,
+                    FishItemId: fishItemId,
+                    FishDisplayName: fishDisplayName,
                     SlotIndex: inventoryIndex,
                     QualifiedItemId: clickedItem.QualifiedItemId,
-                    ProduceItemId: produceItemId,
-                    DisplayName: displayName,
                     OriginalStack: clickedItem.Stack
                 );
             }
@@ -283,19 +289,33 @@ namespace FarmingCapitalist
                         : 0;
                 int soldQuantity = Math.Max(0, state.OriginalStack - remainingStack);
 
-                if (!state.ShouldTrack || soldQuantity <= 0)
+                if (soldQuantity <= 0)
                     return;
 
                 string shopId = string.IsNullOrWhiteSpace(shopMenu.ShopId)
                     ? "<unknown>"
                     : shopMenu.ShopId;
 
-                CropSupplyTracker.TrackProduceSale(
-                    state.ProduceItemId,
-                    state.DisplayName,
-                    soldQuantity,
-                    $"shop:{shopId}:{interactionKind}"
-                );
+                string source = $"shop:{shopId}:{interactionKind}";
+                if (state.ShouldTrackCrop)
+                {
+                    CropSupplyTracker.TrackProduceSale(
+                        state.CropProduceItemId,
+                        state.CropDisplayName,
+                        soldQuantity,
+                        source
+                    );
+                }
+
+                if (state.ShouldTrackFish)
+                {
+                    FishSupplyTracker.TrackFishSale(
+                        state.FishItemId,
+                        state.FishDisplayName,
+                        soldQuantity,
+                        source
+                    );
+                }
             }
             catch (Exception ex)
             {
@@ -317,6 +337,7 @@ namespace FarmingCapitalist
                 ShopPriceRuntimeService.Clear();
                 FrozenOvernightSellContext = null;
                 CropSupplyDataService.ClearActiveData();
+                FishSupplyDataService.ClearActiveData();
                 Monitor = null;
             }
             catch (Exception ex)
@@ -326,22 +347,28 @@ namespace FarmingCapitalist
         }
 
         private readonly record struct PendingShopSaleState(
-            bool ShouldTrack,
+            bool ShouldTrackCrop,
+            string CropProduceItemId,
+            string CropDisplayName,
+            bool ShouldTrackFish,
+            string FishItemId,
+            string FishDisplayName,
             int SlotIndex,
             string QualifiedItemId,
-            string ProduceItemId,
-            string DisplayName,
             int OriginalStack
         )
         {
             public static PendingShopSaleState CreateSkipped()
             {
                 return new PendingShopSaleState(
-                    ShouldTrack: false,
+                    ShouldTrackCrop: false,
+                    CropProduceItemId: string.Empty,
+                    CropDisplayName: string.Empty,
+                    ShouldTrackFish: false,
+                    FishItemId: string.Empty,
+                    FishDisplayName: string.Empty,
                     SlotIndex: -1,
                     QualifiedItemId: string.Empty,
-                    ProduceItemId: string.Empty,
-                    DisplayName: string.Empty,
                     OriginalStack: 0
                 );
             }

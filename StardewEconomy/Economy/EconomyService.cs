@@ -22,15 +22,31 @@ namespace FarmingCapitalist
             float cropTraitModifier = CropTraitEconomyRules.GetSellTraitModifier(item, context);
             float cropItemModifier = CropItemEconomyRules.GetSellItemModifier(item, context);
             float cropSupplyModifier = 1f;
+            float fishSupplyModifier = 1f;
             float supplyScore = CropSupplyDataService.NeutralSupplyScore;
-            bool applySupplyModifier = CropSupplyModifierService.ApplyToLiveSellPricing
+            bool applyCropSupplyModifier = CropSupplyModifierService.ApplyToLiveSellPricing
                 || CropSupplyModifierService.HasDebugSellModifierOverride;
+            bool fishSupplySystemEnabled = FishSupplyModifierService.ApplyToLiveSellPricing
+                || FishSupplyModifierService.HasDebugSellModifierOverride;
+            bool applyFishSupplyModifier = false;
+
+            if (fishSupplySystemEnabled
+                && ItemCategoryRules.TryGetFishEconomyClassification(
+                    item,
+                    out _,
+                    out bool isFishEconomyEligible,
+                    logDecision: true,
+                    context: "fish-sell"
+                ))
+            {
+                applyFishSupplyModifier = isFishEconomyEligible;
+            }
 
             totalModifier *= festivalModifier;
             totalModifier *= categoryModifier;
             totalModifier *= cropTraitModifier;
             totalModifier *= cropItemModifier;
-            if (applySupplyModifier)
+            if (applyCropSupplyModifier)
             {
                 cropSupplyModifier = CropSupplyModifierService.GetSellModifier(item);
                 if (CropSupplyTracker.TryGetCropProduceInfo(item, out string produceItemId, out _))
@@ -38,17 +54,26 @@ namespace FarmingCapitalist
                 totalModifier *= cropSupplyModifier;
             }
 
+            if (applyFishSupplyModifier)
+            {
+                fishSupplyModifier = FishSupplyModifierService.GetSellModifier(item);
+                totalModifier *= fishSupplyModifier;
+            }
+
             int adjustedBeforeClamp = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
 
             string supplyLabel = CropSupplyModifierService.HasDebugSellModifierOverride
                 ? "cropSupplyOverride"
                 : "cropSupply";
-            string supplyTrace = applySupplyModifier
+            string supplyTrace = applyCropSupplyModifier
                 ? $", {supplyLabel} x{cropSupplyModifier:0.###}"
+                : string.Empty;
+            string fishSupplyTrace = applyFishSupplyModifier
+                ? $", {(FishSupplyModifierService.HasDebugSellModifierOverride ? "fishSupplyOverride" : "fishSupply")} x{fishSupplyModifier:0.###}"
                 : string.Empty;
 
             VerbosePriceTraceLogger.Log(
-                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###}{supplyTrace} -> total x{totalModifier:0.###}"
+                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###}{supplyTrace}{fishSupplyTrace} -> total x{totalModifier:0.###}"
             );
 
             VerbosePriceTraceLogger.Log(

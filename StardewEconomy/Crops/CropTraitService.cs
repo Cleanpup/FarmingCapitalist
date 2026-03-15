@@ -67,6 +67,24 @@ namespace FarmingCapitalist
             return Crop.TryGetData(seedItemId, out cropData);
         }
 
+        public static bool TryGetCropData(string? cropProduceItemId, out string seedItemId, out CropData? cropData)
+        {
+            seedItemId = string.Empty;
+            cropData = null;
+
+            if (string.IsNullOrWhiteSpace(cropProduceItemId))
+                return false;
+
+            string normalizedProduceItemId = cropProduceItemId.Trim();
+            if (normalizedProduceItemId.StartsWith("(O)", StringComparison.OrdinalIgnoreCase))
+                normalizedProduceItemId = normalizedProduceItemId.Substring(3);
+
+            if (!TryResolveSeedFromHarvestItem(normalizedProduceItemId, out seedItemId))
+                return false;
+
+            return Crop.TryGetData(seedItemId, out cropData);
+        }
+
         public static bool IsCropSeed(Item? item)
         {
             if (item is null || !ItemCategoryRules.IsSeed(item))

@@ -22,6 +22,7 @@ namespace FarmingCapitalist
             VerbosePriceTraceLogger.Initialize(this.Monitor, Config.EnableVerbosePriceTrace);
             SaveEconomyProfileService.Initialize(helper, this.Monitor);
             CropSupplyDataService.Initialize(helper, this.Monitor);
+            MarketSimulationService.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             CropSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
 
             _shopEditor = new ShopEditor(helper, this.Monitor);
@@ -83,7 +84,7 @@ namespace FarmingCapitalist
             string harmonyId = this.ModManifest.UniqueID + ".economy";
             EconomyPatches.Initialize(this.Monitor, harmonyId);
 
-            this.Monitor.Log("Game launched with Farming Capitalist!", LogLevel.Info);
+            this.Monitor.Log("Stardew Economy Successful, be sure to post feedback on Nexus!", LogLevel.Trace);
         }
 
         private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
@@ -93,6 +94,7 @@ namespace FarmingCapitalist
 
             SaveEconomyProfileService.LoadOrCreateForCurrentSave();
             CropSupplyDataService.LoadOrCreateForCurrentSave();
+            MarketSimulationService.LoadOrCreateForCurrentSave();
         }
 
         private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
@@ -102,6 +104,7 @@ namespace FarmingCapitalist
 
             SaveEconomyProfileService.ClearActiveProfile();
             CropSupplyDataService.ClearActiveData();
+            MarketSimulationService.ClearActiveData();
         }
 
         private void OnStareconDumpCommand(string command, string[] args)
@@ -258,7 +261,7 @@ namespace FarmingCapitalist
 
             EconomyPatches.FrozenOvernightSellContext = null;
             DailyPurchaseTracker.ResetForNewDay();
-            CropSupplyDataService.ApplyDailyDecayIfNeeded();
+            MarketSimulationService.RunDailyUpdateIfNeeded();
         }
 
         private void OnMenuChanged(object? sender, MenuChangedEventArgs e)

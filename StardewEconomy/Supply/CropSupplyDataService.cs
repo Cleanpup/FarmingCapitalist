@@ -38,10 +38,10 @@ namespace FarmingCapitalist
                     _activeData = CreateNewData();
                     TryWriteActiveData();
 
-                    _monitor?.Log(
-                        $"Created crop supply data for this save. LastDecayDay={_activeData.LastDecayDay}.",
-                        LogLevel.Info
-                    );
+                _monitor?.Log(
+                    $"Created crop supply data for this save. LastDecayDay={_activeData.LastDecayDay}.",
+                    LogLevel.Trace
+                );
                     return;
                 }
 
@@ -51,7 +51,7 @@ namespace FarmingCapitalist
 
                 _monitor?.Log(
                     $"Loaded crop supply data with {_activeData.CropSupplyScores.Count} tracked crops. LastDecayDay={_activeData.LastDecayDay}.",
-                    LogLevel.Info
+                    LogLevel.Trace
                 );
             }
             catch (Exception ex)
@@ -84,6 +84,30 @@ namespace FarmingCapitalist
                 return new Dictionary<string, float>(KeyComparer);
 
             return new Dictionary<string, float>(_activeData.CropSupplyScores, KeyComparer);
+        }
+
+        public static bool ReplaceTrackedSupplyScores(IEnumerable<KeyValuePair<string, float>> supplyScores)
+        {
+            CropSupplySaveData data = EnsureActiveData();
+            Dictionary<string, float> normalizedScores = new(KeyComparer);
+
+            foreach (KeyValuePair<string, float> pair in supplyScores)
+            {
+                if (!TryNormalizeProduceItemId(pair.Key, out string normalizedProduceItemId))
+                    continue;
+
+                if (!IsValidScore(pair.Value))
+                    continue;
+
+                normalizedScores[normalizedProduceItemId] = pair.Value;
+            }
+
+            if (HaveSameScores(data.CropSupplyScores, normalizedScores))
+                return false;
+
+            data.CropSupplyScores = normalizedScores;
+            TryWriteActiveData();
+            return true;
         }
 
         public static float GetSupplyScore(string? cropProduceItemId)
@@ -276,6 +300,26 @@ namespace FarmingCapitalist
             return !float.IsNaN(value)
                 && !float.IsInfinity(value)
                 && value >= 0f;
+        }
+
+        private static bool HaveSameScores(
+            IReadOnlyDictionary<string, float> currentScores,
+            IReadOnlyDictionary<string, float> updatedScores
+        )
+        {
+            if (currentScores.Count != updatedScores.Count)
+                return false;
+
+            foreach (KeyValuePair<string, float> pair in currentScores)
+            {
+                if (!updatedScores.TryGetValue(pair.Key, out float updatedValue))
+                    return false;
+
+                if (pair.Value != updatedValue)
+                    return false;
+            }
+
+            return true;
         }
 
         private static int GetCurrentDayKey()

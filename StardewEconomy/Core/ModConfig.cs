@@ -6,7 +6,7 @@
 public class ModConfig
 {
     public bool Enabled { get; set; } = true;
-    public bool EnableVerbosePriceTrace { get; set; } = false;
+    public bool EnableVerbosePriceTrace { get; set; } = true;
     public bool ApplySupplyDemandSellModifier { get; set; } = true;
 
     public BuyPriceConfig BuyPrices { get; set; } = new();
@@ -65,5 +65,5 @@ public class CategoryConfig
 
 public class DebugConfig
 {
-    public bool VerboseLogs { get; set; } = false;
+    public bool VerboseLogs { get; set; } = true;
 }

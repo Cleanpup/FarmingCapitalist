@@ -1,4 +1,4 @@
-FARMING CAPITALIST - BETA 1.0
+FARMING CAPITALIST - BETA 0.2.0
 
 Farming Capitalist is an economy overhaul mod for Stardew Valley.
 The goal is to make money-making more strategic, reduce easy profit exploits, and make crop and shop decisions feel more meaningful.
@@ -20,6 +20,7 @@ Balance values, crop pricing, and economy behavior may change as testing continu
 • Bulk purchase scaling
 • Anti-arbitrage sell-back protection
 • Runtime crop balancing using crop traits and crop-specific overrides
+• Dynamic supply-and-demand market simulation with persistent market actors
 • Runtime shop inventory and pricing edits
 
 
@@ -42,7 +43,7 @@ Balance values, crop pricing, and economy behavior may change as testing continu
 
 
 :: PLANNED FEATURES ::
-• Dynamic supply and demand
+• Expanded market events and actor behaviors
 • Deeper vendor identity and pricing differences
 • Expanded long-term economy progression
 • More advanced business and ownership systems
@@ -72,7 +73,7 @@ Balance values, crop pricing, and economy behavior may change as testing continu
 • Balance is still in progress
 • Some UI-related price checks may still call economy logic more often than expected
 • Compatibility with other shop/economy mods may vary
-• Dynamic supply and demand is not implemented yet
+• Market simulation tuning is still in progress and values may shift between updates
 
 
 :: CREDITS ::

@@ -13,6 +13,8 @@ namespace FarmingCapitalist
         private ShopEditor _shopEditor = null!;
         private CropEconomyCsvExporter _cropEconomyCsvExporter = null!;
         private SupplyDebugCommandService _supplyDebugCommands = null!;
+        private IMarketSimulationLifecycle _cropMarketSimulation = null!;
+        private IMarketSimulationLifecycle _fishMarketSimulation = null!;
 
         public override void Entry(IModHelper helper)
         {
@@ -22,13 +24,16 @@ namespace FarmingCapitalist
             SaveEconomyProfileService.Initialize(helper, this.Monitor);
             CropSupplyDataService.Initialize(helper, this.Monitor);
             FishSupplyDataService.Initialize(helper, this.Monitor);
-            CropMarketSimulationService.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             CropSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
             FishSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
 
             _shopEditor = new ShopEditor(helper, this.Monitor);
             _cropEconomyCsvExporter = new CropEconomyCsvExporter(helper, this.Monitor);
             _supplyDebugCommands = new SupplyDebugCommandService(this.Monitor);
+            _cropMarketSimulation = new CropMarketSimulationLifecycleAdapter();
+            _fishMarketSimulation = new FishMarketSimulationLifecycleAdapter();
+            _cropMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
+            _fishMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
 
             helper.ConsoleCommands.Add(
                 "starecon_dump",
@@ -72,8 +77,8 @@ namespace FarmingCapitalist
 
             SaveEconomyProfileService.LoadOrCreateForCurrentSave();
             CropSupplyDataService.LoadOrCreateForCurrentSave();
-            FishSupplyDataService.LoadOrCreateForCurrentSave();
-            CropMarketSimulationService.LoadOrCreateForCurrentSave();
+            _cropMarketSimulation.LoadOrCreateForCurrentSave();
+            _fishMarketSimulation.LoadOrCreateForCurrentSave();
         }
 
         private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
@@ -83,8 +88,8 @@ namespace FarmingCapitalist
 
             SaveEconomyProfileService.ClearActiveProfile();
             CropSupplyDataService.ClearActiveData();
-            FishSupplyDataService.ClearActiveData();
-            CropMarketSimulationService.ClearActiveData();
+            _cropMarketSimulation.ClearActiveData();
+            _fishMarketSimulation.ClearActiveData();
         }
 
         private void OnStareconDumpCommand(string command, string[] args)
@@ -131,8 +136,8 @@ namespace FarmingCapitalist
 
             EconomyPatches.FrozenOvernightSellContext = null;
             DailyPurchaseTracker.ResetForNewDay();
-            CropMarketSimulationService.RunDailyUpdateIfNeeded();
-            FishSupplyDataService.ApplyDailyDecayIfNeeded();
+            _cropMarketSimulation.RunDailyUpdateIfNeeded();
+            _fishMarketSimulation.RunDailyUpdateIfNeeded();
         }
 
         private void OnMenuChanged(object? sender, MenuChangedEventArgs e)

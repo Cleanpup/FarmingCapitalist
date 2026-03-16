@@ -14,7 +14,7 @@ namespace FarmingCapitalist
         internal static IMonitor? Monitor;
 
         // Sell price adjustment: festival-driven demand shifts.
-        public static int AdjustSellPrice(int vanillaPrice, Item item, EconomyContext context)
+        public static int AdjustSellPrice(int vanillaPrice, Item item, EconomyContext context) // cleanup switch cases
         {
             float totalModifier = 1f;
             float festivalModifier = FestivalEconomyRules.GetFestivalSellModifier(item, context);
@@ -155,14 +155,16 @@ namespace FarmingCapitalist
         public static float DayModifier(int dayOfMonth, ISalable item)
         {
             int day = Math.Clamp(dayOfMonth, 1, 28);
+            bool isSellingSeedsLateSeason = day >= 25 && item is Item stardewItem && ItemCategoryRules.IsSeed(stardewItem);
+            bool isSellingSeedsMidSeason = day > 15 && item is Item stardewItem1 && ItemCategoryRules.IsSeed(stardewItem1);
 
-            if (day >= 25 && item is Item stardewItem && ItemCategoryRules.IsSeed(stardewItem))
+            if (isSellingSeedsLateSeason)
             {
                 float maxDiscount = 0.30f;      // big clearance
                 float t = (day - 25f) / 3f;     // 0..1
                 return 1f - t * maxDiscount;
             }
-            else if (day > 15 && item is Item stardewItem2 && ItemCategoryRules.IsSeed(stardewItem2))
+            else if (isSellingSeedsMidSeason)
             {
                 float maxDiscount = 0.10f;      // gentle mid-season discount
                 float t = (day - 15f) / 10f;    // day 16..25 -> 0.1..1

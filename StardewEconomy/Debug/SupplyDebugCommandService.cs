@@ -56,6 +56,11 @@ namespace FarmingCapitalist
                 "Show the current debug override for the supply/demand sell modifier, if any. Usage: starecon_s_show [crop|fish|all].",
                 this.OnStareconSupplyShowModifierOverrideCommand
             );
+            helper.ConsoleCommands.Add(
+                "starecon_fm_show",
+                "Show fish market simulation state.",
+                this.OnStareconFishMarketShowCommand
+            );
         }
 
         private void OnStareconSupplyDumpCommand(string command, string[] args)
@@ -255,7 +260,7 @@ namespace FarmingCapitalist
                 return;
             }
 
-            if (!FishSupplyDataService.ApplyDebugDecay(days))
+            if (!FishMarketSimulationService.ApplyDebugDailyUpdate(days))
             {
                 _monitor.Log(
                     "Fish supply decay made no changes. Either no fish are tracked yet, the tracked fish are already neutral, or the save is not ready.",
@@ -359,6 +364,26 @@ namespace FarmingCapitalist
 
             if (!showedAny)
                 _monitor.Log("No supply/demand modifier override is active for the requested category.", LogLevel.Info);
+        }
+
+        private void OnStareconFishMarketShowCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_fm_show.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length > 0)
+            {
+                _monitor.Log("Usage: starecon_fm_show", LogLevel.Warn);
+                return;
+            }
+
+            foreach (string line in FishMarketSimulationService.GetDebugStatusLines())
+                _monitor.Log(line, LogLevel.Info);
         }
 
         private bool DumpSupplyForCategory(SupplyDebugCategory category)

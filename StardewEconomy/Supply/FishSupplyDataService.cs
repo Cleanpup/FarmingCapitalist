@@ -1,5 +1,4 @@
 using StardewModdingAPI;
-using StardewValley;
 
 namespace FarmingCapitalist
 {
@@ -10,9 +9,7 @@ namespace FarmingCapitalist
     internal static class FishSupplyDataService
     {
         private const string SaveDataKey = "fish-supply";
-        internal const float NeutralSupplyScore = 100f;
-        private const float DailyDecayFactor = 0.79f;
-        private const float NeutralSnapThreshold = 0.01f;
+        internal const float NeutralSupplyScore = FishMarketTuning.NeutralSupplyScore;
 
         private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
 
@@ -40,7 +37,7 @@ namespace FarmingCapitalist
                     TryWriteActiveData();
 
                     _monitor?.Log(
-                        $"Created fish supply data for this save. LastDecayDay={_activeData.LastDecayDay}.",
+                        "Created fish supply data for this save.",
                         LogLevel.Trace
                     );
                     return;
@@ -51,7 +48,7 @@ namespace FarmingCapitalist
                     TryWriteActiveData();
 
                 _monitor?.Log(
-                    $"Loaded fish supply data with {_activeData.FishSupplyScores.Count} tracked fish. LastDecayDay={_activeData.LastDecayDay}.",
+                    $"Loaded fish supply data with {_activeData.FishSupplyScores.Count} tracked fish.",
                     LogLevel.Trace
                 );
             }
@@ -100,7 +97,7 @@ namespace FarmingCapitalist
                 if (!IsValidScore(pair.Value))
                     continue;
 
-                normalizedScores[normalizedFishItemId] = pair.Value;
+                normalizedScores[normalizedFishItemId] = FishMarketTuning.ClampSupply(pair.Value);
             }
 
             if (HaveSameScores(data.FishSupplyScores, normalizedScores))
@@ -135,7 +132,7 @@ namespace FarmingCapitalist
             FishSupplySaveData data = EnsureActiveData();
             float previousScore = GetSupplyScore(normalizedFishItemId);
 
-            float updatedScore = previousScore + amount;
+            float updatedScore = FishMarketTuning.ClampSupply(previousScore + amount);
             if (updatedScore == previousScore)
                 return updatedScore;
 
@@ -150,46 +147,6 @@ namespace FarmingCapitalist
             return updatedScore;
         }
 
-        public static bool ApplyDailyDecayIfNeeded()
-        {
-            if (!Context.IsWorldReady)
-                return false;
-
-            if (FishSupplyModifierService.HasDebugSellModifierOverride)
-                return false;
-
-            FishSupplySaveData data = EnsureActiveData();
-            int currentDay = GetCurrentDayKey();
-            if (currentDay < 0)
-                return false;
-
-            if (data.LastDecayDay < 0)
-            {
-                data.LastDecayDay = currentDay;
-                TryWriteActiveData();
-                return false;
-            }
-
-            int elapsedDays = currentDay - data.LastDecayDay;
-            if (elapsedDays <= 0)
-                return false;
-
-            return ApplyDecayInternal(data, elapsedDays, currentDay, "day-start");
-        }
-
-        public static bool ApplyDebugDecay(int elapsedDays)
-        {
-            if (!Context.IsWorldReady || elapsedDays <= 0)
-                return false;
-
-            FishSupplySaveData data = EnsureActiveData();
-            int currentDay = GetCurrentDayKey();
-            if (currentDay < 0)
-                return false;
-
-            return ApplyDecayInternal(data, elapsedDays, currentDay, "debug-command");
-        }
-
         private static FishSupplySaveData EnsureActiveData()
         {
             _activeData ??= CreateNewData();
@@ -200,8 +157,7 @@ namespace FarmingCapitalist
         {
             return new FishSupplySaveData
             {
-                FishSupplyScores = new Dictionary<string, float>(KeyComparer),
-                LastDecayDay = GetCurrentDayKey()
+                FishSupplyScores = new Dictionary<string, float>(KeyComparer)
             };
         }
 
@@ -211,8 +167,7 @@ namespace FarmingCapitalist
 
             FishSupplySaveData normalizedData = new()
             {
-                FishSupplyScores = new Dictionary<string, float>(KeyComparer),
-                LastDecayDay = loadedData.LastDecayDay
+                FishSupplyScores = new Dictionary<string, float>(KeyComparer)
             };
 
             if (loadedData.FishSupplyScores is not null)
@@ -231,19 +186,13 @@ namespace FarmingCapitalist
                         continue;
                     }
 
-                    normalizedData.FishSupplyScores[normalizedFishItemId] = pair.Value;
+                    float clampedScore = FishMarketTuning.ClampSupply(pair.Value);
+                    normalizedData.FishSupplyScores[normalizedFishItemId] = clampedScore;
                     if (!string.Equals(normalizedFishItemId, pair.Key, StringComparison.OrdinalIgnoreCase))
                         shouldPersist = true;
-                }
-            }
 
-            if (normalizedData.LastDecayDay < 0)
-            {
-                int currentDay = GetCurrentDayKey();
-                if (currentDay >= 0)
-                {
-                    normalizedData.LastDecayDay = currentDay;
-                    shouldPersist = true;
+                    if (clampedScore != pair.Value)
+                        shouldPersist = true;
                 }
             }
 
@@ -286,7 +235,7 @@ namespace FarmingCapitalist
         {
             return !float.IsNaN(value)
                 && !float.IsInfinity(value)
-                && value >= 0f;
+                && value >= FishMarketTuning.MinSupplyScore;
         }
 
         private static bool HaveSameScores(
@@ -308,76 +257,6 @@ namespace FarmingCapitalist
 
             return true;
         }
-
-        private static int GetCurrentDayKey()
-        {
-            return Context.IsWorldReady
-                ? Game1.Date.TotalDays
-                : -1;
-        }
-
-        private static bool ApplyDecayInternal(FishSupplySaveData data, int elapsedDays, int currentDay, string source)
-        {
-            if (elapsedDays <= 0)
-                return false;
-
-            if (data.FishSupplyScores.Count == 0)
-            {
-                data.LastDecayDay = currentDay;
-                TryWriteActiveData();
-
-                _monitor?.Log(
-                    $"Fish supply decay checked for {elapsedDays} day(s) from {source}; no tracked fish required updates.",
-                    LogLevel.Trace
-                );
-                return false;
-            }
-
-            float deviationMultiplier = MathF.Pow(DailyDecayFactor, elapsedDays);
-            bool changed = false;
-            foreach (string fishKey in data.FishSupplyScores.Keys.ToList())
-            {
-                float previousScore = data.FishSupplyScores[fishKey];
-                float updatedScore = CalculateDecayedScore(previousScore, deviationMultiplier);
-                data.FishSupplyScores[fishKey] = updatedScore;
-
-                if (updatedScore != previousScore)
-                    changed = true;
-            }
-
-            data.LastDecayDay = currentDay;
-            TryWriteActiveData();
-
-            if (changed)
-            {
-                _monitor?.Log(
-                    $"Applied fish supply decay toward neutral for {elapsedDays} day(s) from {source} at x{DailyDecayFactor:0.###}/day. Tracked fish: {data.FishSupplyScores.Count}. Neutral baseline remains {NeutralSupplyScore:0.##}.",
-                    LogLevel.Info
-                );
-            }
-            else
-            {
-                _monitor?.Log(
-                    $"Fish supply decay checked for {elapsedDays} day(s) from {source}; tracked fish were already at the neutral baseline.",
-                    LogLevel.Trace
-                );
-            }
-
-            return changed;
-        }
-
-        private static float CalculateDecayedScore(float currentScore, float deviationMultiplier)
-        {
-            float deviationFromNeutral = currentScore - NeutralSupplyScore;
-            float decayedDeviation = deviationFromNeutral * deviationMultiplier;
-            float updatedScore = NeutralSupplyScore + decayedDeviation;
-
-            if (MathF.Abs(updatedScore - NeutralSupplyScore) <= NeutralSnapThreshold)
-                return NeutralSupplyScore;
-
-            return Math.Max(0f, updatedScore);
-        }
-
         private static string FormatFishLabel(string fishDisplayName, string fishItemId)
         {
             return string.IsNullOrWhiteSpace(fishDisplayName)

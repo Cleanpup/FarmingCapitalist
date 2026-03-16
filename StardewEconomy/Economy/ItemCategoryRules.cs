@@ -26,6 +26,12 @@ namespace FarmingCapitalist
             "153",
             "157"
         };
+        private static readonly HashSet<string> FishingJellyIds = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "SeaJelly",
+            "RiverJelly",
+            "CaveJelly"
+        };
 
         private static FishEconomyClassificationConfig _fishClassificationConfig = new();
 
@@ -116,6 +122,10 @@ namespace FarmingCapitalist
 
             if (IsSeaweedOrAlgae(obj))
                 return FishEconomyClassification.SeaweedAlgae;
+
+            // Vanilla fishing jellies count as fish catches, but they are not assigned FishCategory.
+            if (IsFishingJelly(obj))
+                return FishEconomyClassification.RawFish;
 
             return IsFish(obj)
                 ? FishEconomyClassification.RawFish
@@ -249,6 +259,12 @@ namespace FarmingCapitalist
         {
             return TryNormalizeItemId(obj.ItemId, out string normalizedItemId)
                 && SeaweedAndAlgaeIds.Contains(normalizedItemId);
+        }
+
+        private static bool IsFishingJelly(SObject obj)
+        {
+            return TryNormalizeItemId(obj.ItemId, out string normalizedItemId)
+                && FishingJellyIds.Contains(normalizedItemId);
         }
 
         private static bool TryNormalizeItemId(string? rawItemId, out string normalizedItemId)

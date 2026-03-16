@@ -9,6 +9,5 @@ namespace FarmingCapitalist
     public sealed class FishSupplySaveData
     {
         public Dictionary<string, float> FishSupplyScores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-        public int LastDecayDay { get; set; } = -1;
     }
 }

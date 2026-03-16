@@ -179,6 +179,37 @@ namespace FarmingCapitalist
             return normalizedFishItemId;
         }
 
+        internal static bool TryGetFishMarketInfo(
+            string? fishItemId,
+            out string displayName,
+            out FishEconomyClassification classification,
+            out string sourceFishItemId
+        )
+        {
+            displayName = string.Empty;
+            classification = FishEconomyClassification.None;
+            sourceFishItemId = string.Empty;
+
+            if (!TryNormalizeFishItemId(fishItemId, out string normalizedFishItemId))
+                return false;
+
+            if (!TryCreateFishEconomyObject(normalizedFishItemId, out SObject? fishObject) || fishObject is null)
+                return false;
+
+            classification = ItemCategoryRules.GetFishEconomyClassification(fishObject);
+            if (classification == FishEconomyClassification.None)
+                return false;
+
+            displayName = string.IsNullOrWhiteSpace(fishObject.DisplayName)
+                ? fishObject.Name
+                : fishObject.DisplayName;
+
+            if (!ItemCategoryRules.TryGetFishPreserveSourceItemId(fishObject, out sourceFishItemId))
+                TryNormalizeFishItemId(fishObject.ItemId, out sourceFishItemId);
+
+            return !string.IsNullOrWhiteSpace(sourceFishItemId);
+        }
+
         private static bool TryGetFishEconomyItemId(SObject obj, FishEconomyClassification classification, out string fishItemId)
         {
             fishItemId = string.Empty;

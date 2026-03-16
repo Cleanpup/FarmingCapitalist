@@ -8,10 +8,10 @@ namespace FarmingCapitalist
     /// </summary>
     internal static class FishSupplyModifierService
     {
-        private const float OversupplyPenaltyRange = 1000f;
-        private const float UndersupplyBonusRange = 666.67f;
-        private const float MinimumSellModifier = 0.60f;
-        private const float MaximumSellModifier = 1.15f;
+        private const float OversupplyPenaltyRange = FishMarketTuning.OversupplyPenaltyRange;
+        private const float UndersupplyBonusRange = FishMarketTuning.UndersupplyBonusRange;
+        private const float MinimumSellModifier = FishMarketTuning.MinimumSellModifier;
+        private const float MaximumSellModifier = FishMarketTuning.MaximumSellModifier;
         private static float? _debugSellModifierOverride;
 
         public static bool ApplyToLiveSellPricing { get; private set; }

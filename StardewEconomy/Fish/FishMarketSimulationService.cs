@@ -9,7 +9,7 @@ namespace FarmingCapitalist
         private const string LogPrefix = "[FISH_MARKET_SIM]";
         private const LogLevel VerboseLogLevel = LogLevel.Trace;
 
-        private static readonly ISupplyDataService SupplyDataService = new FishSupplyDataServiceAdapter();
+        private static readonly ICategoryDataService SupplyDataService = new FishSupplyDataServiceAdapter();
         private static readonly Dictionary<string, FishMarketDefinition> FishDefinitionsByItemId = new(StringComparer.OrdinalIgnoreCase);
 
         private static IModHelper? _helper;

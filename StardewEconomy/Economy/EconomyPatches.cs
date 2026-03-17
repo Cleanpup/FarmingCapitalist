@@ -25,6 +25,7 @@ namespace FarmingCapitalist
             DailyPurchaseTracker.Monitor = monitor;
             CropTraitService.Monitor = monitor;
             FishTraitService.Monitor = monitor;
+            MineralTraitService.Monitor = monitor;
             _harmony = new Harmony(harmonyId);
 
             try
@@ -207,6 +208,7 @@ namespace FarmingCapitalist
 
                 CropSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
                 FishSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
+                MineralSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
             }
             catch (Exception ex)
             {
@@ -253,7 +255,8 @@ namespace FarmingCapitalist
 
                 bool shouldTrackCrop = CropSupplyTracker.TryGetCropProduceInfo(clickedItem, out string produceItemId, out string cropDisplayName);
                 bool shouldTrackFish = FishSupplyTracker.TryGetFishInfo(clickedItem, out string fishItemId, out string fishDisplayName);
-                if (!shouldTrackCrop && !shouldTrackFish)
+                bool shouldTrackMineral = MineralSupplyTracker.TryGetMineralInfo(clickedItem, out string mineralItemId, out string mineralDisplayName);
+                if (!shouldTrackCrop && !shouldTrackFish && !shouldTrackMineral)
                     return PendingShopSaleState.CreateSkipped();
 
                 return new PendingShopSaleState(
@@ -263,6 +266,9 @@ namespace FarmingCapitalist
                     ShouldTrackFish: shouldTrackFish,
                     FishItemId: fishItemId,
                     FishDisplayName: fishDisplayName,
+                    ShouldTrackMineral: shouldTrackMineral,
+                    MineralItemId: mineralItemId,
+                    MineralDisplayName: mineralDisplayName,
                     SlotIndex: inventoryIndex,
                     QualifiedItemId: clickedItem.QualifiedItemId,
                     OriginalStack: clickedItem.Stack
@@ -317,6 +323,16 @@ namespace FarmingCapitalist
                         source
                     );
                 }
+
+                if (state.ShouldTrackMineral)
+                {
+                    MineralSupplyTracker.TrackMineralSale(
+                        state.MineralItemId,
+                        state.MineralDisplayName,
+                        soldQuantity,
+                        source
+                    );
+                }
             }
             catch (Exception ex)
             {
@@ -336,10 +352,12 @@ namespace FarmingCapitalist
                 DailyPurchaseTracker.Monitor = null;
                 CropTraitService.Monitor = null;
                 FishTraitService.Monitor = null;
+                MineralTraitService.Monitor = null;
                 ShopPriceRuntimeService.Clear();
                 FrozenOvernightSellContext = null;
                 CropSupplyDataService.ClearActiveData();
                 FishSupplyDataService.ClearActiveData();
+                MineralSupplyDataService.ClearActiveData();
                 Monitor = null;
             }
             catch (Exception ex)
@@ -355,6 +373,9 @@ namespace FarmingCapitalist
             bool ShouldTrackFish,
             string FishItemId,
             string FishDisplayName,
+            bool ShouldTrackMineral,
+            string MineralItemId,
+            string MineralDisplayName,
             int SlotIndex,
             string QualifiedItemId,
             int OriginalStack
@@ -369,6 +390,9 @@ namespace FarmingCapitalist
                     ShouldTrackFish: false,
                     FishItemId: string.Empty,
                     FishDisplayName: string.Empty,
+                    ShouldTrackMineral: false,
+                    MineralItemId: string.Empty,
+                    MineralDisplayName: string.Empty,
                     SlotIndex: -1,
                     QualifiedItemId: string.Empty,
                     OriginalStack: 0

@@ -3,7 +3,7 @@ using StardewValley;
 namespace FarmingCapitalist
 {
     /// <summary>Thin adapter around the existing static crop supply data service.</summary>
-    internal sealed class CropSupplyDataServiceAdapter : ISupplyDataService
+    internal sealed class CropSupplyDataServiceAdapter : ICategoryDataService
     {
         public float NeutralSupplyScore => CropSupplyDataService.NeutralSupplyScore;
 
@@ -44,7 +44,7 @@ namespace FarmingCapitalist
     }
 
     /// <summary>Thin adapter around the existing static crop supply modifier service.</summary>
-    internal sealed class CropSupplyModifierServiceAdapter : ISupplyModifierService
+    internal sealed class CropSupplyModifierServiceAdapter : ICategoryModifierService
     {
         public bool ApplyToLiveSellPricing => CropSupplyModifierService.ApplyToLiveSellPricing;
         public bool HasDebugSellModifierOverride => CropSupplyModifierService.HasDebugSellModifierOverride;

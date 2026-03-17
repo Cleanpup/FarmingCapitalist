@@ -91,10 +91,15 @@ namespace FarmingCapitalist
             return GetFishTraitModifier(traits);
         }
 
+        public static float GetSellModifierForTraits(MineralEconomicTrait traits)
+        {
+            return GetMineralTraitModifier(traits);
+        }
+
         // Keep this summary in sync when adding randomized category families so debug logs stay complete.
         private static string FormatProfileCategorySummary(SaveEconomyProfile profile)
         {
-            return $"Crop bonuses: [{string.Join(", ", profile.BonusCategories)}], crop nerfs: [{string.Join(", ", profile.NerfCategories)}], fish bonuses: [{string.Join(", ", profile.FishBonusCategories)}], fish nerfs: [{string.Join(", ", profile.FishNerfCategories)}].";
+            return $"Crop bonuses: [{string.Join(", ", profile.BonusCategories)}], crop nerfs: [{string.Join(", ", profile.NerfCategories)}], fish bonuses: [{string.Join(", ", profile.FishBonusCategories)}], fish nerfs: [{string.Join(", ", profile.FishNerfCategories)}], mineral bonuses: [{string.Join(", ", profile.MineralBonusCategories)}], mineral nerfs: [{string.Join(", ", profile.MineralNerfCategories)}].";
         }
 
         private static float GetTraitModifier(CropEconomicTrait traits, bool useBuySide)
@@ -144,6 +149,26 @@ namespace FarmingCapitalist
             return modifier;
         }
 
+        private static float GetMineralTraitModifier(MineralEconomicTrait traits)
+        {
+            if (traits == MineralEconomicTrait.None || _activeProfile is null)
+                return 1f;
+
+            float modifier = 1f;
+            foreach (RandomizableMineralEconomyCategoryDefinition definition in MineralEconomyCategoryRegistry.GetRandomizableCategories())
+            {
+                if (!definition.SupportsSell)
+                    continue;
+
+                if (!definition.MatchesTraits(traits))
+                    continue;
+
+                modifier *= GetCategoryMultiplier(_activeProfile.MineralSellMultipliers, definition.Key);
+            }
+
+            return modifier;
+        }
+
         private static float GetCategoryMultiplier(Dictionary<string, float>? multipliers, string categoryKey)
         {
             if (multipliers is null)
@@ -181,9 +206,12 @@ namespace FarmingCapitalist
                 NerfCategories = new List<string>(),
                 FishBonusCategories = new List<string>(),
                 FishNerfCategories = new List<string>(),
+                MineralBonusCategories = new List<string>(),
+                MineralNerfCategories = new List<string>(),
                 BuyMultipliers = new Dictionary<string, float>(KeyComparer),
                 SellMultipliers = new Dictionary<string, float>(KeyComparer),
-                FishSellMultipliers = new Dictionary<string, float>(KeyComparer)
+                FishSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                MineralSellMultipliers = new Dictionary<string, float>(KeyComparer)
             };
         }
 
@@ -219,9 +247,12 @@ namespace FarmingCapitalist
                 NerfCategories = new List<string>(),
                 FishBonusCategories = new List<string>(),
                 FishNerfCategories = new List<string>(),
+                MineralBonusCategories = new List<string>(),
+                MineralNerfCategories = new List<string>(),
                 BuyMultipliers = new Dictionary<string, float>(KeyComparer),
                 SellMultipliers = new Dictionary<string, float>(KeyComparer),
-                FishSellMultipliers = new Dictionary<string, float>(KeyComparer)
+                FishSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                MineralSellMultipliers = new Dictionary<string, float>(KeyComparer)
             };
 
             List<string> bonusCategories = NormalizeCategories(loadedProfile.BonusCategories, supportsSell: true);
@@ -321,11 +352,52 @@ namespace FarmingCapitalist
                 }
             }
 
+            List<string> mineralBonusCategories = NormalizeMineralCategories(loadedProfile.MineralBonusCategories, supportsSell: true);
+            HashSet<string> disallowedMineralNerfCategories = new(mineralBonusCategories, KeyComparer);
+            List<string> mineralNerfCategories = NormalizeMineralCategories(
+                loadedProfile.MineralNerfCategories,
+                supportsSell: true,
+                disallowedCategories: disallowedMineralNerfCategories
+            );
+
+            if (mineralBonusCategories.Count != GenerationSettings.BonusCategoryCount
+                || mineralNerfCategories.Count != GenerationSettings.NerfCategoryCount)
+            {
+                Generator.PopulateMineralSelections(normalizedProfile);
+                shouldPersist = true;
+            }
+            else
+            {
+                normalizedProfile.MineralBonusCategories = mineralBonusCategories;
+                normalizedProfile.MineralNerfCategories = mineralNerfCategories;
+                normalizedProfile.MineralSellMultipliers = NormalizeMineralMultipliers(loadedProfile.MineralSellMultipliers);
+
+                foreach (string category in mineralBonusCategories)
+                {
+                    if (!normalizedProfile.MineralSellMultipliers.TryGetValue(category, out float multiplier) || !IsValidMultiplier(multiplier))
+                    {
+                        normalizedProfile.MineralSellMultipliers[category] = GenerationSettings.BonusSellMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+
+                foreach (string category in mineralNerfCategories)
+                {
+                    if (!normalizedProfile.MineralSellMultipliers.TryGetValue(category, out float multiplier) || !IsValidMultiplier(multiplier))
+                    {
+                        normalizedProfile.MineralSellMultipliers[category] = GenerationSettings.NerfSellMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+            }
+
             if (!string.Equals(normalizedProfile.ProfileId, loadedProfile.ProfileId, StringComparison.Ordinal)
                 || !HaveSameCategoryOrder(loadedProfile.BonusCategories, bonusCategories)
                 || !HaveSameCategoryOrder(loadedProfile.NerfCategories, nerfCategories)
                 || !HaveSameCategoryOrder(loadedProfile.FishBonusCategories, normalizedProfile.FishBonusCategories)
-                || !HaveSameCategoryOrder(loadedProfile.FishNerfCategories, normalizedProfile.FishNerfCategories))
+                || !HaveSameCategoryOrder(loadedProfile.FishNerfCategories, normalizedProfile.FishNerfCategories)
+                || !HaveSameCategoryOrder(loadedProfile.MineralBonusCategories, normalizedProfile.MineralBonusCategories)
+                || !HaveSameCategoryOrder(loadedProfile.MineralNerfCategories, normalizedProfile.MineralNerfCategories))
             {
                 shouldPersist = true;
             }
@@ -401,6 +473,40 @@ namespace FarmingCapitalist
             return normalized;
         }
 
+        private static List<string> NormalizeMineralCategories(
+            IEnumerable<string>? rawCategories,
+            bool supportsSell,
+            ISet<string>? disallowedCategories = null
+        )
+        {
+            List<string> normalized = new();
+            if (rawCategories is null)
+                return normalized;
+
+            HashSet<string> seen = new(KeyComparer);
+            foreach (string? rawCategory in rawCategories)
+            {
+                if (string.IsNullOrWhiteSpace(rawCategory))
+                    continue;
+
+                if (!MineralEconomyCategoryRegistry.TryGetCategory(rawCategory, out RandomizableMineralEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsSell && !definition.SupportsSell)
+                    continue;
+
+                if (disallowedCategories is not null && disallowedCategories.Contains(definition.Key))
+                    continue;
+
+                if (!seen.Add(definition.Key))
+                    continue;
+
+                normalized.Add(definition.Key);
+            }
+
+            return normalized;
+        }
+
         private static Dictionary<string, float> NormalizeMultipliers(
             IDictionary<string, float>? rawMultipliers,
             bool supportsBuy
@@ -439,6 +545,29 @@ namespace FarmingCapitalist
             foreach (KeyValuePair<string, float> pair in rawMultipliers)
             {
                 if (!FishEconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableFishEconomyCategoryDefinition definition))
+                    continue;
+
+                if (!definition.SupportsSell)
+                    continue;
+
+                if (!IsValidMultiplier(pair.Value))
+                    continue;
+
+                normalized[definition.Key] = pair.Value;
+            }
+
+            return normalized;
+        }
+
+        private static Dictionary<string, float> NormalizeMineralMultipliers(IDictionary<string, float>? rawMultipliers)
+        {
+            Dictionary<string, float> normalized = new(KeyComparer);
+            if (rawMultipliers is null)
+                return normalized;
+
+            foreach (KeyValuePair<string, float> pair in rawMultipliers)
+            {
+                if (!MineralEconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableMineralEconomyCategoryDefinition definition))
                     continue;
 
                 if (!definition.SupportsSell)

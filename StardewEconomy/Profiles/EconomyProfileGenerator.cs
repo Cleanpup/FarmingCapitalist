@@ -42,8 +42,27 @@ namespace FarmingCapitalist
                 );
             }
 
+            List<string> mineralSellKeys = MineralEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (mineralSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate mineral profile: requires {requiredCount} sell categories but only {mineralSellKeys.Count} are registered."
+                );
+            }
+
             SelectCategories(cropSellKeys, seed, out List<string> bonusCategories, out List<string> nerfCategories);
             SelectCategories(fishSellKeys, GetFishGenerationSeed(seed), out List<string> fishBonusCategories, out List<string> fishNerfCategories);
+            SelectCategories(
+                mineralSellKeys,
+                GetMineralGenerationSeed(seed),
+                out List<string> mineralBonusCategories,
+                out List<string> mineralNerfCategories
+            );
 
             SaveEconomyProfile profile = new()
             {
@@ -53,9 +72,12 @@ namespace FarmingCapitalist
                 NerfCategories = nerfCategories,
                 FishBonusCategories = fishBonusCategories,
                 FishNerfCategories = fishNerfCategories,
+                MineralBonusCategories = mineralBonusCategories,
+                MineralNerfCategories = mineralNerfCategories,
                 BuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
                 SellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
-                FishSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
+                FishSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
+                MineralSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
             };
 
             foreach (string category in bonusCategories)
@@ -87,6 +109,12 @@ namespace FarmingCapitalist
 
             foreach (string category in fishNerfCategories)
                 profile.FishSellMultipliers[category] = _settings.NerfSellMultiplier;
+
+            foreach (string category in mineralBonusCategories)
+                profile.MineralSellMultipliers[category] = _settings.BonusSellMultiplier;
+
+            foreach (string category in mineralNerfCategories)
+                profile.MineralSellMultipliers[category] = _settings.NerfSellMultiplier;
 
             return profile;
         }
@@ -128,6 +156,43 @@ namespace FarmingCapitalist
                 profile.FishSellMultipliers[category] = _settings.NerfSellMultiplier;
         }
 
+        public void PopulateMineralSelections(SaveEconomyProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            List<string> mineralSellKeys = MineralEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            int requiredCount = _settings.BonusCategoryCount + _settings.NerfCategoryCount;
+            if (mineralSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate mineral profile: requires {requiredCount} sell categories but only {mineralSellKeys.Count} are registered."
+                );
+            }
+
+            SelectCategories(
+                mineralSellKeys,
+                GetMineralGenerationSeed(profile.Seed),
+                out List<string> mineralBonusCategories,
+                out List<string> mineralNerfCategories
+            );
+
+            profile.MineralBonusCategories = mineralBonusCategories;
+            profile.MineralNerfCategories = mineralNerfCategories;
+            profile.MineralSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string category in mineralBonusCategories)
+                profile.MineralSellMultipliers[category] = _settings.BonusSellMultiplier;
+
+            foreach (string category in mineralNerfCategories)
+                profile.MineralSellMultipliers[category] = _settings.NerfSellMultiplier;
+        }
+
         private void SelectCategories(
             List<string> sellKeys,
             int seed,
@@ -152,6 +217,11 @@ namespace FarmingCapitalist
         private static int GetFishGenerationSeed(int seed)
         {
             return unchecked((seed * 397) ^ 0x5F3759DF);
+        }
+
+        private static int GetMineralGenerationSeed(int seed)
+        {
+            return unchecked((seed * 761) ^ 0x1F123BB5);
         }
 
         private static void ShuffleInPlace(List<string> values, Random random)

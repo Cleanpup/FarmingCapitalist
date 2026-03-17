@@ -70,4 +70,38 @@ namespace FarmingCapitalist
             return FishMarketSimulationService.GetDebugStatusLines();
         }
     }
+
+    /// <summary>Thin lifecycle wrapper around the existing mineral market simulation service.</summary>
+    internal sealed class MineralMarketSimulationLifecycleAdapter : IMarketSimulationLifecycle
+    {
+        public void Initialize(IModHelper helper, IMonitor monitor, bool debugLoggingEnabled)
+        {
+            MineralMarketSimulationService.Initialize(helper, monitor, debugLoggingEnabled);
+        }
+
+        public void LoadOrCreateForCurrentSave()
+        {
+            MineralMarketSimulationService.LoadOrCreateForCurrentSave();
+        }
+
+        public void ClearActiveData()
+        {
+            MineralMarketSimulationService.ClearActiveData();
+        }
+
+        public bool RunDailyUpdateIfNeeded()
+        {
+            return MineralMarketSimulationService.RunDailyUpdateIfNeeded();
+        }
+
+        public bool ApplyDebugDailyUpdate(int elapsedDays)
+        {
+            return MineralMarketSimulationService.ApplyDebugDailyUpdate(elapsedDays);
+        }
+
+        public IEnumerable<string> GetDebugStatusLines()
+        {
+            return MineralMarketSimulationService.GetDebugStatusLines();
+        }
+    }
 }

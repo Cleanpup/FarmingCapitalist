@@ -18,48 +18,53 @@ namespace FarmingCapitalist
         {
             helper.ConsoleCommands.Add(
                 "starecon_s_dump",
-                "Dump tracked supply scores and modifiers. Usage: starecon_s_dump [crop|fish|all].",
+                "Dump tracked supply scores and modifiers. Usage: starecon_s_dump [crop|fish|mineral|all].",
                 this.OnStareconSupplyDumpCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_mod",
-                "Show the current supply score and modifier. Usage: starecon_s_mod [crop|fish] <item id or exact name>.",
+                "Show the current supply score and modifier. Usage: starecon_s_mod [crop|fish|mineral] <item id or exact name>.",
                 this.OnStareconSupplyModifierCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_add",
-                "Add tracked supply for debugging. Usage: starecon_s_add [crop|fish] <item id or exact name> <amount>.",
+                "Add tracked supply for debugging. Usage: starecon_s_add [crop|fish|mineral] <item id or exact name> <amount>.",
                 this.OnStareconSupplyAddCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_reset",
-                "Clear tracked supply scores. Usage: starecon_s_reset [crop|fish|all].",
+                "Clear tracked supply scores. Usage: starecon_s_reset [crop|fish|mineral|all].",
                 this.OnStareconSupplyResetCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_decay",
-                "Apply category-specific debug decay. Usage: starecon_s_decay [fish] [days].",
+                "Apply category-specific debug decay. Usage: starecon_s_decay [fish|mineral] [days].",
                 this.OnStareconSupplyDecayCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_set",
-                "Set a debug override for the supply/demand sell modifier. Usage: starecon_s_set [crop|fish] <value>.",
+                "Set a debug override for the supply/demand sell modifier. Usage: starecon_s_set [crop|fish|mineral] <value>.",
                 this.OnStareconSupplySetModifierCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_clear",
-                "Clear the debug override for the supply/demand sell modifier. Usage: starecon_s_clear [crop|fish|all].",
+                "Clear the debug override for the supply/demand sell modifier. Usage: starecon_s_clear [crop|fish|mineral|all].",
                 this.OnStareconSupplyClearModifierCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_show",
-                "Show the current debug override for the supply/demand sell modifier, if any. Usage: starecon_s_show [crop|fish|all].",
+                "Show the current debug override for the supply/demand sell modifier, if any. Usage: starecon_s_show [crop|fish|mineral|all].",
                 this.OnStareconSupplyShowModifierOverrideCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_fm_show",
                 "Show fish market simulation state.",
                 this.OnStareconFishMarketShowCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_mm_show",
+                "Show mineral market simulation state.",
+                this.OnStareconMineralMarketShowCommand
             );
         }
 
@@ -75,13 +80,13 @@ namespace FarmingCapitalist
 
             if (args.Length > 1)
             {
-                _monitor.Log("Usage: starecon_s_dump [crop|fish|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_dump [crop|fish|mineral|all]", LogLevel.Warn);
                 return;
             }
 
             if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
             {
-                _monitor.Log("Usage: starecon_s_dump [crop|fish|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_dump [crop|fish|mineral|all]", LogLevel.Warn);
                 return;
             }
 
@@ -91,6 +96,9 @@ namespace FarmingCapitalist
 
             if (scope is SupplyDebugScope.Fish or SupplyDebugScope.All)
                 wroteAny |= DumpSupplyForCategory(SupplyDebugCategory.Fish);
+
+            if (scope is SupplyDebugScope.Mineral or SupplyDebugScope.All)
+                wroteAny |= DumpSupplyForCategory(SupplyDebugCategory.Mineral);
 
             if (!wroteAny)
                 _monitor.Log("No supply scores are currently tracked for the requested category.", LogLevel.Info);
@@ -108,13 +116,13 @@ namespace FarmingCapitalist
 
             if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
             {
-                _monitor.Log("Usage: starecon_s_mod [crop|fish] <item id or exact name>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_mod [crop|fish|mineral] <item id or exact name>", LogLevel.Warn);
                 return;
             }
 
             if (argIndex >= args.Length)
             {
-                _monitor.Log("Usage: starecon_s_mod [crop|fish] <item id or exact name>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_mod [crop|fish|mineral] <item id or exact name>", LogLevel.Warn);
                 return;
             }
 
@@ -140,14 +148,14 @@ namespace FarmingCapitalist
 
             if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
             {
-                _monitor.Log("Usage: starecon_s_add [crop|fish] <item id or exact name> <amount>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_add [crop|fish|mineral] <item id or exact name> <amount>", LogLevel.Warn);
                 return;
             }
 
             int amountIndex = args.Length - 1;
             if (amountIndex < argIndex)
             {
-                _monitor.Log("Usage: starecon_s_add [crop|fish] <item id or exact name> <amount>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_add [crop|fish|mineral] <item id or exact name> <amount>", LogLevel.Warn);
                 return;
             }
 
@@ -160,7 +168,7 @@ namespace FarmingCapitalist
             string query = string.Join(" ", args.Skip(argIndex).Take(amountIndex - argIndex));
             if (string.IsNullOrWhiteSpace(query))
             {
-                _monitor.Log("Usage: starecon_s_add [crop|fish] <item id or exact name> <amount>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_add [crop|fish|mineral] <item id or exact name> <amount>", LogLevel.Warn);
                 return;
             }
 
@@ -190,13 +198,13 @@ namespace FarmingCapitalist
 
             if (args.Length > 1)
             {
-                _monitor.Log("Usage: starecon_s_reset [crop|fish|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_reset [crop|fish|mineral|all]", LogLevel.Warn);
                 return;
             }
 
             if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
             {
-                _monitor.Log("Usage: starecon_s_reset [crop|fish|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_reset [crop|fish|mineral|all]", LogLevel.Warn);
                 return;
             }
 
@@ -215,6 +223,15 @@ namespace FarmingCapitalist
                 if (FishSupplyDataService.GetSnapshot().Count > 0)
                 {
                     FishSupplyDataService.ResetTrackedSupply();
+                    resetAny = true;
+                }
+            }
+
+            if (scope is SupplyDebugScope.Mineral or SupplyDebugScope.All)
+            {
+                if (MineralSupplyDataService.GetSnapshot().Count > 0)
+                {
+                    MineralSupplyDataService.ResetTrackedSupply();
                     resetAny = true;
                 }
             }
@@ -241,15 +258,15 @@ namespace FarmingCapitalist
                 argIndex = 1;
             }
 
-            if (category != SupplyDebugCategory.Fish)
+            if (category is not SupplyDebugCategory.Fish and not SupplyDebugCategory.Mineral)
             {
-                _monitor.Log("Crop supply does not expose a direct decay command. Use starecon_s_decay [fish] [days].", LogLevel.Warn);
+                _monitor.Log("Crop supply does not expose a direct decay command. Use starecon_s_decay [fish|mineral] [days].", LogLevel.Warn);
                 return;
             }
 
             if (args.Length - argIndex > 1)
             {
-                _monitor.Log("Usage: starecon_s_decay [fish] [days]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_decay [fish|mineral] [days]", LogLevel.Warn);
                 return;
             }
 
@@ -260,10 +277,13 @@ namespace FarmingCapitalist
                 return;
             }
 
-            if (!FishMarketSimulationService.ApplyDebugDailyUpdate(days))
+            bool changed = category == SupplyDebugCategory.Fish
+                ? FishMarketSimulationService.ApplyDebugDailyUpdate(days)
+                : MineralMarketSimulationService.ApplyDebugDailyUpdate(days);
+            if (!changed)
             {
                 _monitor.Log(
-                    "Fish supply decay made no changes. Either no fish are tracked yet, the tracked fish are already neutral, or the save is not ready.",
+                    $"{char.ToUpperInvariant(GetSupplyCategoryLabel(category)[0])}{GetSupplyCategoryLabel(category).Substring(1)} supply decay made no changes. Either no tracked {GetSupplyCategoryPlural(category)} exist yet, the tracked {GetSupplyCategoryPlural(category)} are already neutral, or the save is not ready.",
                     LogLevel.Info
                 );
             }
@@ -276,7 +296,7 @@ namespace FarmingCapitalist
             if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
             {
                 _monitor.Log(
-                    $"Usage: starecon_s_set [crop|fish] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
+                    $"Usage: starecon_s_set [crop|fish|mineral] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
                     LogLevel.Warn
                 );
                 return;
@@ -285,7 +305,7 @@ namespace FarmingCapitalist
             if (args.Length - argIndex != 1)
             {
                 _monitor.Log(
-                    $"Usage: starecon_s_set [crop|fish] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
+                    $"Usage: starecon_s_set [crop|fish|mineral] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
                     LogLevel.Warn
                 );
                 return;
@@ -316,13 +336,13 @@ namespace FarmingCapitalist
 
             if (args.Length > 1)
             {
-                _monitor.Log("Usage: starecon_s_clear [crop|fish|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_clear [crop|fish|mineral|all]", LogLevel.Warn);
                 return;
             }
 
             if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
             {
-                _monitor.Log("Usage: starecon_s_clear [crop|fish|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_clear [crop|fish|mineral|all]", LogLevel.Warn);
                 return;
             }
 
@@ -332,6 +352,9 @@ namespace FarmingCapitalist
 
             if (scope is SupplyDebugScope.Fish or SupplyDebugScope.All)
                 clearedAny |= ClearSupplyModifierOverride(SupplyDebugCategory.Fish);
+
+            if (scope is SupplyDebugScope.Mineral or SupplyDebugScope.All)
+                clearedAny |= ClearSupplyModifierOverride(SupplyDebugCategory.Mineral);
 
             if (clearedAny)
                 return;
@@ -345,13 +368,13 @@ namespace FarmingCapitalist
 
             if (args.Length > 1)
             {
-                _monitor.Log("Usage: starecon_s_show [crop|fish|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_show [crop|fish|mineral|all]", LogLevel.Warn);
                 return;
             }
 
             if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
             {
-                _monitor.Log("Usage: starecon_s_show [crop|fish|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_show [crop|fish|mineral|all]", LogLevel.Warn);
                 return;
             }
 
@@ -361,6 +384,9 @@ namespace FarmingCapitalist
 
             if (scope is SupplyDebugScope.Fish or SupplyDebugScope.All)
                 showedAny |= ShowSupplyModifierOverride(SupplyDebugCategory.Fish);
+
+            if (scope is SupplyDebugScope.Mineral or SupplyDebugScope.All)
+                showedAny |= ShowSupplyModifierOverride(SupplyDebugCategory.Mineral);
 
             if (!showedAny)
                 _monitor.Log("No supply/demand modifier override is active for the requested category.", LogLevel.Info);
@@ -383,6 +409,26 @@ namespace FarmingCapitalist
             }
 
             foreach (string line in FishMarketSimulationService.GetDebugStatusLines())
+                _monitor.Log(line, LogLevel.Info);
+        }
+
+        private void OnStareconMineralMarketShowCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_mm_show.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length > 0)
+            {
+                _monitor.Log("Usage: starecon_mm_show", LogLevel.Warn);
+                return;
+            }
+
+            foreach (string line in MineralMarketSimulationService.GetDebugStatusLines())
                 _monitor.Log(line, LogLevel.Info);
         }
 
@@ -409,44 +455,68 @@ namespace FarmingCapitalist
 
         private static IReadOnlyDictionary<string, float> GetSupplySnapshot(SupplyDebugCategory category)
         {
-            return category == SupplyDebugCategory.Crop
-                ? CropSupplyDataService.GetSnapshot()
-                : FishSupplyDataService.GetSnapshot();
+            return category switch
+            {
+                SupplyDebugCategory.Crop => CropSupplyDataService.GetSnapshot(),
+                SupplyDebugCategory.Fish => FishSupplyDataService.GetSnapshot(),
+                SupplyDebugCategory.Mineral => MineralSupplyDataService.GetSnapshot(),
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static string GetSupplyDisplayName(SupplyDebugCategory category, string itemId)
         {
-            return category == SupplyDebugCategory.Crop
-                ? CropSupplyTracker.GetCropDisplayName(itemId)
-                : FishSupplyTracker.GetFishDisplayName(itemId);
+            return category switch
+            {
+                SupplyDebugCategory.Crop => CropSupplyTracker.GetCropDisplayName(itemId),
+                SupplyDebugCategory.Fish => FishSupplyTracker.GetFishDisplayName(itemId),
+                SupplyDebugCategory.Mineral => MineralSupplyTracker.GetMineralDisplayName(itemId),
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static string GetSupplyDebugSummary(SupplyDebugCategory category, string itemId, string displayName)
         {
-            return category == SupplyDebugCategory.Crop
-                ? CropSupplyModifierService.GetDebugSummary(itemId, displayName)
-                : FishSupplyModifierService.GetDebugSummary(itemId, displayName);
+            return category switch
+            {
+                SupplyDebugCategory.Crop => CropSupplyModifierService.GetDebugSummary(itemId, displayName),
+                SupplyDebugCategory.Fish => FishSupplyModifierService.GetDebugSummary(itemId, displayName),
+                SupplyDebugCategory.Mineral => MineralSupplyModifierService.GetDebugSummary(itemId, displayName),
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static float AddSupplyForCategory(SupplyDebugCategory category, string itemId, string displayName, float amount)
         {
-            return category == SupplyDebugCategory.Crop
-                ? CropSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command")
-                : FishSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command");
+            return category switch
+            {
+                SupplyDebugCategory.Crop => CropSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
+                SupplyDebugCategory.Fish => FishSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
+                SupplyDebugCategory.Mineral => MineralSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static float GetSupplyModifierForCategory(SupplyDebugCategory category, string itemId, string displayName)
         {
-            return category == SupplyDebugCategory.Crop
-                ? CropSupplyModifierService.GetSellModifier(itemId, displayName)
-                : FishSupplyModifierService.GetSellModifier(itemId, displayName);
+            return category switch
+            {
+                SupplyDebugCategory.Crop => CropSupplyModifierService.GetSellModifier(itemId, displayName),
+                SupplyDebugCategory.Fish => FishSupplyModifierService.GetSellModifier(itemId, displayName),
+                SupplyDebugCategory.Mineral => MineralSupplyModifierService.GetSellModifier(itemId, displayName),
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static bool TrySetSupplyModifierOverride(SupplyDebugCategory category, float modifier, out string error)
         {
-            return category == SupplyDebugCategory.Crop
-                ? CropSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error)
-                : FishSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error);
+            return category switch
+            {
+                SupplyDebugCategory.Crop => CropSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
+                SupplyDebugCategory.Fish => FishSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
+                SupplyDebugCategory.Mineral => MineralSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static void ResetTrackedSupplyForCategory(SupplyDebugCategory category)
@@ -457,7 +527,13 @@ namespace FarmingCapitalist
                 return;
             }
 
-            FishSupplyDataService.ResetTrackedSupply();
+            if (category == SupplyDebugCategory.Fish)
+            {
+                FishSupplyDataService.ResetTrackedSupply();
+                return;
+            }
+
+            MineralSupplyDataService.ResetTrackedSupply();
         }
 
         private bool ClearSupplyModifierOverride(SupplyDebugCategory category)
@@ -467,8 +543,10 @@ namespace FarmingCapitalist
 
             if (category == SupplyDebugCategory.Crop)
                 CropSupplyModifierService.ClearDebugSellModifierOverride();
-            else
+            else if (category == SupplyDebugCategory.Fish)
                 FishSupplyModifierService.ClearDebugSellModifierOverride();
+            else
+                MineralSupplyModifierService.ClearDebugSellModifierOverride();
 
             _monitor.Log($"Cleared the {GetSupplyCategoryLabel(category)} supply/demand modifier override.", LogLevel.Info);
             return true;
@@ -485,23 +563,35 @@ namespace FarmingCapitalist
 
         private static bool TryGetSupplyModifierOverride(SupplyDebugCategory category, out float modifier)
         {
-            return category == SupplyDebugCategory.Crop
-                ? CropSupplyModifierService.TryGetDebugSellModifierOverride(out modifier)
-                : FishSupplyModifierService.TryGetDebugSellModifierOverride(out modifier);
+            return category switch
+            {
+                SupplyDebugCategory.Crop => CropSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
+                SupplyDebugCategory.Fish => FishSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
+                SupplyDebugCategory.Mineral => MineralSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static bool TryResolveSupplyItem(SupplyDebugCategory category, string query, out string itemId, out string displayName)
         {
-            return category == SupplyDebugCategory.Crop
-                ? CropSupplyTracker.TryResolveCropProduceItemId(query, out itemId, out displayName)
-                : FishSupplyTracker.TryResolveFishItemId(query, out itemId, out displayName);
+            return category switch
+            {
+                SupplyDebugCategory.Crop => CropSupplyTracker.TryResolveCropProduceItemId(query, out itemId, out displayName),
+                SupplyDebugCategory.Fish => FishSupplyTracker.TryResolveFishItemId(query, out itemId, out displayName),
+                SupplyDebugCategory.Mineral => MineralSupplyTracker.TryResolveMineralItemId(query, out itemId, out displayName),
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static string GetSupplyResolveFailureMessage(SupplyDebugCategory category, string query)
         {
-            return category == SupplyDebugCategory.Crop
-                ? $"Could not resolve '{query}' to a crop produce item. Use an exact crop name or produce item ID."
-                : $"Could not resolve '{query}' to a fish item. Use an exact fish name or fish item ID.";
+            return category switch
+            {
+                SupplyDebugCategory.Crop => $"Could not resolve '{query}' to a crop produce item. Use an exact crop name or produce item ID.",
+                SupplyDebugCategory.Fish => $"Could not resolve '{query}' to a fish item. Use an exact fish name or fish item ID.",
+                SupplyDebugCategory.Mineral => $"Could not resolve '{query}' to a mineral item. Use an exact mineral name or mineral item ID.",
+                _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+            };
         }
 
         private static bool TryResolveSupplyCategory(
@@ -548,6 +638,13 @@ namespace FarmingCapitalist
                 return true;
             }
 
+            if (string.Equals(raw, "mineral", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(raw, "minerals", StringComparison.OrdinalIgnoreCase))
+            {
+                category = SupplyDebugCategory.Mineral;
+                return true;
+            }
+
             category = default;
             return false;
         }
@@ -564,7 +661,9 @@ namespace FarmingCapitalist
             {
                 scope = category == SupplyDebugCategory.Crop
                     ? SupplyDebugScope.Crop
-                    : SupplyDebugScope.Fish;
+                    : category == SupplyDebugCategory.Fish
+                        ? SupplyDebugScope.Fish
+                        : SupplyDebugScope.Mineral;
                 return true;
             }
 
@@ -576,26 +675,32 @@ namespace FarmingCapitalist
         {
             return category == SupplyDebugCategory.Crop
                 ? "crop"
-                : "fish";
+                : category == SupplyDebugCategory.Fish
+                    ? "fish"
+                    : "mineral";
         }
 
         private static string GetSupplyCategoryPlural(SupplyDebugCategory category)
         {
             return category == SupplyDebugCategory.Crop
                 ? "crops"
-                : "fish";
+                : category == SupplyDebugCategory.Fish
+                    ? "fish"
+                    : "minerals";
         }
 
         private enum SupplyDebugCategory
         {
             Crop,
-            Fish
+            Fish,
+            Mineral
         }
 
         private enum SupplyDebugScope
         {
             Crop,
             Fish,
+            Mineral,
             All
         }
     }

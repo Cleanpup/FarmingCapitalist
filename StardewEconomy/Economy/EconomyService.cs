@@ -22,14 +22,18 @@ namespace FarmingCapitalist
             float cropTraitModifier = CropTraitEconomyRules.GetSellTraitModifier(item, context);
             float cropItemModifier = CropItemEconomyRules.GetSellItemModifier(item, context);
             float fishTraitModifier = FishTraitEconomyRules.GetSellTraitModifier(item, context);
+            float mineralTraitModifier = MineralTraitEconomyRules.GetSellTraitModifier(item, context);
             float cropSupplyModifier = 1f;
             float fishSupplyModifier = 1f;
-            float supplyScore = CropSupplyDataService.NeutralSupplyScore;
+            float mineralSupplyModifier = 1f;
             bool applyCropSupplyModifier = CropSupplyModifierService.ApplyToLiveSellPricing
                 || CropSupplyModifierService.HasDebugSellModifierOverride;
             bool fishSupplySystemEnabled = FishSupplyModifierService.ApplyToLiveSellPricing
                 || FishSupplyModifierService.HasDebugSellModifierOverride;
+            bool mineralSupplySystemEnabled = MineralSupplyModifierService.ApplyToLiveSellPricing
+                || MineralSupplyModifierService.HasDebugSellModifierOverride;
             bool applyFishSupplyModifier = false;
+            bool applyMineralSupplyModifier = false;
 
             if (fishSupplySystemEnabled
                 && FishEconomyItemRules.TryGetFishEconomyClassification(
@@ -43,16 +47,18 @@ namespace FarmingCapitalist
                 applyFishSupplyModifier = isFishEconomyEligible;
             }
 
+            if (mineralSupplySystemEnabled && MineralEconomyItemRules.IsMineralEconomyEligible(item))
+                applyMineralSupplyModifier = true;
+
             totalModifier *= festivalModifier;
             totalModifier *= categoryModifier;
             totalModifier *= cropTraitModifier;
             totalModifier *= cropItemModifier;
             totalModifier *= fishTraitModifier;
+            totalModifier *= mineralTraitModifier;
             if (applyCropSupplyModifier)
             {
                 cropSupplyModifier = CropSupplyModifierService.GetSellModifier(item);
-                if (CropSupplyTracker.TryGetCropProduceInfo(item, out string produceItemId, out _))
-                    supplyScore = CropSupplyDataService.GetSupplyScore(produceItemId);
                 totalModifier *= cropSupplyModifier;
             }
 
@@ -60,6 +66,12 @@ namespace FarmingCapitalist
             {
                 fishSupplyModifier = FishSupplyModifierService.GetSellModifier(item);
                 totalModifier *= fishSupplyModifier;
+            }
+
+            if (applyMineralSupplyModifier)
+            {
+                mineralSupplyModifier = MineralSupplyModifierService.GetSellModifier(item);
+                totalModifier *= mineralSupplyModifier;
             }
 
             int adjustedBeforeClamp = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
@@ -73,9 +85,12 @@ namespace FarmingCapitalist
             string fishSupplyTrace = applyFishSupplyModifier
                 ? $", {(FishSupplyModifierService.HasDebugSellModifierOverride ? "fishSupplyOverride" : "fishSupply")} x{fishSupplyModifier:0.###}"
                 : string.Empty;
+            string mineralSupplyTrace = applyMineralSupplyModifier
+                ? $", {(MineralSupplyModifierService.HasDebugSellModifierOverride ? "mineralSupplyOverride" : "mineralSupply")} x{mineralSupplyModifier:0.###}"
+                : string.Empty;
 
             VerbosePriceTraceLogger.Log(
-                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###}, fishTrait x{fishTraitModifier:0.###}{supplyTrace}{fishSupplyTrace} -> total x{totalModifier:0.###}"
+                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###}, fishTrait x{fishTraitModifier:0.###}, mineralTrait x{mineralTraitModifier:0.###}{supplyTrace}{fishSupplyTrace}{mineralSupplyTrace} -> total x{totalModifier:0.###}"
             );
 
             VerbosePriceTraceLogger.Log(

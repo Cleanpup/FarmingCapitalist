@@ -3,7 +3,7 @@ using StardewValley;
 namespace FarmingCapitalist
 {
     /// <summary>Thin adapter around the existing static fish supply data service.</summary>
-    internal sealed class FishSupplyDataServiceAdapter : ISupplyDataService
+    internal sealed class FishSupplyDataServiceAdapter : ICategoryDataService
     {
         public float NeutralSupplyScore => FishSupplyDataService.NeutralSupplyScore;
 
@@ -44,7 +44,7 @@ namespace FarmingCapitalist
     }
 
     /// <summary>Thin adapter around the existing static fish supply modifier service.</summary>
-    internal sealed class FishSupplyModifierServiceAdapter : ISupplyModifierService
+    internal sealed class FishSupplyModifierServiceAdapter : ICategoryModifierService
     {
         public bool ApplyToLiveSellPricing => FishSupplyModifierService.ApplyToLiveSellPricing;
         public bool HasDebugSellModifierOverride => FishSupplyModifierService.HasDebugSellModifierOverride;

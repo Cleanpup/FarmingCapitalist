@@ -8,6 +8,7 @@ namespace FarmingCapitalist
         public string SourceFishItemId { get; }
         public string DisplayName { get; }
         public FishEconomyClassification Classification { get; }
+        public FishEconomicTrait Traits { get; }
         public MarketTemperament Temperament { get; }
         public IReadOnlyCollection<string> AvailableSeasons => _availableSeasons;
 
@@ -16,6 +17,7 @@ namespace FarmingCapitalist
             string sourceFishItemId,
             string displayName,
             FishEconomyClassification classification,
+            FishEconomicTrait traits,
             MarketTemperament temperament,
             IEnumerable<string> availableSeasons
         )
@@ -24,6 +26,7 @@ namespace FarmingCapitalist
             SourceFishItemId = sourceFishItemId;
             DisplayName = displayName;
             Classification = classification;
+            Traits = traits;
             Temperament = temperament;
             _availableSeasons = new HashSet<string>(
                 availableSeasons
@@ -38,5 +41,16 @@ namespace FarmingCapitalist
             return !string.IsNullOrWhiteSpace(seasonKey)
                 && _availableSeasons.Contains(seasonKey.Trim());
         }
+
+        public bool HasTrait(FishEconomicTrait trait)
+        {
+            return trait != FishEconomicTrait.None
+                && (Traits & trait) == trait;
+        }
+
+        public bool IsSpringFish => HasTrait(FishEconomicTrait.Spring);
+        public bool IsNightFish => HasTrait(FishEconomicTrait.Night);
+        public bool IsRainFish => HasTrait(FishEconomicTrait.Rainy);
+        public bool IsTrapFish => HasTrait(FishEconomicTrait.Trap);
     }
 }

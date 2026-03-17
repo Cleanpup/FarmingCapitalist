@@ -315,6 +315,7 @@ namespace FarmingCapitalist
                     sourceFishItemId: fishItemId,
                     displayName: FishSupplyTracker.GetFishDisplayName(fishItemId),
                     FishEconomyClassification.None,
+                    FishEconomicTrait.None,
                     MarketTemperament.Mid,
                     Array.Empty<string>()
                 );
@@ -325,8 +326,9 @@ namespace FarmingCapitalist
                 sourceFishItemId,
                 displayName,
                 classification,
+                FishTraitService.GetTraits(sourceFishItemId),
                 DetermineTemperament(classification, sourceFishItemId),
-                ExtractSeasonKeys(sourceFishItemId)
+                FishTraitService.GetAvailableSeasonKeys(sourceFishItemId)
             );
         }
 
@@ -348,33 +350,6 @@ namespace FarmingCapitalist
             }
 
             return MarketTemperament.Mid;
-        }
-
-        private static IEnumerable<string> ExtractSeasonKeys(string sourceFishItemId)
-        {
-            if (!Context.IsWorldReady)
-                return Array.Empty<string>();
-
-            Dictionary<string, string> fishData = DataLoader.Fish(Game1.content);
-            if (!fishData.TryGetValue(sourceFishItemId, out string? rawFishData))
-                return GetAllSeasonKeys();
-
-            string[] fields = rawFishData.Split('/');
-            if (fields.Length <= 6 || string.Equals(fields[1], "trap", StringComparison.OrdinalIgnoreCase))
-                return GetAllSeasonKeys();
-
-            string rawSeasonList = fields[6];
-            if (string.IsNullOrWhiteSpace(rawSeasonList))
-                return GetAllSeasonKeys();
-
-            return rawSeasonList
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(season => season.ToLowerInvariant());
-        }
-
-        private static IEnumerable<string> GetAllSeasonKeys()
-        {
-            return new[] { "spring", "summer", "fall", "winter" };
         }
 
         private static string GetSeasonKeyForDay(int totalDay)

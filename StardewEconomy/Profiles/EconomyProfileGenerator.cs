@@ -14,7 +14,7 @@ namespace FarmingCapitalist
 
         public SaveEconomyProfile Generate(string profileId, int seed)
         {
-            List<string> sellKeys = CropEconomyCategoryRegistry
+            List<string> cropSellKeys = CropEconomyCategoryRegistry
                 .GetRandomizableCategories()
                 .Where(definition => definition.SupportsSell)
                 .Select(definition => definition.Key)
@@ -22,24 +22,28 @@ namespace FarmingCapitalist
                 .ToList();
 
             int requiredCount = _settings.BonusCategoryCount + _settings.NerfCategoryCount;
-            if (sellKeys.Count < requiredCount)
+            if (cropSellKeys.Count < requiredCount)
             {
                 throw new InvalidOperationException(
-                    $"Cannot generate profile: requires {requiredCount} sell categories but only {sellKeys.Count} are registered."
+                    $"Cannot generate crop profile: requires {requiredCount} sell categories but only {cropSellKeys.Count} are registered."
                 );
             }
 
-            Random rng = new(seed);
-            ShuffleInPlace(sellKeys, rng);
-
-            List<string> bonusCategories = sellKeys
-                .Take(_settings.BonusCategoryCount)
+            List<string> fishSellKeys = FishEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+            if (fishSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate fish profile: requires {requiredCount} sell categories but only {fishSellKeys.Count} are registered."
+                );
+            }
 
-            List<string> nerfCategories = sellKeys
-                .Skip(_settings.BonusCategoryCount)
-                .Take(_settings.NerfCategoryCount)
-                .ToList();
+            SelectCategories(cropSellKeys, seed, out List<string> bonusCategories, out List<string> nerfCategories);
+            SelectCategories(fishSellKeys, GetFishGenerationSeed(seed), out List<string> fishBonusCategories, out List<string> fishNerfCategories);
 
             SaveEconomyProfile profile = new()
             {
@@ -47,8 +51,11 @@ namespace FarmingCapitalist
                 Seed = seed,
                 BonusCategories = bonusCategories,
                 NerfCategories = nerfCategories,
+                FishBonusCategories = fishBonusCategories,
+                FishNerfCategories = fishNerfCategories,
                 BuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
-                SellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
+                SellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
+                FishSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
             };
 
             foreach (string category in bonusCategories)
@@ -75,7 +82,76 @@ namespace FarmingCapitalist
                 }
             }
 
+            foreach (string category in fishBonusCategories)
+                profile.FishSellMultipliers[category] = _settings.BonusSellMultiplier;
+
+            foreach (string category in fishNerfCategories)
+                profile.FishSellMultipliers[category] = _settings.NerfSellMultiplier;
+
             return profile;
+        }
+
+        public void PopulateFishSelections(SaveEconomyProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            List<string> fishSellKeys = FishEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            int requiredCount = _settings.BonusCategoryCount + _settings.NerfCategoryCount;
+            if (fishSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate fish profile: requires {requiredCount} sell categories but only {fishSellKeys.Count} are registered."
+                );
+            }
+
+            SelectCategories(
+                fishSellKeys,
+                GetFishGenerationSeed(profile.Seed),
+                out List<string> fishBonusCategories,
+                out List<string> fishNerfCategories
+            );
+
+            profile.FishBonusCategories = fishBonusCategories;
+            profile.FishNerfCategories = fishNerfCategories;
+            profile.FishSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string category in fishBonusCategories)
+                profile.FishSellMultipliers[category] = _settings.BonusSellMultiplier;
+
+            foreach (string category in fishNerfCategories)
+                profile.FishSellMultipliers[category] = _settings.NerfSellMultiplier;
+        }
+
+        private void SelectCategories(
+            List<string> sellKeys,
+            int seed,
+            out List<string> bonusCategories,
+            out List<string> nerfCategories
+        )
+        {
+            List<string> shuffledKeys = new(sellKeys);
+            Random rng = new(seed);
+            ShuffleInPlace(shuffledKeys, rng);
+
+            bonusCategories = shuffledKeys
+                .Take(_settings.BonusCategoryCount)
+                .ToList();
+
+            nerfCategories = shuffledKeys
+                .Skip(_settings.BonusCategoryCount)
+                .Take(_settings.NerfCategoryCount)
+                .ToList();
+        }
+
+        private static int GetFishGenerationSeed(int seed)
+        {
+            return unchecked((seed * 397) ^ 0x5F3759DF);
         }
 
         private static void ShuffleInPlace(List<string> values, Random random)

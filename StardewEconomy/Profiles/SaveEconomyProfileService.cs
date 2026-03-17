@@ -41,7 +41,7 @@ namespace FarmingCapitalist
                         TryWriteProfile(normalized);
 
                     _monitor?.Log(
-                        $"Loaded save economy profile seed {normalized.Seed}. Bonuses: [{string.Join(", ", normalized.BonusCategories)}], nerfs: [{string.Join(", ", normalized.NerfCategories)}].",
+                        $"Loaded save economy profile seed {normalized.Seed}. {FormatProfileCategorySummary(normalized)}",
                         LogLevel.Trace
                     );
                     return;
@@ -60,7 +60,7 @@ namespace FarmingCapitalist
                 TryWriteProfile(generatedProfile);
 
                 _monitor?.Log(
-                    $"Generated new save economy profile seed {generatedProfile.Seed}. Bonuses: [{string.Join(", ", generatedProfile.BonusCategories)}], nerfs: [{string.Join(", ", generatedProfile.NerfCategories)}].",
+                    $"Generated new save economy profile seed {generatedProfile.Seed}. {FormatProfileCategorySummary(generatedProfile)}",
                     LogLevel.Info
                 );
             }
@@ -86,6 +86,17 @@ namespace FarmingCapitalist
             return GetTraitModifier(traits, useBuySide: false);
         }
 
+        public static float GetSellModifierForTraits(FishEconomicTrait traits)
+        {
+            return GetFishTraitModifier(traits);
+        }
+
+        // Keep this summary in sync when adding randomized category families so debug logs stay complete.
+        private static string FormatProfileCategorySummary(SaveEconomyProfile profile)
+        {
+            return $"Crop bonuses: [{string.Join(", ", profile.BonusCategories)}], crop nerfs: [{string.Join(", ", profile.NerfCategories)}], fish bonuses: [{string.Join(", ", profile.FishBonusCategories)}], fish nerfs: [{string.Join(", ", profile.FishNerfCategories)}].";
+        }
+
         private static float GetTraitModifier(CropEconomicTrait traits, bool useBuySide)
         {
             if (traits == CropEconomicTrait.None || _activeProfile is null)
@@ -108,6 +119,26 @@ namespace FarmingCapitalist
                     continue;
 
                 modifier *= GetCategoryMultiplier(multipliers, definition.Key);
+            }
+
+            return modifier;
+        }
+
+        private static float GetFishTraitModifier(FishEconomicTrait traits)
+        {
+            if (traits == FishEconomicTrait.None || _activeProfile is null)
+                return 1f;
+
+            float modifier = 1f;
+            foreach (RandomizableFishEconomyCategoryDefinition definition in FishEconomyCategoryRegistry.GetRandomizableCategories())
+            {
+                if (!definition.SupportsSell)
+                    continue;
+
+                if (!definition.MatchesTraits(traits))
+                    continue;
+
+                modifier *= GetCategoryMultiplier(_activeProfile.FishSellMultipliers, definition.Key);
             }
 
             return modifier;
@@ -148,8 +179,11 @@ namespace FarmingCapitalist
                 Seed = 0,
                 BonusCategories = new List<string>(),
                 NerfCategories = new List<string>(),
+                FishBonusCategories = new List<string>(),
+                FishNerfCategories = new List<string>(),
                 BuyMultipliers = new Dictionary<string, float>(KeyComparer),
-                SellMultipliers = new Dictionary<string, float>(KeyComparer)
+                SellMultipliers = new Dictionary<string, float>(KeyComparer),
+                FishSellMultipliers = new Dictionary<string, float>(KeyComparer)
             };
         }
 
@@ -183,8 +217,11 @@ namespace FarmingCapitalist
                 Seed = loadedProfile.Seed,
                 BonusCategories = new List<string>(),
                 NerfCategories = new List<string>(),
+                FishBonusCategories = new List<string>(),
+                FishNerfCategories = new List<string>(),
                 BuyMultipliers = new Dictionary<string, float>(KeyComparer),
-                SellMultipliers = new Dictionary<string, float>(KeyComparer)
+                SellMultipliers = new Dictionary<string, float>(KeyComparer),
+                FishSellMultipliers = new Dictionary<string, float>(KeyComparer)
             };
 
             List<string> bonusCategories = NormalizeCategories(loadedProfile.BonusCategories, supportsSell: true);
@@ -245,9 +282,50 @@ namespace FarmingCapitalist
                 }
             }
 
+            List<string> fishBonusCategories = NormalizeFishCategories(loadedProfile.FishBonusCategories, supportsSell: true);
+            HashSet<string> disallowedFishNerfCategories = new(fishBonusCategories, KeyComparer);
+            List<string> fishNerfCategories = NormalizeFishCategories(
+                loadedProfile.FishNerfCategories,
+                supportsSell: true,
+                disallowedCategories: disallowedFishNerfCategories
+            );
+
+            if (fishBonusCategories.Count != GenerationSettings.BonusCategoryCount
+                || fishNerfCategories.Count != GenerationSettings.NerfCategoryCount)
+            {
+                Generator.PopulateFishSelections(normalizedProfile);
+                shouldPersist = true;
+            }
+            else
+            {
+                normalizedProfile.FishBonusCategories = fishBonusCategories;
+                normalizedProfile.FishNerfCategories = fishNerfCategories;
+                normalizedProfile.FishSellMultipliers = NormalizeFishMultipliers(loadedProfile.FishSellMultipliers);
+
+                foreach (string category in fishBonusCategories)
+                {
+                    if (!normalizedProfile.FishSellMultipliers.TryGetValue(category, out float multiplier) || !IsValidMultiplier(multiplier))
+                    {
+                        normalizedProfile.FishSellMultipliers[category] = GenerationSettings.BonusSellMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+
+                foreach (string category in fishNerfCategories)
+                {
+                    if (!normalizedProfile.FishSellMultipliers.TryGetValue(category, out float multiplier) || !IsValidMultiplier(multiplier))
+                    {
+                        normalizedProfile.FishSellMultipliers[category] = GenerationSettings.NerfSellMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+            }
+
             if (!string.Equals(normalizedProfile.ProfileId, loadedProfile.ProfileId, StringComparison.Ordinal)
                 || !HaveSameCategoryOrder(loadedProfile.BonusCategories, bonusCategories)
-                || !HaveSameCategoryOrder(loadedProfile.NerfCategories, nerfCategories))
+                || !HaveSameCategoryOrder(loadedProfile.NerfCategories, nerfCategories)
+                || !HaveSameCategoryOrder(loadedProfile.FishBonusCategories, normalizedProfile.FishBonusCategories)
+                || !HaveSameCategoryOrder(loadedProfile.FishNerfCategories, normalizedProfile.FishNerfCategories))
             {
                 shouldPersist = true;
             }
@@ -289,6 +367,40 @@ namespace FarmingCapitalist
             return normalized;
         }
 
+        private static List<string> NormalizeFishCategories(
+            IEnumerable<string>? rawCategories,
+            bool supportsSell,
+            ISet<string>? disallowedCategories = null
+        )
+        {
+            List<string> normalized = new();
+            if (rawCategories is null)
+                return normalized;
+
+            HashSet<string> seen = new(KeyComparer);
+            foreach (string? rawCategory in rawCategories)
+            {
+                if (string.IsNullOrWhiteSpace(rawCategory))
+                    continue;
+
+                if (!FishEconomyCategoryRegistry.TryGetCategory(rawCategory, out RandomizableFishEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsSell && !definition.SupportsSell)
+                    continue;
+
+                if (disallowedCategories is not null && disallowedCategories.Contains(definition.Key))
+                    continue;
+
+                if (!seen.Add(definition.Key))
+                    continue;
+
+                normalized.Add(definition.Key);
+            }
+
+            return normalized;
+        }
+
         private static Dictionary<string, float> NormalizeMultipliers(
             IDictionary<string, float>? rawMultipliers,
             bool supportsBuy
@@ -307,6 +419,29 @@ namespace FarmingCapitalist
                     continue;
 
                 if (!supportsBuy && !definition.SupportsSell)
+                    continue;
+
+                if (!IsValidMultiplier(pair.Value))
+                    continue;
+
+                normalized[definition.Key] = pair.Value;
+            }
+
+            return normalized;
+        }
+
+        private static Dictionary<string, float> NormalizeFishMultipliers(IDictionary<string, float>? rawMultipliers)
+        {
+            Dictionary<string, float> normalized = new(KeyComparer);
+            if (rawMultipliers is null)
+                return normalized;
+
+            foreach (KeyValuePair<string, float> pair in rawMultipliers)
+            {
+                if (!FishEconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableFishEconomyCategoryDefinition definition))
+                    continue;
+
+                if (!definition.SupportsSell)
                     continue;
 
                 if (!IsValidMultiplier(pair.Value))

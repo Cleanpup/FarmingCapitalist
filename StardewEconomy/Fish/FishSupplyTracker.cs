@@ -210,6 +210,12 @@ namespace FarmingCapitalist
             return !string.IsNullOrWhiteSpace(sourceFishItemId);
         }
 
+        internal static bool TryGetSourceFishItemId(string? fishItemId, out string sourceFishItemId)
+        {
+            sourceFishItemId = string.Empty;
+            return TryGetFishMarketInfo(fishItemId, out _, out _, out sourceFishItemId);
+        }
+
         private static bool TryGetFishEconomyItemId(SObject obj, FishEconomyClassification classification, out string fishItemId)
         {
             fishItemId = string.Empty;

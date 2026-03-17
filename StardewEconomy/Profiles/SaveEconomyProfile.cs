@@ -13,8 +13,11 @@ namespace FarmingCapitalist
 
         public List<string> BonusCategories { get; set; } = new();
         public List<string> NerfCategories { get; set; } = new();
+        public List<string> FishBonusCategories { get; set; } = new();
+        public List<string> FishNerfCategories { get; set; } = new();
 
         public Dictionary<string, float> BuyMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, float> SellMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, float> FishSellMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 }

@@ -72,8 +72,8 @@ public class DebugConfig
 public class FishEconomyClassificationConfig
 {
     public bool IncludeRawFish { get; set; } = true;
-    public bool IncludeSmokedFish { get; set; } = false;
-    public bool IncludeRoe { get; set; } = false;
-    public bool IncludeAgedRoe { get; set; } = false;
-    public bool IncludeSeaweedAlgae { get; set; } = false;
+    public bool IncludeSmokedFish { get; set; } = true;
+    public bool IncludeRoe { get; set; } = true;
+    public bool IncludeAgedRoe { get; set; } = true;
+    public bool IncludeSeaweedAlgae { get; set; } = true;
 }

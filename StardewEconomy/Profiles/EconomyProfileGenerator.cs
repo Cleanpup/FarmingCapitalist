@@ -14,7 +14,7 @@ namespace FarmingCapitalist
 
         public SaveEconomyProfile Generate(string profileId, int seed)
         {
-            List<string> sellKeys = EconomyCategoryRegistry
+            List<string> sellKeys = CropEconomyCategoryRegistry
                 .GetRandomizableCategories()
                 .Where(definition => definition.SupportsSell)
                 .Select(definition => definition.Key)
@@ -56,7 +56,7 @@ namespace FarmingCapitalist
                 profile.SellMultipliers[category] = _settings.BonusSellMultiplier;
 
                 if (_settings.RandomizeBuyMultipliers
-                    && EconomyCategoryRegistry.TryGetCategory(category, out RandomizableEconomyCategoryDefinition definition)
+                    && CropEconomyCategoryRegistry.TryGetCategory(category, out RandomizableCropEconomyCategoryDefinition definition)
                     && definition.SupportsBuy)
                 {
                     profile.BuyMultipliers[category] = _settings.BonusBuyMultiplier;
@@ -68,7 +68,7 @@ namespace FarmingCapitalist
                 profile.SellMultipliers[category] = _settings.NerfSellMultiplier;
 
                 if (_settings.RandomizeBuyMultipliers
-                    && EconomyCategoryRegistry.TryGetCategory(category, out RandomizableEconomyCategoryDefinition definition)
+                    && CropEconomyCategoryRegistry.TryGetCategory(category, out RandomizableCropEconomyCategoryDefinition definition)
                     && definition.SupportsBuy)
                 {
                     profile.BuyMultipliers[category] = _settings.NerfBuyMultiplier;

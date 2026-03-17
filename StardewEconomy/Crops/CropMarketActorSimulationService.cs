@@ -23,8 +23,8 @@ namespace FarmingCapitalist
         };
 
         public static Dictionary<string, float> BuildActorAdjustmentsForDay(
-            IList<MarketSimulationActorState> actors,
-            IReadOnlyDictionary<string, MarketCropDefinition> cropDefinitions,
+            IList<CropMarketSimulationActorState> actors,
+            IReadOnlyDictionary<string, CropMarketDefinition> cropDefinitions,
             IReadOnlyDictionary<string, float> supplyScores,
             int currentDay,
             IList<string>? traceLines
@@ -47,24 +47,24 @@ namespace FarmingCapitalist
             return actorAdjustments;
         }
 
-        public static List<MarketSimulationActorState> CreateDefaultActorStates()
+        public static List<CropMarketSimulationActorState> CreateDefaultActorStates()
         {
             return ActorTemplates.Select(CreateActorState).ToList();
         }
 
-        public static List<MarketSimulationActorState> NormalizeLoadedActors(
-            IEnumerable<MarketSimulationActorState>? loadedActors,
+        public static List<CropMarketSimulationActorState> NormalizeLoadedActors(
+            IEnumerable<CropMarketSimulationActorState>? loadedActors,
             out bool shouldPersist
         )
         {
             shouldPersist = false;
 
-            Dictionary<string, MarketSimulationActorState> loadedActorsById = new(KeyComparer);
+            Dictionary<string, CropMarketSimulationActorState> loadedActorsById = new(KeyComparer);
             if (loadedActors is not null)
             {
-                foreach (MarketSimulationActorState actorState in loadedActors)
+                foreach (CropMarketSimulationActorState actorState in loadedActors)
                 {
-                    if (!TryNormalizeActorState(actorState, out MarketSimulationActorState normalizedActorState))
+                    if (!TryNormalizeActorState(actorState, out CropMarketSimulationActorState normalizedActorState))
                     {
                         shouldPersist = true;
                         continue;
@@ -75,10 +75,10 @@ namespace FarmingCapitalist
                 }
             }
 
-            List<MarketSimulationActorState> normalizedActors = new();
+            List<CropMarketSimulationActorState> normalizedActors = new();
             foreach (ActorTemplate actorTemplate in ActorTemplates)
             {
-                if (loadedActorsById.TryGetValue(actorTemplate.ActorId, out MarketSimulationActorState? loadedActor))
+                if (loadedActorsById.TryGetValue(actorTemplate.ActorId, out CropMarketSimulationActorState? loadedActor))
                 {
                     shouldPersist |= ApplyTemplateDefaults(loadedActor, actorTemplate);
                     normalizedActors.Add(loadedActor);
@@ -96,9 +96,9 @@ namespace FarmingCapitalist
         }
 
         private static void ApplyActorActivityForDay(
-            MarketSimulationActorState actorState,
+            CropMarketSimulationActorState actorState,
             int actorIndex,
-            IReadOnlyDictionary<string, MarketCropDefinition> cropDefinitions,
+            IReadOnlyDictionary<string, CropMarketDefinition> cropDefinitions,
             IReadOnlyDictionary<string, float> supplyScores,
             int currentDay,
             IDictionary<string, float> actorAdjustments,
@@ -129,7 +129,7 @@ namespace FarmingCapitalist
 
             foreach (string cropProduceItemId in actorState.FocusCropProduceItemIds)
             {
-                if (!cropDefinitions.TryGetValue(cropProduceItemId, out MarketCropDefinition? definition))
+                if (!cropDefinitions.TryGetValue(cropProduceItemId, out CropMarketDefinition? definition))
                     continue;
 
                 float amount = GetActorAdjustmentAmount(random, definition.Temperament, actorState.InfluenceScale);
@@ -161,8 +161,8 @@ namespace FarmingCapitalist
         }
 
         private static bool TryNormalizeExistingTrend(
-            MarketSimulationActorState actorState,
-            IReadOnlyDictionary<string, MarketCropDefinition> cropDefinitions
+            CropMarketSimulationActorState actorState,
+            IReadOnlyDictionary<string, CropMarketDefinition> cropDefinitions
         )
         {
             if (actorState.TrendDaysRemaining <= 0 || actorState.FocusCropProduceItemIds.Count == 0)
@@ -187,9 +187,9 @@ namespace FarmingCapitalist
         }
 
         private static void StartNewTrend(
-            MarketSimulationActorState actorState,
+            CropMarketSimulationActorState actorState,
             int actorIndex,
-            IReadOnlyDictionary<string, MarketCropDefinition> cropDefinitions,
+            IReadOnlyDictionary<string, CropMarketDefinition> cropDefinitions,
             IReadOnlyDictionary<string, float> supplyScores,
             int currentDay,
             IList<string>? traceLines
@@ -237,7 +237,7 @@ namespace FarmingCapitalist
             Random random,
             int focusCount,
             bool drivesDemand,
-            IReadOnlyDictionary<string, MarketCropDefinition> cropDefinitions,
+            IReadOnlyDictionary<string, CropMarketDefinition> cropDefinitions,
             IReadOnlyDictionary<string, float> supplyScores
         )
         {
@@ -278,7 +278,7 @@ namespace FarmingCapitalist
         }
 
         private static float CalculateFocusWeight(
-            MarketCropDefinition definition,
+            CropMarketDefinition definition,
             float supplyScore,
             bool drivesDemand
         )
@@ -323,7 +323,7 @@ namespace FarmingCapitalist
 
         private static string DescribeFocusCrops(
             IEnumerable<string> cropProduceItemIds,
-            IReadOnlyDictionary<string, MarketCropDefinition> cropDefinitions,
+            IReadOnlyDictionary<string, CropMarketDefinition> cropDefinitions,
             IReadOnlyDictionary<string, float> supplyScores
         )
         {
@@ -333,7 +333,7 @@ namespace FarmingCapitalist
                     .Where(cropDefinitions.ContainsKey)
                     .Select(cropProduceItemId =>
                     {
-                        MarketCropDefinition definition = cropDefinitions[cropProduceItemId];
+                        CropMarketDefinition definition = cropDefinitions[cropProduceItemId];
                         float supplyScore = supplyScores.TryGetValue(cropProduceItemId, out float trackedSupply)
                             ? trackedSupply
                             : CropSupplyDataService.NeutralSupplyScore;
@@ -342,7 +342,7 @@ namespace FarmingCapitalist
             );
         }
 
-        private static bool ShouldDriveDemand(MarketSimulationActorState actorState, Random random)
+        private static bool ShouldDriveDemand(CropMarketSimulationActorState actorState, Random random)
         {
             float demandChance = Math.Clamp(0.5f + (actorState.DemandBias * 0.35f), 0.15f, 0.85f);
             return random.NextDouble() <= demandChance;
@@ -355,11 +355,11 @@ namespace FarmingCapitalist
         }
 
         private static bool TryNormalizeActorState(
-            MarketSimulationActorState actorState,
-            out MarketSimulationActorState normalizedActorState
+            CropMarketSimulationActorState actorState,
+            out CropMarketSimulationActorState normalizedActorState
         )
         {
-            normalizedActorState = new MarketSimulationActorState();
+            normalizedActorState = new CropMarketSimulationActorState();
             if (actorState is null || string.IsNullOrWhiteSpace(actorState.ActorId))
                 return false;
 
@@ -387,7 +387,7 @@ namespace FarmingCapitalist
             return true;
         }
 
-        private static bool ApplyTemplateDefaults(MarketSimulationActorState actorState, ActorTemplate actorTemplate)
+        private static bool ApplyTemplateDefaults(CropMarketSimulationActorState actorState, ActorTemplate actorTemplate)
         {
             bool changed = false;
 
@@ -428,9 +428,9 @@ namespace FarmingCapitalist
             return changed;
         }
 
-        private static MarketSimulationActorState CreateActorState(ActorTemplate actorTemplate)
+        private static CropMarketSimulationActorState CreateActorState(ActorTemplate actorTemplate)
         {
-            return new MarketSimulationActorState
+            return new CropMarketSimulationActorState
             {
                 ActorId = actorTemplate.ActorId,
                 InfluenceScale = actorTemplate.InfluenceScale,

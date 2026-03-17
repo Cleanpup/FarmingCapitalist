@@ -88,7 +88,7 @@ namespace FarmingCapitalist
             if (item is not SObject obj)
                 return false;
 
-            if (!ItemCategoryRules.TryGetFishEconomyClassification(
+            if (!FishEconomyItemRules.TryGetFishEconomyClassification(
                     obj,
                     out FishEconomyClassification classification,
                     out bool isEligible,
@@ -196,7 +196,7 @@ namespace FarmingCapitalist
             if (!TryCreateFishEconomyObject(normalizedFishItemId, out SObject? fishObject) || fishObject is null)
                 return false;
 
-            classification = ItemCategoryRules.GetFishEconomyClassification(fishObject);
+            classification = FishEconomyItemRules.GetFishEconomyClassification(fishObject);
             if (classification == FishEconomyClassification.None)
                 return false;
 
@@ -204,7 +204,7 @@ namespace FarmingCapitalist
                 ? fishObject.Name
                 : fishObject.DisplayName;
 
-            if (!ItemCategoryRules.TryGetFishPreserveSourceItemId(fishObject, out sourceFishItemId))
+            if (!FishEconomyItemRules.TryGetFishPreserveSourceItemId(fishObject, out sourceFishItemId))
                 TryNormalizeFishItemId(fishObject.ItemId, out sourceFishItemId);
 
             return !string.IsNullOrWhiteSpace(sourceFishItemId);
@@ -216,7 +216,7 @@ namespace FarmingCapitalist
             if (classification is FishEconomyClassification.RawFish or FishEconomyClassification.SeaweedAlgae)
                 return TryNormalizeFishItemId(obj.ItemId, out fishItemId);
 
-            if (!ItemCategoryRules.TryGetFishPreserveSourceItemId(obj, out string sourceItemId))
+            if (!FishEconomyItemRules.TryGetFishPreserveSourceItemId(obj, out string sourceItemId))
                 return TryNormalizeFishItemId(obj.ItemId, out fishItemId);
 
             fishItemId = classification switch
@@ -250,12 +250,12 @@ namespace FarmingCapitalist
 
                 obj.preserve.Value = preserveType;
                 obj.preservedParentSheetIndex.Value = sourceItemId;
-                return ItemCategoryRules.GetFishEconomyClassification(obj) != FishEconomyClassification.None;
+                return FishEconomyItemRules.GetFishEconomyClassification(obj) != FishEconomyClassification.None;
             }
 
             obj = ItemRegistry.Create<SObject>("(O)" + normalizedFishItemId, allowNull: true);
             return obj is not null
-                && ItemCategoryRules.GetFishEconomyClassification(obj) != FishEconomyClassification.None;
+                && FishEconomyItemRules.GetFishEconomyClassification(obj) != FishEconomyClassification.None;
         }
 
         private static bool TryParsePreservedFishItemId(

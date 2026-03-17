@@ -21,7 +21,7 @@ namespace FarmingCapitalist
             if (ItemCategoryRules.IsArtisanGood(asItem))
                 return 1.00f;
 
-            if (ItemCategoryRules.IsFishEconomyEligible(asItem))
+            if (FishEconomyItemRules.IsFishEconomyEligible(asItem))
                 return 1.00f;
 
             return 1f;
@@ -31,7 +31,7 @@ namespace FarmingCapitalist
         {
             _ = context;
 
-            if (ItemCategoryRules.IsFishEconomyEligible(item))
+            if (FishEconomyItemRules.IsFishEconomyEligible(item))
                 return 1.00f;
 
             if (ItemCategoryRules.IsGem(item) || ItemCategoryRules.IsMineral(item))

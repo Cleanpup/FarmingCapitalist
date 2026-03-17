@@ -32,11 +32,11 @@ namespace FarmingCapitalist
             "sweet gem berry",
             "ancient fruit"
         };
-        private static readonly Dictionary<string, MarketCropDefinition> CropDefinitionsByProduceId = new(KeyComparer);
+        private static readonly Dictionary<string, CropMarketDefinition> CropDefinitionsByProduceId = new(KeyComparer);
 
         private static IModHelper? _helper;
         private static IMonitor? _monitor;
-        private static MarketSimulationSaveData? _activeData;
+        private static CropMarketSimulationSaveData? _activeData;
         private static bool _debugLoggingEnabled;
 
         public static void Initialize(IModHelper helper, IMonitor monitor, bool debugLoggingEnabled)
@@ -53,7 +53,7 @@ namespace FarmingCapitalist
 
             try
             {
-                MarketSimulationSaveData? loadedData = _helper.Data.ReadSaveData<MarketSimulationSaveData>(SaveDataKey);
+                CropMarketSimulationSaveData? loadedData = _helper.Data.ReadSaveData<CropMarketSimulationSaveData>(SaveDataKey);
                 if (loadedData is null)
                 {
                     _activeData = CreateNewData();
@@ -99,7 +99,7 @@ namespace FarmingCapitalist
                 return false;
             }
 
-            MarketSimulationSaveData data = EnsureActiveData();
+            CropMarketSimulationSaveData data = EnsureActiveData();
             int currentDay = GetCurrentDayKey();
             if (currentDay < 0 || data.LastSimulationDay >= currentDay)
                 return false;
@@ -113,7 +113,7 @@ namespace FarmingCapitalist
                 return false;
             }
 
-            Dictionary<string, MarketCropDefinition> cropDefinitions = BuildCropDefinitions(updatedScores.Keys);
+            Dictionary<string, CropMarketDefinition> cropDefinitions = BuildCropDefinitions(updatedScores.Keys);
             List<string>? traceLines = _debugLoggingEnabled ? new List<string>() : null;
             Dictionary<string, float> actorAdjustments = CropMarketActorSimulationService.BuildActorAdjustmentsForDay(
                 data.Actors,
@@ -126,7 +126,7 @@ namespace FarmingCapitalist
             bool changed = false;
             foreach (string cropProduceItemId in updatedScores.Keys.ToList())
             {
-                MarketCropDefinition definition = cropDefinitions[cropProduceItemId];
+                CropMarketDefinition definition = cropDefinitions[cropProduceItemId];
                 float previousSupply = updatedScores[cropProduceItemId];
                 float meanReversionAdjustment = CalculateMeanReversionAdjustment(previousSupply, definition.Temperament);
                 float seasonalAdjustment = definition.GrowsInSeason(Game1.currentSeason)
@@ -168,12 +168,12 @@ namespace FarmingCapitalist
             return true;
         }
 
-        private static Dictionary<string, MarketCropDefinition> BuildCropDefinitions(IEnumerable<string> cropProduceItemIds)
+        private static Dictionary<string, CropMarketDefinition> BuildCropDefinitions(IEnumerable<string> cropProduceItemIds)
         {
-            Dictionary<string, MarketCropDefinition> definitions = new(KeyComparer);
+            Dictionary<string, CropMarketDefinition> definitions = new(KeyComparer);
             foreach (string cropProduceItemId in cropProduceItemIds)
             {
-                if (!CropDefinitionsByProduceId.TryGetValue(cropProduceItemId, out MarketCropDefinition? definition))
+                if (!CropDefinitionsByProduceId.TryGetValue(cropProduceItemId, out CropMarketDefinition? definition))
                 {
                     definition = CreateCropDefinition(cropProduceItemId);
                     CropDefinitionsByProduceId[cropProduceItemId] = definition;
@@ -185,12 +185,12 @@ namespace FarmingCapitalist
             return definitions;
         }
 
-        private static MarketCropDefinition CreateCropDefinition(string cropProduceItemId)
+        private static CropMarketDefinition CreateCropDefinition(string cropProduceItemId)
         {
             string displayName = CropSupplyTracker.GetCropDisplayName(cropProduceItemId);
             if (!CropTraitService.TryGetCropData(cropProduceItemId, out string seedItemId, out CropData? cropData) || cropData is null)
             {
-                return new MarketCropDefinition(
+                return new CropMarketDefinition(
                     cropProduceItemId,
                     displayName,
                     seedItemId: string.Empty,
@@ -199,7 +199,7 @@ namespace FarmingCapitalist
                 );
             }
 
-            return new MarketCropDefinition(
+            return new CropMarketDefinition(
                 cropProduceItemId,
                 displayName,
                 seedItemId,
@@ -294,16 +294,16 @@ namespace FarmingCapitalist
             return Math.Clamp(value, MinSupplyScore, MaxSupplyScore);
         }
 
-        private static MarketSimulationSaveData EnsureActiveData()
+        private static CropMarketSimulationSaveData EnsureActiveData()
         {
             _activeData ??= CreateNewData();
             return _activeData;
         }
 
-        private static MarketSimulationSaveData CreateNewData()
+        private static CropMarketSimulationSaveData CreateNewData()
         {
             int currentDay = GetCurrentDayKey();
-            return new MarketSimulationSaveData
+            return new CropMarketSimulationSaveData
             {
                 LastSimulationDay = currentDay >= 0
                     ? currentDay - 1
@@ -312,14 +312,14 @@ namespace FarmingCapitalist
             };
         }
 
-        private static MarketSimulationSaveData NormalizeLoadedData(
-            MarketSimulationSaveData loadedData,
+        private static CropMarketSimulationSaveData NormalizeLoadedData(
+            CropMarketSimulationSaveData loadedData,
             out bool shouldPersist
         )
         {
             shouldPersist = false;
 
-            MarketSimulationSaveData normalizedData = new()
+            CropMarketSimulationSaveData normalizedData = new()
             {
                 LastSimulationDay = Math.Max(-1, loadedData.LastSimulationDay),
                 Actors = CropMarketActorSimulationService.NormalizeLoadedActors(loadedData.Actors, out bool actorsShouldPersist)

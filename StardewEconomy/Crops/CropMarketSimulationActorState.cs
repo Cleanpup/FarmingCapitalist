@@ -2,7 +2,7 @@ using System;
 
 namespace FarmingCapitalist
 {
-    public sealed class MarketSimulationActorState
+    public sealed class CropMarketSimulationActorState
     {
         public string ActorId { get; set; } = string.Empty;
         public float InfluenceScale { get; set; } = 1f;

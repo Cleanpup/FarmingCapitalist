@@ -1,6 +1,6 @@
 namespace FarmingCapitalist
 {
-    internal sealed class MarketCropDefinition
+    internal sealed class CropMarketDefinition
     {
         private readonly HashSet<string> _growingSeasons;
 
@@ -10,7 +10,7 @@ namespace FarmingCapitalist
         public MarketTemperament Temperament { get; }
         public IReadOnlyCollection<string> GrowingSeasons => _growingSeasons;
 
-        public MarketCropDefinition(
+        public CropMarketDefinition(
             string produceItemId,
             string displayName,
             string seedItemId,

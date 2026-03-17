@@ -1,13 +1,12 @@
 namespace FarmingCapitalist
 {
     /// <summary>
-    /// Central source of category keys eligible for randomized save-profile modifiers.
-    /// Add new categories here to include them in generation/application.
+    /// Central source of crop category keys eligible for randomized save-profile modifiers.
     /// </summary>
-    internal static class EconomyCategoryRegistry
+    internal static class CropEconomyCategoryRegistry
     {
-        private static readonly IReadOnlyList<RandomizableEconomyCategoryDefinition> Definitions =
-            new List<RandomizableEconomyCategoryDefinition>
+        private static readonly IReadOnlyList<RandomizableCropEconomyCategoryDefinition> Definitions =
+            new List<RandomizableCropEconomyCategoryDefinition>
             {
                 new(nameof(CropEconomicTrait.SingleHarvest), CropEconomicTrait.SingleHarvest),
                 new(nameof(CropEconomicTrait.Regrowth), CropEconomicTrait.Regrowth),
@@ -24,12 +23,12 @@ namespace FarmingCapitalist
                 new(nameof(CropEconomicTrait.HighHarvestFrequency), CropEconomicTrait.HighHarvestFrequency)
             };
 
-        private static readonly Dictionary<string, RandomizableEconomyCategoryDefinition> DefinitionsByKey =
+        private static readonly Dictionary<string, RandomizableCropEconomyCategoryDefinition> DefinitionsByKey =
             Definitions.ToDictionary(definition => definition.Key, StringComparer.OrdinalIgnoreCase);
 
-        public static IReadOnlyList<RandomizableEconomyCategoryDefinition> GetRandomizableCategories() => Definitions;
+        public static IReadOnlyList<RandomizableCropEconomyCategoryDefinition> GetRandomizableCategories() => Definitions;
 
-        public static bool TryGetCategory(string? key, out RandomizableEconomyCategoryDefinition definition)
+        public static bool TryGetCategory(string? key, out RandomizableCropEconomyCategoryDefinition definition)
         {
             if (!string.IsNullOrWhiteSpace(key) && DefinitionsByKey.TryGetValue(key, out definition!))
                 return true;

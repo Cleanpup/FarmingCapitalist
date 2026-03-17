@@ -19,7 +19,7 @@ namespace FarmingCapitalist
         public override void Entry(IModHelper helper)
         {
             Config = helper.ReadConfig<ModConfig>();
-            ItemCategoryRules.Initialize(Config.FishClassification);
+            FishEconomyItemRules.Initialize(Config.FishClassification);
             VerbosePriceTraceLogger.Initialize(this.Monitor, Config.EnableVerbosePriceTrace);
             SaveEconomyProfileService.Initialize(helper, this.Monitor);
             CropSupplyDataService.Initialize(helper, this.Monitor);

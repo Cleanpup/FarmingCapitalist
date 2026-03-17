@@ -31,7 +31,7 @@ namespace FarmingCapitalist
             bool applyFishSupplyModifier = false;
 
             if (fishSupplySystemEnabled
-                && ItemCategoryRules.TryGetFishEconomyClassification(
+                && FishEconomyItemRules.TryGetFishEconomyClassification(
                     item,
                     out _,
                     out bool isFishEconomyEligible,

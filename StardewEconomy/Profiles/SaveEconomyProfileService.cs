@@ -96,7 +96,7 @@ namespace FarmingCapitalist
                 ? _activeProfile.BuyMultipliers
                 : _activeProfile.SellMultipliers;
 
-            foreach (RandomizableEconomyCategoryDefinition definition in EconomyCategoryRegistry.GetRandomizableCategories())
+            foreach (RandomizableCropEconomyCategoryDefinition definition in CropEconomyCategoryRegistry.GetRandomizableCategories())
             {
                 if (useBuySide && !definition.SupportsBuy)
                     continue;
@@ -216,7 +216,7 @@ namespace FarmingCapitalist
                 }
 
                 if (GenerationSettings.RandomizeBuyMultipliers
-                    && EconomyCategoryRegistry.TryGetCategory(category, out RandomizableEconomyCategoryDefinition definition)
+                    && CropEconomyCategoryRegistry.TryGetCategory(category, out RandomizableCropEconomyCategoryDefinition definition)
                     && definition.SupportsBuy
                     && (!normalizedProfile.BuyMultipliers.TryGetValue(category, out float buyMultiplier)
                         || !IsValidMultiplier(buyMultiplier)))
@@ -235,7 +235,7 @@ namespace FarmingCapitalist
                 }
 
                 if (GenerationSettings.RandomizeBuyMultipliers
-                    && EconomyCategoryRegistry.TryGetCategory(category, out RandomizableEconomyCategoryDefinition definition)
+                    && CropEconomyCategoryRegistry.TryGetCategory(category, out RandomizableCropEconomyCategoryDefinition definition)
                     && definition.SupportsBuy
                     && (!normalizedProfile.BuyMultipliers.TryGetValue(category, out float buyMultiplier)
                         || !IsValidMultiplier(buyMultiplier)))
@@ -271,7 +271,7 @@ namespace FarmingCapitalist
                 if (string.IsNullOrWhiteSpace(rawCategory))
                     continue;
 
-                if (!EconomyCategoryRegistry.TryGetCategory(rawCategory, out RandomizableEconomyCategoryDefinition definition))
+                if (!CropEconomyCategoryRegistry.TryGetCategory(rawCategory, out RandomizableCropEconomyCategoryDefinition definition))
                     continue;
 
                 if (supportsSell && !definition.SupportsSell)
@@ -300,7 +300,7 @@ namespace FarmingCapitalist
 
             foreach (KeyValuePair<string, float> pair in rawMultipliers)
             {
-                if (!EconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableEconomyCategoryDefinition definition))
+                if (!CropEconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableCropEconomyCategoryDefinition definition))
                     continue;
 
                 if (supportsBuy && !definition.SupportsBuy)

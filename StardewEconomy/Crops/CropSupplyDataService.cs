@@ -9,7 +9,7 @@ namespace FarmingCapitalist
     internal static class CropSupplyDataService
     {
         private const string SaveDataKey = "crop-supply";
-        internal const float NeutralSupplyScore = 100f;
+        internal const float NeutralSupplyScore = CropMarketTuning.NeutralSupplyScore;
 
         private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
 

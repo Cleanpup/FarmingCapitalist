@@ -11,11 +11,6 @@ namespace FarmingCapitalist
         private const string SaveDataKey = "market-simulation";
         private const string LogPrefix = "[MARKET_SIM]";
         private const LogLevel VerboseLogLevel = LogLevel.Trace;
-        // A 12.4% daily pull reduces a 200-point surplus to roughly 5 points over 28 days.
-        private const float BaseRecoveryRate = 0.124f;
-        private const float MinSupplyScore = 20f;
-        private const float MaxSupplyScore = 300f;
-        private const float BaseSeasonalDemandStrength = 0.75f;
 
         private static readonly PropertyInfo? CropSeasonsProperty = typeof(CropData).GetProperty("Seasons");
         private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
@@ -263,7 +258,7 @@ namespace FarmingCapitalist
 
         private static float CalculateMeanReversionAdjustment(float currentSupply, MarketTemperament temperament)
         {
-            float recoveryRate = BaseRecoveryRate * GetRecoveryRateMultiplier(temperament);
+            float recoveryRate = CropMarketTuning.BaseRecoveryRate * GetRecoveryRateMultiplier(temperament);
             return (CropSupplyDataService.NeutralSupplyScore - currentSupply) * recoveryRate;
         }
 
@@ -280,7 +275,7 @@ namespace FarmingCapitalist
 
         private static float GetSeasonalDemandStrength(MarketTemperament temperament)
         {
-            return BaseSeasonalDemandStrength * temperament switch
+            return CropMarketTuning.BaseSeasonalDemandStrength * temperament switch
             {
                 MarketTemperament.Staple => 0.75f,
                 MarketTemperament.Mid => 1f,
@@ -291,7 +286,7 @@ namespace FarmingCapitalist
 
         private static float ClampSupply(float value)
         {
-            return Math.Clamp(value, MinSupplyScore, MaxSupplyScore);
+            return CropMarketTuning.ClampSupply(value);
         }
 
         private static CropMarketSimulationSaveData EnsureActiveData()

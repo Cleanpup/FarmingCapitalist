@@ -1,6 +1,6 @@
 namespace FarmingCapitalist
 {
-    internal sealed class CropMarketDefinition
+    internal sealed class CropMarketDefinition : ICategoryMarketDefinition
     {
         private readonly HashSet<string> _growingSeasons;
 
@@ -33,5 +33,14 @@ namespace FarmingCapitalist
             return !string.IsNullOrWhiteSpace(currentSeason)
                 && _growingSeasons.Contains(currentSeason.Trim());
         }
+
+        // Maps the shared category item ID onto the existing produce item identifier.
+        string ICategoryMarketDefinition.ItemId => ProduceItemId;
+
+        // Maps the shared seasonal keys contract onto the existing crop season collection.
+        IReadOnlyCollection<string> ICategoryMarketDefinition.SeasonalKeys => GrowingSeasons;
+
+        // Maps shared availability checks onto the existing crop season helper.
+        bool ICategoryMarketDefinition.IsAvailableInSeason(string? seasonKey) => GrowsInSeason(seasonKey);
     }
 }

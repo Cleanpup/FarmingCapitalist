@@ -1,6 +1,6 @@
 namespace FarmingCapitalist
 {
-    internal sealed class FishMarketDefinition
+    internal sealed class FishMarketDefinition : ICategoryMarketDefinition
     {
         private readonly HashSet<string> _availableSeasons;
 
@@ -41,6 +41,15 @@ namespace FarmingCapitalist
             return !string.IsNullOrWhiteSpace(seasonKey)
                 && _availableSeasons.Contains(seasonKey.Trim());
         }
+
+        // Maps the shared category item ID onto the existing fish item identifier.
+        string ICategoryMarketDefinition.ItemId => FishItemId;
+
+        // Maps the shared seasonal keys contract onto the existing fish season collection.
+        IReadOnlyCollection<string> ICategoryMarketDefinition.SeasonalKeys => AvailableSeasons;
+
+        // Maps shared availability checks onto the existing fish season helper.
+        bool ICategoryMarketDefinition.IsAvailableInSeason(string? seasonKey) => IsAvailableInSeason(seasonKey);
 
         public bool HasTrait(FishEconomicTrait trait)
         {

@@ -4,7 +4,7 @@ namespace FarmingCapitalist
     /// Defines the common runtime contract for reading and mutating tracked supply scores.
     /// Category-specific daily simulation or decay should stay outside this interface.
     /// </summary>
-    internal interface ISupplyDataService
+    internal interface ICategoryDataService
     {
         /// <summary>Gets the neutral score that represents an unchanged market state.</summary>
         float NeutralSupplyScore { get; }

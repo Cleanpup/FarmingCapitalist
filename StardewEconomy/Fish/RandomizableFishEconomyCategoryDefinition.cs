@@ -3,7 +3,7 @@ namespace FarmingCapitalist
     /// <summary>
     /// Registry metadata for fish economy categories that can be randomized by a save profile.
     /// </summary>
-    internal sealed class RandomizableFishEconomyCategoryDefinition
+    internal sealed class RandomizableFishEconomyCategoryDefinition : ICategoryRandomizableDefinition<FishEconomicTrait>
     {
         public string Key { get; }
         public FishEconomicTrait Trait { get; }

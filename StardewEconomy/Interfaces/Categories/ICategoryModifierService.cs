@@ -6,7 +6,7 @@ namespace FarmingCapitalist
     /// Defines the common runtime contract for converting tracked supply scores into sell-price modifiers.
     /// Category-specific item detection should stay outside this interface.
     /// </summary>
-    internal interface ISupplyModifierService
+    internal interface ICategoryModifierService
     {
         /// <summary>Gets whether this modifier service is enabled for live sell-price adjustment.</summary>
         bool ApplyToLiveSellPricing { get; }

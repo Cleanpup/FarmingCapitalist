@@ -3,7 +3,7 @@ namespace FarmingCapitalist
     /// <summary>
     /// Registry metadata for crop economy categories that can be randomized by a save profile.
     /// </summary>
-    internal sealed class RandomizableCropEconomyCategoryDefinition
+    internal sealed class RandomizableCropEconomyCategoryDefinition : ICategoryRandomizableDefinition<CropEconomicTrait>
     {
         public string Key { get; }
         public CropEconomicTrait Trait { get; }

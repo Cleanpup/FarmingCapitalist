@@ -302,7 +302,7 @@ namespace FarmingCapitalist
             if (!drivesDemand && supplyScore > CropSupplyDataService.NeutralSupplyScore)
                 weight += 0.25f;
 
-            float deviationWeight = Math.Min(0.35f, MathF.Abs(supplyScore - CropSupplyDataService.NeutralSupplyScore) / 300f);
+            float deviationWeight = Math.Min(0.35f, MathF.Abs(supplyScore - CropSupplyDataService.NeutralSupplyScore) / CropMarketTuning.ActorDeviationWeightRange);
             return weight + deviationWeight;
         }
 

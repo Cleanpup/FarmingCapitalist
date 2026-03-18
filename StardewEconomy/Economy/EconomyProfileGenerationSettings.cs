@@ -7,6 +7,8 @@ namespace FarmingCapitalist
     {
         public int BonusCategoryCount { get; init; } = 2;
         public int NerfCategoryCount { get; init; } = 2;
+        public int MonsterLootBonusCategoryCount { get; init; } = 1;
+        public int MonsterLootNerfCategoryCount { get; init; } = 1;
 
         public float BonusSellMultiplier { get; init; } = 1.15f;
         public float NerfSellMultiplier { get; init; } = 0.85f;

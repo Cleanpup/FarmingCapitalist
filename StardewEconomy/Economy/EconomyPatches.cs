@@ -26,6 +26,10 @@ namespace FarmingCapitalist
             CropTraitService.Monitor = monitor;
             FishTraitService.Monitor = monitor;
             MineralTraitService.Monitor = monitor;
+            AnimalProductTraitService.Monitor = monitor;
+            ForageableTraitService.Monitor = monitor;
+            ArtisanGoodTraitService.Monitor = monitor;
+            MonsterLootTraitService.Monitor = monitor;
             _harmony = new Harmony(harmonyId);
 
             try
@@ -209,6 +213,10 @@ namespace FarmingCapitalist
                 CropSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
                 FishSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
                 MineralSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
+                AnimalProductSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
+                ForageableSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
+                ArtisanGoodSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
+                MonsterLootSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
             }
             catch (Exception ex)
             {
@@ -256,7 +264,11 @@ namespace FarmingCapitalist
                 bool shouldTrackCrop = CropSupplyTracker.TryGetCropProduceInfo(clickedItem, out string produceItemId, out string cropDisplayName);
                 bool shouldTrackFish = FishSupplyTracker.TryGetFishInfo(clickedItem, out string fishItemId, out string fishDisplayName);
                 bool shouldTrackMineral = MineralSupplyTracker.TryGetMineralInfo(clickedItem, out string mineralItemId, out string mineralDisplayName);
-                if (!shouldTrackCrop && !shouldTrackFish && !shouldTrackMineral)
+                bool shouldTrackAnimalProduct = AnimalProductSupplyTracker.TryGetAnimalProductInfo(clickedItem, out string animalProductItemId, out string animalProductDisplayName);
+                bool shouldTrackForageable = ForageableSupplyTracker.TryGetForageableInfo(clickedItem, out string forageableItemId, out string forageableDisplayName);
+                bool shouldTrackArtisanGood = ArtisanGoodSupplyTracker.TryGetArtisanGoodInfo(clickedItem, out string artisanGoodItemId, out string artisanGoodDisplayName);
+                bool shouldTrackMonsterLoot = MonsterLootSupplyTracker.TryGetMonsterLootInfo(clickedItem, out string monsterLootItemId, out string monsterLootDisplayName);
+                if (!shouldTrackCrop && !shouldTrackFish && !shouldTrackMineral && !shouldTrackAnimalProduct && !shouldTrackForageable && !shouldTrackArtisanGood && !shouldTrackMonsterLoot)
                     return PendingShopSaleState.CreateSkipped();
 
                 return new PendingShopSaleState(
@@ -269,6 +281,18 @@ namespace FarmingCapitalist
                     ShouldTrackMineral: shouldTrackMineral,
                     MineralItemId: mineralItemId,
                     MineralDisplayName: mineralDisplayName,
+                    ShouldTrackAnimalProduct: shouldTrackAnimalProduct,
+                    AnimalProductItemId: animalProductItemId,
+                    AnimalProductDisplayName: animalProductDisplayName,
+                    ShouldTrackForageable: shouldTrackForageable,
+                    ForageableItemId: forageableItemId,
+                    ForageableDisplayName: forageableDisplayName,
+                    ShouldTrackArtisanGood: shouldTrackArtisanGood,
+                    ArtisanGoodItemId: artisanGoodItemId,
+                    ArtisanGoodDisplayName: artisanGoodDisplayName,
+                    ShouldTrackMonsterLoot: shouldTrackMonsterLoot,
+                    MonsterLootItemId: monsterLootItemId,
+                    MonsterLootDisplayName: monsterLootDisplayName,
                     SlotIndex: inventoryIndex,
                     QualifiedItemId: clickedItem.QualifiedItemId,
                     OriginalStack: clickedItem.Stack
@@ -333,6 +357,46 @@ namespace FarmingCapitalist
                         source
                     );
                 }
+
+                if (state.ShouldTrackAnimalProduct)
+                {
+                    AnimalProductSupplyTracker.TrackAnimalProductSale(
+                        state.AnimalProductItemId,
+                        state.AnimalProductDisplayName,
+                        soldQuantity,
+                        source
+                    );
+                }
+
+                if (state.ShouldTrackForageable)
+                {
+                    ForageableSupplyTracker.TrackForageableSale(
+                        state.ForageableItemId,
+                        state.ForageableDisplayName,
+                        soldQuantity,
+                        source
+                    );
+                }
+
+                if (state.ShouldTrackArtisanGood)
+                {
+                    ArtisanGoodSupplyTracker.TrackArtisanGoodSale(
+                        state.ArtisanGoodItemId,
+                        state.ArtisanGoodDisplayName,
+                        soldQuantity,
+                        source
+                    );
+                }
+
+                if (state.ShouldTrackMonsterLoot)
+                {
+                    MonsterLootSupplyTracker.TrackMonsterLootSale(
+                        state.MonsterLootItemId,
+                        state.MonsterLootDisplayName,
+                        soldQuantity,
+                        source
+                    );
+                }
             }
             catch (Exception ex)
             {
@@ -353,11 +417,19 @@ namespace FarmingCapitalist
                 CropTraitService.Monitor = null;
                 FishTraitService.Monitor = null;
                 MineralTraitService.Monitor = null;
+                AnimalProductTraitService.Monitor = null;
+                ForageableTraitService.Monitor = null;
+                ArtisanGoodTraitService.Monitor = null;
+                MonsterLootTraitService.Monitor = null;
                 ShopPriceRuntimeService.Clear();
                 FrozenOvernightSellContext = null;
                 CropSupplyDataService.ClearActiveData();
                 FishSupplyDataService.ClearActiveData();
                 MineralSupplyDataService.ClearActiveData();
+                AnimalProductSupplyDataService.ClearActiveData();
+                ForageableSupplyDataService.ClearActiveData();
+                ArtisanGoodSupplyDataService.ClearActiveData();
+                MonsterLootSupplyDataService.ClearActiveData();
                 Monitor = null;
             }
             catch (Exception ex)
@@ -376,6 +448,18 @@ namespace FarmingCapitalist
             bool ShouldTrackMineral,
             string MineralItemId,
             string MineralDisplayName,
+            bool ShouldTrackAnimalProduct,
+            string AnimalProductItemId,
+            string AnimalProductDisplayName,
+            bool ShouldTrackForageable,
+            string ForageableItemId,
+            string ForageableDisplayName,
+            bool ShouldTrackArtisanGood,
+            string ArtisanGoodItemId,
+            string ArtisanGoodDisplayName,
+            bool ShouldTrackMonsterLoot,
+            string MonsterLootItemId,
+            string MonsterLootDisplayName,
             int SlotIndex,
             string QualifiedItemId,
             int OriginalStack
@@ -393,6 +477,18 @@ namespace FarmingCapitalist
                     ShouldTrackMineral: false,
                     MineralItemId: string.Empty,
                     MineralDisplayName: string.Empty,
+                    ShouldTrackAnimalProduct: false,
+                    AnimalProductItemId: string.Empty,
+                    AnimalProductDisplayName: string.Empty,
+                    ShouldTrackForageable: false,
+                    ForageableItemId: string.Empty,
+                    ForageableDisplayName: string.Empty,
+                    ShouldTrackArtisanGood: false,
+                    ArtisanGoodItemId: string.Empty,
+                    ArtisanGoodDisplayName: string.Empty,
+                    ShouldTrackMonsterLoot: false,
+                    MonsterLootItemId: string.Empty,
+                    MonsterLootDisplayName: string.Empty,
                     SlotIndex: -1,
                     QualifiedItemId: string.Empty,
                     OriginalStack: 0

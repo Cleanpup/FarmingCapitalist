@@ -4,7 +4,8 @@ using SObject = StardewValley.Object;
 namespace FarmingCapitalist
 {
     /// <summary>
-    /// Mineral-owned eligibility and normalization helpers. Base category predicates remain in ItemCategoryRules.
+    /// Mining-owned eligibility and normalization helpers. Base category predicates remain in ItemCategoryRules.
+    /// The owning module still uses Mineral* type names for save compatibility, but it now covers the broader mining bucket.
     /// </summary>
     internal static class MineralEconomyItemRules
     {
@@ -19,7 +20,7 @@ namespace FarmingCapitalist
             if (item is not SObject obj || string.IsNullOrWhiteSpace(obj.ItemId))
                 return false;
 
-            if (!ItemCategoryRules.IsMineral(obj))
+            if (!ItemCategoryRules.IsMiningMaterial(obj))
                 return false;
 
             mineralObject = obj;
@@ -51,7 +52,7 @@ namespace FarmingCapitalist
                 return false;
 
             mineralObject = ItemRegistry.Create<SObject>("(O)" + normalizedMineralItemId, allowNull: true);
-            return mineralObject is not null && ItemCategoryRules.IsMineral(mineralObject);
+            return mineralObject is not null && ItemCategoryRules.IsMiningMaterial(mineralObject);
         }
     }
 }

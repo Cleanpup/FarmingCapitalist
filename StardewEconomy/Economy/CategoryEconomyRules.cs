@@ -21,7 +21,19 @@ namespace FarmingCapitalist
             if (ItemCategoryRules.IsArtisanGood(asItem))
                 return 1.00f;
 
+            if (ArtisanGoodEconomyItemRules.IsArtisanGoodEligible(asItem))
+                return 1.00f;
+
             if (FishEconomyItemRules.IsFishEconomyEligible(asItem))
+                return 1.00f;
+
+            if (AnimalProductEconomyItemRules.IsAnimalProductEligible(asItem))
+                return 1.00f;
+
+            if (ForageableEconomyItemRules.IsForageableEligible(asItem))
+                return 1.00f;
+
+            if (MonsterLootEconomyItemRules.IsMonsterLootEligible(asItem))
                 return 1.00f;
 
             return 1f;
@@ -34,7 +46,19 @@ namespace FarmingCapitalist
             if (FishEconomyItemRules.IsFishEconomyEligible(item))
                 return 1.00f;
 
-            if (ItemCategoryRules.IsGem(item) || ItemCategoryRules.IsMineral(item))
+            if (MineralEconomyItemRules.IsMineralEconomyEligible(item))
+                return 1.00f;
+
+            if (AnimalProductEconomyItemRules.IsAnimalProductEligible(item))
+                return 1.00f;
+
+            if (ForageableEconomyItemRules.IsForageableEligible(item))
+                return 1.00f;
+
+            if (ArtisanGoodEconomyItemRules.IsArtisanGoodEligible(item))
+                return 1.00f;
+
+            if (MonsterLootEconomyItemRules.IsMonsterLootEligible(item))
                 return 1.00f;
 
             if (ItemCategoryRules.IsArtisanGood(item))

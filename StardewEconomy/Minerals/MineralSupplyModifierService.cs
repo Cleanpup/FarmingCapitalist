@@ -3,7 +3,7 @@ using StardewValley;
 namespace FarmingCapitalist
 {
     /// <summary>
-    /// Converts tracked supply into a sell-price modifier for minerals.
+    /// Converts tracked supply into a sell-price modifier for mining items.
     /// </summary>
     internal static class MineralSupplyModifierService
     {
@@ -82,7 +82,7 @@ namespace FarmingCapitalist
                 : mineralDisplayName;
 
             VerbosePriceTraceLogger.Log(
-                $"Mineral supply modifier for {displayName} ({normalizedMineralItemId}): supply {supplyScore:0.##} vs neutral {MineralSupplyDataService.NeutralSupplyScore:0.##} -> x{modifier:0.###}"
+                $"Mining supply modifier for {displayName} ({normalizedMineralItemId}): supply {supplyScore:0.##} vs neutral {MineralSupplyDataService.NeutralSupplyScore:0.##} -> x{modifier:0.###}"
             );
 
             return modifier;

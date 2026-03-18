@@ -96,10 +96,50 @@ namespace FarmingCapitalist
             return GetMineralTraitModifier(traits);
         }
 
+        public static float GetBuyModifierForTraits(AnimalProductEconomicTrait traits)
+        {
+            return GetAnimalProductTraitModifier(traits, useBuySide: true);
+        }
+
+        public static float GetSellModifierForTraits(AnimalProductEconomicTrait traits)
+        {
+            return GetAnimalProductTraitModifier(traits, useBuySide: false);
+        }
+
+        public static float GetBuyModifierForTraits(ForageableEconomicTrait traits)
+        {
+            return GetForageableTraitModifier(traits, useBuySide: true);
+        }
+
+        public static float GetSellModifierForTraits(ForageableEconomicTrait traits)
+        {
+            return GetForageableTraitModifier(traits, useBuySide: false);
+        }
+
+        public static float GetBuyModifierForTraits(ArtisanGoodEconomicTrait traits)
+        {
+            return GetArtisanGoodTraitModifier(traits, useBuySide: true);
+        }
+
+        public static float GetSellModifierForTraits(ArtisanGoodEconomicTrait traits)
+        {
+            return GetArtisanGoodTraitModifier(traits, useBuySide: false);
+        }
+
+        public static float GetBuyModifierForTraits(MonsterLootEconomicTrait traits)
+        {
+            return GetMonsterLootTraitModifier(traits, useBuySide: true);
+        }
+
+        public static float GetSellModifierForTraits(MonsterLootEconomicTrait traits)
+        {
+            return GetMonsterLootTraitModifier(traits, useBuySide: false);
+        }
+
         // Keep this summary in sync when adding randomized category families so debug logs stay complete.
         private static string FormatProfileCategorySummary(SaveEconomyProfile profile)
         {
-            return $"Crop bonuses: [{string.Join(", ", profile.BonusCategories)}], crop nerfs: [{string.Join(", ", profile.NerfCategories)}], fish bonuses: [{string.Join(", ", profile.FishBonusCategories)}], fish nerfs: [{string.Join(", ", profile.FishNerfCategories)}], mineral bonuses: [{string.Join(", ", profile.MineralBonusCategories)}], mineral nerfs: [{string.Join(", ", profile.MineralNerfCategories)}].";
+            return $"Crop bonuses: [{string.Join(", ", profile.BonusCategories)}], crop nerfs: [{string.Join(", ", profile.NerfCategories)}], fish bonuses: [{string.Join(", ", profile.FishBonusCategories)}], fish nerfs: [{string.Join(", ", profile.FishNerfCategories)}], mining bonuses: [{string.Join(", ", profile.MineralBonusCategories)}], mining nerfs: [{string.Join(", ", profile.MineralNerfCategories)}], animal product bonuses: [{string.Join(", ", profile.AnimalProductBonusCategories)}], animal product nerfs: [{string.Join(", ", profile.AnimalProductNerfCategories)}], forageable bonuses: [{string.Join(", ", profile.ForageableBonusCategories)}], forageable nerfs: [{string.Join(", ", profile.ForageableNerfCategories)}], artisan good bonuses: [{string.Join(", ", profile.ArtisanGoodBonusCategories)}], artisan good nerfs: [{string.Join(", ", profile.ArtisanGoodNerfCategories)}], monster-loot bonuses: [{string.Join(", ", profile.MonsterLootBonusCategories)}], monster-loot nerfs: [{string.Join(", ", profile.MonsterLootNerfCategories)}].";
         }
 
         private static float GetTraitModifier(CropEconomicTrait traits, bool useBuySide)
@@ -169,6 +209,114 @@ namespace FarmingCapitalist
             return modifier;
         }
 
+        private static float GetAnimalProductTraitModifier(AnimalProductEconomicTrait traits, bool useBuySide)
+        {
+            if (traits == AnimalProductEconomicTrait.None || _activeProfile is null)
+                return 1f;
+
+            float modifier = 1f;
+            Dictionary<string, float> multipliers = useBuySide
+                ? _activeProfile.AnimalProductBuyMultipliers
+                : _activeProfile.AnimalProductSellMultipliers;
+
+            foreach (RandomizableAnimalProductEconomyCategoryDefinition definition in AnimalProductEconomyCategoryRegistry.GetRandomizableCategories())
+            {
+                if (useBuySide && !definition.SupportsBuy)
+                    continue;
+
+                if (!useBuySide && !definition.SupportsSell)
+                    continue;
+
+                if (!definition.MatchesTraits(traits))
+                    continue;
+
+                modifier *= GetCategoryMultiplier(multipliers, definition.Key);
+            }
+
+            return modifier;
+        }
+
+        private static float GetForageableTraitModifier(ForageableEconomicTrait traits, bool useBuySide)
+        {
+            if (traits == ForageableEconomicTrait.None || _activeProfile is null)
+                return 1f;
+
+            float modifier = 1f;
+            Dictionary<string, float> multipliers = useBuySide
+                ? _activeProfile.ForageableBuyMultipliers
+                : _activeProfile.ForageableSellMultipliers;
+
+            foreach (RandomizableForageableEconomyCategoryDefinition definition in ForageableEconomyCategoryRegistry.GetRandomizableCategories())
+            {
+                if (useBuySide && !definition.SupportsBuy)
+                    continue;
+
+                if (!useBuySide && !definition.SupportsSell)
+                    continue;
+
+                if (!definition.MatchesTraits(traits))
+                    continue;
+
+                modifier *= GetCategoryMultiplier(multipliers, definition.Key);
+            }
+
+            return modifier;
+        }
+
+        private static float GetArtisanGoodTraitModifier(ArtisanGoodEconomicTrait traits, bool useBuySide)
+        {
+            if (traits == ArtisanGoodEconomicTrait.None || _activeProfile is null)
+                return 1f;
+
+            float modifier = 1f;
+            Dictionary<string, float> multipliers = useBuySide
+                ? _activeProfile.ArtisanGoodBuyMultipliers
+                : _activeProfile.ArtisanGoodSellMultipliers;
+
+            foreach (RandomizableArtisanGoodEconomyCategoryDefinition definition in ArtisanGoodEconomyCategoryRegistry.GetRandomizableCategories())
+            {
+                if (useBuySide && !definition.SupportsBuy)
+                    continue;
+
+                if (!useBuySide && !definition.SupportsSell)
+                    continue;
+
+                if (!definition.MatchesTraits(traits))
+                    continue;
+
+                modifier *= GetCategoryMultiplier(multipliers, definition.Key);
+            }
+
+            return modifier;
+        }
+
+        private static float GetMonsterLootTraitModifier(MonsterLootEconomicTrait traits, bool useBuySide)
+        {
+            if (traits == MonsterLootEconomicTrait.None || _activeProfile is null)
+                return 1f;
+
+            float modifier = 1f;
+            Dictionary<string, float> multipliers = useBuySide
+                ? _activeProfile.MonsterLootBuyMultipliers
+                : _activeProfile.MonsterLootSellMultipliers;
+
+            foreach (RandomizableMonsterLootEconomyCategoryDefinition definition in MonsterLootEconomyCategoryRegistry.GetRandomizableCategories())
+            {
+                if (useBuySide && !definition.SupportsBuy)
+                    continue;
+
+                if (!useBuySide && !definition.SupportsSell)
+                    continue;
+
+                if (!definition.MatchesTraits(traits))
+                    continue;
+
+                modifier *= GetCategoryMultiplier(multipliers, definition.Key);
+            }
+
+            return modifier;
+        }
+
         private static float GetCategoryMultiplier(Dictionary<string, float>? multipliers, string categoryKey)
         {
             if (multipliers is null)
@@ -208,10 +356,26 @@ namespace FarmingCapitalist
                 FishNerfCategories = new List<string>(),
                 MineralBonusCategories = new List<string>(),
                 MineralNerfCategories = new List<string>(),
+                AnimalProductBonusCategories = new List<string>(),
+                AnimalProductNerfCategories = new List<string>(),
+                ForageableBonusCategories = new List<string>(),
+                ForageableNerfCategories = new List<string>(),
+                ArtisanGoodBonusCategories = new List<string>(),
+                ArtisanGoodNerfCategories = new List<string>(),
+                MonsterLootBonusCategories = new List<string>(),
+                MonsterLootNerfCategories = new List<string>(),
                 BuyMultipliers = new Dictionary<string, float>(KeyComparer),
                 SellMultipliers = new Dictionary<string, float>(KeyComparer),
                 FishSellMultipliers = new Dictionary<string, float>(KeyComparer),
-                MineralSellMultipliers = new Dictionary<string, float>(KeyComparer)
+                MineralSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                AnimalProductBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                AnimalProductSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                ForageableBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                ForageableSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                ArtisanGoodBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                ArtisanGoodSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                MonsterLootBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                MonsterLootSellMultipliers = new Dictionary<string, float>(KeyComparer)
             };
         }
 
@@ -249,10 +413,26 @@ namespace FarmingCapitalist
                 FishNerfCategories = new List<string>(),
                 MineralBonusCategories = new List<string>(),
                 MineralNerfCategories = new List<string>(),
+                AnimalProductBonusCategories = new List<string>(),
+                AnimalProductNerfCategories = new List<string>(),
+                ForageableBonusCategories = new List<string>(),
+                ForageableNerfCategories = new List<string>(),
+                ArtisanGoodBonusCategories = new List<string>(),
+                ArtisanGoodNerfCategories = new List<string>(),
+                MonsterLootBonusCategories = new List<string>(),
+                MonsterLootNerfCategories = new List<string>(),
                 BuyMultipliers = new Dictionary<string, float>(KeyComparer),
                 SellMultipliers = new Dictionary<string, float>(KeyComparer),
                 FishSellMultipliers = new Dictionary<string, float>(KeyComparer),
-                MineralSellMultipliers = new Dictionary<string, float>(KeyComparer)
+                MineralSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                AnimalProductBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                AnimalProductSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                ForageableBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                ForageableSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                ArtisanGoodBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                ArtisanGoodSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                MonsterLootBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                MonsterLootSellMultipliers = new Dictionary<string, float>(KeyComparer)
             };
 
             List<string> bonusCategories = NormalizeCategories(loadedProfile.BonusCategories, supportsSell: true);
@@ -391,13 +571,281 @@ namespace FarmingCapitalist
                 }
             }
 
+            List<string> animalProductBonusCategories = NormalizeAnimalProductCategories(
+                loadedProfile.AnimalProductBonusCategories,
+                supportsSell: true
+            );
+            HashSet<string> disallowedAnimalProductNerfCategories = new(animalProductBonusCategories, KeyComparer);
+            List<string> animalProductNerfCategories = NormalizeAnimalProductCategories(
+                loadedProfile.AnimalProductNerfCategories,
+                supportsSell: true,
+                disallowedCategories: disallowedAnimalProductNerfCategories
+            );
+
+            if (animalProductBonusCategories.Count != GenerationSettings.BonusCategoryCount
+                || animalProductNerfCategories.Count != GenerationSettings.NerfCategoryCount)
+            {
+                Generator.PopulateAnimalProductSelections(normalizedProfile);
+                shouldPersist = true;
+            }
+            else
+            {
+                normalizedProfile.AnimalProductBonusCategories = animalProductBonusCategories;
+                normalizedProfile.AnimalProductNerfCategories = animalProductNerfCategories;
+                normalizedProfile.AnimalProductBuyMultipliers = NormalizeAnimalProductMultipliers(
+                    loadedProfile.AnimalProductBuyMultipliers,
+                    supportsBuy: true
+                );
+                normalizedProfile.AnimalProductSellMultipliers = NormalizeAnimalProductMultipliers(
+                    loadedProfile.AnimalProductSellMultipliers,
+                    supportsBuy: false
+                );
+
+                foreach (string category in animalProductBonusCategories)
+                {
+                    if (!normalizedProfile.AnimalProductSellMultipliers.TryGetValue(category, out float sellMultiplier) || !IsValidMultiplier(sellMultiplier))
+                    {
+                        normalizedProfile.AnimalProductSellMultipliers[category] = GenerationSettings.BonusSellMultiplier;
+                        shouldPersist = true;
+                    }
+
+                    if (!normalizedProfile.AnimalProductBuyMultipliers.TryGetValue(category, out float buyMultiplier) || !IsValidMultiplier(buyMultiplier))
+                    {
+                        normalizedProfile.AnimalProductBuyMultipliers[category] = GenerationSettings.BonusBuyMultiplier == 1f
+                            ? GenerationSettings.BonusSellMultiplier
+                            : GenerationSettings.BonusBuyMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+
+                foreach (string category in animalProductNerfCategories)
+                {
+                    if (!normalizedProfile.AnimalProductSellMultipliers.TryGetValue(category, out float sellMultiplier) || !IsValidMultiplier(sellMultiplier))
+                    {
+                        normalizedProfile.AnimalProductSellMultipliers[category] = GenerationSettings.NerfSellMultiplier;
+                        shouldPersist = true;
+                    }
+
+                    if (!normalizedProfile.AnimalProductBuyMultipliers.TryGetValue(category, out float buyMultiplier) || !IsValidMultiplier(buyMultiplier))
+                    {
+                        normalizedProfile.AnimalProductBuyMultipliers[category] = GenerationSettings.NerfBuyMultiplier == 1f
+                            ? GenerationSettings.NerfSellMultiplier
+                            : GenerationSettings.NerfBuyMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+            }
+
+            List<string> forageableBonusCategories = NormalizeForageableCategories(
+                loadedProfile.ForageableBonusCategories,
+                supportsSell: true
+            );
+            HashSet<string> disallowedForageableNerfCategories = new(forageableBonusCategories, KeyComparer);
+            List<string> forageableNerfCategories = NormalizeForageableCategories(
+                loadedProfile.ForageableNerfCategories,
+                supportsSell: true,
+                disallowedCategories: disallowedForageableNerfCategories
+            );
+
+            if (forageableBonusCategories.Count != GenerationSettings.BonusCategoryCount
+                || forageableNerfCategories.Count != GenerationSettings.NerfCategoryCount)
+            {
+                Generator.PopulateForageableSelections(normalizedProfile);
+                shouldPersist = true;
+            }
+            else
+            {
+                normalizedProfile.ForageableBonusCategories = forageableBonusCategories;
+                normalizedProfile.ForageableNerfCategories = forageableNerfCategories;
+                normalizedProfile.ForageableBuyMultipliers = NormalizeForageableMultipliers(
+                    loadedProfile.ForageableBuyMultipliers,
+                    supportsBuy: true
+                );
+                normalizedProfile.ForageableSellMultipliers = NormalizeForageableMultipliers(
+                    loadedProfile.ForageableSellMultipliers,
+                    supportsBuy: false
+                );
+
+                foreach (string category in forageableBonusCategories)
+                {
+                    if (!normalizedProfile.ForageableSellMultipliers.TryGetValue(category, out float sellMultiplier) || !IsValidMultiplier(sellMultiplier))
+                    {
+                        normalizedProfile.ForageableSellMultipliers[category] = GenerationSettings.BonusSellMultiplier;
+                        shouldPersist = true;
+                    }
+
+                    if (!normalizedProfile.ForageableBuyMultipliers.TryGetValue(category, out float buyMultiplier) || !IsValidMultiplier(buyMultiplier))
+                    {
+                        normalizedProfile.ForageableBuyMultipliers[category] = GenerationSettings.BonusBuyMultiplier == 1f
+                            ? GenerationSettings.BonusSellMultiplier
+                            : GenerationSettings.BonusBuyMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+
+                foreach (string category in forageableNerfCategories)
+                {
+                    if (!normalizedProfile.ForageableSellMultipliers.TryGetValue(category, out float sellMultiplier) || !IsValidMultiplier(sellMultiplier))
+                    {
+                        normalizedProfile.ForageableSellMultipliers[category] = GenerationSettings.NerfSellMultiplier;
+                        shouldPersist = true;
+                    }
+
+                    if (!normalizedProfile.ForageableBuyMultipliers.TryGetValue(category, out float buyMultiplier) || !IsValidMultiplier(buyMultiplier))
+                    {
+                        normalizedProfile.ForageableBuyMultipliers[category] = GenerationSettings.NerfBuyMultiplier == 1f
+                            ? GenerationSettings.NerfSellMultiplier
+                            : GenerationSettings.NerfBuyMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+            }
+
+            List<string> artisanGoodBonusCategories = NormalizeArtisanGoodCategories(
+                loadedProfile.ArtisanGoodBonusCategories,
+                supportsSell: true
+            );
+            HashSet<string> disallowedArtisanGoodNerfCategories = new(artisanGoodBonusCategories, KeyComparer);
+            List<string> artisanGoodNerfCategories = NormalizeArtisanGoodCategories(
+                loadedProfile.ArtisanGoodNerfCategories,
+                supportsSell: true,
+                disallowedCategories: disallowedArtisanGoodNerfCategories
+            );
+
+            if (artisanGoodBonusCategories.Count != GenerationSettings.BonusCategoryCount
+                || artisanGoodNerfCategories.Count != GenerationSettings.NerfCategoryCount)
+            {
+                Generator.PopulateArtisanGoodSelections(normalizedProfile);
+                shouldPersist = true;
+            }
+            else
+            {
+                normalizedProfile.ArtisanGoodBonusCategories = artisanGoodBonusCategories;
+                normalizedProfile.ArtisanGoodNerfCategories = artisanGoodNerfCategories;
+                normalizedProfile.ArtisanGoodBuyMultipliers = NormalizeArtisanGoodMultipliers(
+                    loadedProfile.ArtisanGoodBuyMultipliers,
+                    supportsBuy: true
+                );
+                normalizedProfile.ArtisanGoodSellMultipliers = NormalizeArtisanGoodMultipliers(
+                    loadedProfile.ArtisanGoodSellMultipliers,
+                    supportsBuy: false
+                );
+
+                foreach (string category in artisanGoodBonusCategories)
+                {
+                    if (!normalizedProfile.ArtisanGoodSellMultipliers.TryGetValue(category, out float sellMultiplier) || !IsValidMultiplier(sellMultiplier))
+                    {
+                        normalizedProfile.ArtisanGoodSellMultipliers[category] = GenerationSettings.BonusSellMultiplier;
+                        shouldPersist = true;
+                    }
+
+                    if (!normalizedProfile.ArtisanGoodBuyMultipliers.TryGetValue(category, out float buyMultiplier) || !IsValidMultiplier(buyMultiplier))
+                    {
+                        normalizedProfile.ArtisanGoodBuyMultipliers[category] = GenerationSettings.BonusBuyMultiplier == 1f
+                            ? GenerationSettings.BonusSellMultiplier
+                            : GenerationSettings.BonusBuyMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+
+                foreach (string category in artisanGoodNerfCategories)
+                {
+                    if (!normalizedProfile.ArtisanGoodSellMultipliers.TryGetValue(category, out float sellMultiplier) || !IsValidMultiplier(sellMultiplier))
+                    {
+                        normalizedProfile.ArtisanGoodSellMultipliers[category] = GenerationSettings.NerfSellMultiplier;
+                        shouldPersist = true;
+                    }
+
+                    if (!normalizedProfile.ArtisanGoodBuyMultipliers.TryGetValue(category, out float buyMultiplier) || !IsValidMultiplier(buyMultiplier))
+                    {
+                        normalizedProfile.ArtisanGoodBuyMultipliers[category] = GenerationSettings.NerfBuyMultiplier == 1f
+                            ? GenerationSettings.NerfSellMultiplier
+                            : GenerationSettings.NerfBuyMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+            }
+
+            List<string> monsterLootBonusCategories = NormalizeMonsterLootCategories(
+                loadedProfile.MonsterLootBonusCategories,
+                supportsSell: true
+            );
+            HashSet<string> disallowedMonsterLootNerfCategories = new(monsterLootBonusCategories, KeyComparer);
+            List<string> monsterLootNerfCategories = NormalizeMonsterLootCategories(
+                loadedProfile.MonsterLootNerfCategories,
+                supportsSell: true,
+                disallowedCategories: disallowedMonsterLootNerfCategories
+            );
+
+            if (monsterLootBonusCategories.Count != GenerationSettings.MonsterLootBonusCategoryCount
+                || monsterLootNerfCategories.Count != GenerationSettings.MonsterLootNerfCategoryCount)
+            {
+                Generator.PopulateMonsterLootSelections(normalizedProfile);
+                shouldPersist = true;
+            }
+            else
+            {
+                normalizedProfile.MonsterLootBonusCategories = monsterLootBonusCategories;
+                normalizedProfile.MonsterLootNerfCategories = monsterLootNerfCategories;
+                normalizedProfile.MonsterLootBuyMultipliers = NormalizeMonsterLootMultipliers(
+                    loadedProfile.MonsterLootBuyMultipliers,
+                    supportsBuy: true
+                );
+                normalizedProfile.MonsterLootSellMultipliers = NormalizeMonsterLootMultipliers(
+                    loadedProfile.MonsterLootSellMultipliers,
+                    supportsBuy: false
+                );
+
+                foreach (string category in monsterLootBonusCategories)
+                {
+                    if (!normalizedProfile.MonsterLootSellMultipliers.TryGetValue(category, out float sellMultiplier) || !IsValidMultiplier(sellMultiplier))
+                    {
+                        normalizedProfile.MonsterLootSellMultipliers[category] = GenerationSettings.BonusSellMultiplier;
+                        shouldPersist = true;
+                    }
+
+                    if (!normalizedProfile.MonsterLootBuyMultipliers.TryGetValue(category, out float buyMultiplier) || !IsValidMultiplier(buyMultiplier))
+                    {
+                        normalizedProfile.MonsterLootBuyMultipliers[category] = GenerationSettings.BonusBuyMultiplier == 1f
+                            ? GenerationSettings.BonusSellMultiplier
+                            : GenerationSettings.BonusBuyMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+
+                foreach (string category in monsterLootNerfCategories)
+                {
+                    if (!normalizedProfile.MonsterLootSellMultipliers.TryGetValue(category, out float sellMultiplier) || !IsValidMultiplier(sellMultiplier))
+                    {
+                        normalizedProfile.MonsterLootSellMultipliers[category] = GenerationSettings.NerfSellMultiplier;
+                        shouldPersist = true;
+                    }
+
+                    if (!normalizedProfile.MonsterLootBuyMultipliers.TryGetValue(category, out float buyMultiplier) || !IsValidMultiplier(buyMultiplier))
+                    {
+                        normalizedProfile.MonsterLootBuyMultipliers[category] = GenerationSettings.NerfBuyMultiplier == 1f
+                            ? GenerationSettings.NerfSellMultiplier
+                            : GenerationSettings.NerfBuyMultiplier;
+                        shouldPersist = true;
+                    }
+                }
+            }
+
             if (!string.Equals(normalizedProfile.ProfileId, loadedProfile.ProfileId, StringComparison.Ordinal)
                 || !HaveSameCategoryOrder(loadedProfile.BonusCategories, bonusCategories)
                 || !HaveSameCategoryOrder(loadedProfile.NerfCategories, nerfCategories)
                 || !HaveSameCategoryOrder(loadedProfile.FishBonusCategories, normalizedProfile.FishBonusCategories)
                 || !HaveSameCategoryOrder(loadedProfile.FishNerfCategories, normalizedProfile.FishNerfCategories)
                 || !HaveSameCategoryOrder(loadedProfile.MineralBonusCategories, normalizedProfile.MineralBonusCategories)
-                || !HaveSameCategoryOrder(loadedProfile.MineralNerfCategories, normalizedProfile.MineralNerfCategories))
+                || !HaveSameCategoryOrder(loadedProfile.MineralNerfCategories, normalizedProfile.MineralNerfCategories)
+                || !HaveSameCategoryOrder(loadedProfile.AnimalProductBonusCategories, normalizedProfile.AnimalProductBonusCategories)
+                || !HaveSameCategoryOrder(loadedProfile.AnimalProductNerfCategories, normalizedProfile.AnimalProductNerfCategories)
+                || !HaveSameCategoryOrder(loadedProfile.ForageableBonusCategories, normalizedProfile.ForageableBonusCategories)
+                || !HaveSameCategoryOrder(loadedProfile.ForageableNerfCategories, normalizedProfile.ForageableNerfCategories)
+                || !HaveSameCategoryOrder(loadedProfile.ArtisanGoodBonusCategories, normalizedProfile.ArtisanGoodBonusCategories)
+                || !HaveSameCategoryOrder(loadedProfile.ArtisanGoodNerfCategories, normalizedProfile.ArtisanGoodNerfCategories)
+                || !HaveSameCategoryOrder(loadedProfile.MonsterLootBonusCategories, normalizedProfile.MonsterLootBonusCategories)
+                || !HaveSameCategoryOrder(loadedProfile.MonsterLootNerfCategories, normalizedProfile.MonsterLootNerfCategories))
             {
                 shouldPersist = true;
             }
@@ -507,6 +955,142 @@ namespace FarmingCapitalist
             return normalized;
         }
 
+        private static List<string> NormalizeAnimalProductCategories(
+            IEnumerable<string>? rawCategories,
+            bool supportsSell,
+            ISet<string>? disallowedCategories = null
+        )
+        {
+            List<string> normalized = new();
+            if (rawCategories is null)
+                return normalized;
+
+            HashSet<string> seen = new(KeyComparer);
+            foreach (string? rawCategory in rawCategories)
+            {
+                if (string.IsNullOrWhiteSpace(rawCategory))
+                    continue;
+
+                if (!AnimalProductEconomyCategoryRegistry.TryGetCategory(rawCategory, out RandomizableAnimalProductEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsSell && !definition.SupportsSell)
+                    continue;
+
+                if (disallowedCategories is not null && disallowedCategories.Contains(definition.Key))
+                    continue;
+
+                if (!seen.Add(definition.Key))
+                    continue;
+
+                normalized.Add(definition.Key);
+            }
+
+            return normalized;
+        }
+
+        private static List<string> NormalizeForageableCategories(
+            IEnumerable<string>? rawCategories,
+            bool supportsSell,
+            ISet<string>? disallowedCategories = null
+        )
+        {
+            List<string> normalized = new();
+            if (rawCategories is null)
+                return normalized;
+
+            HashSet<string> seen = new(KeyComparer);
+            foreach (string? rawCategory in rawCategories)
+            {
+                if (string.IsNullOrWhiteSpace(rawCategory))
+                    continue;
+
+                if (!ForageableEconomyCategoryRegistry.TryGetCategory(rawCategory, out RandomizableForageableEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsSell && !definition.SupportsSell)
+                    continue;
+
+                if (disallowedCategories is not null && disallowedCategories.Contains(definition.Key))
+                    continue;
+
+                if (!seen.Add(definition.Key))
+                    continue;
+
+                normalized.Add(definition.Key);
+            }
+
+            return normalized;
+        }
+
+        private static List<string> NormalizeArtisanGoodCategories(
+            IEnumerable<string>? rawCategories,
+            bool supportsSell,
+            ISet<string>? disallowedCategories = null
+        )
+        {
+            List<string> normalized = new();
+            if (rawCategories is null)
+                return normalized;
+
+            HashSet<string> seen = new(KeyComparer);
+            foreach (string? rawCategory in rawCategories)
+            {
+                if (string.IsNullOrWhiteSpace(rawCategory))
+                    continue;
+
+                if (!ArtisanGoodEconomyCategoryRegistry.TryGetCategory(rawCategory, out RandomizableArtisanGoodEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsSell && !definition.SupportsSell)
+                    continue;
+
+                if (disallowedCategories is not null && disallowedCategories.Contains(definition.Key))
+                    continue;
+
+                if (!seen.Add(definition.Key))
+                    continue;
+
+                normalized.Add(definition.Key);
+            }
+
+            return normalized;
+        }
+
+        private static List<string> NormalizeMonsterLootCategories(
+            IEnumerable<string>? rawCategories,
+            bool supportsSell,
+            ISet<string>? disallowedCategories = null
+        )
+        {
+            List<string> normalized = new();
+            if (rawCategories is null)
+                return normalized;
+
+            HashSet<string> seen = new(KeyComparer);
+            foreach (string? rawCategory in rawCategories)
+            {
+                if (string.IsNullOrWhiteSpace(rawCategory))
+                    continue;
+
+                if (!MonsterLootEconomyCategoryRegistry.TryGetCategory(rawCategory, out RandomizableMonsterLootEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsSell && !definition.SupportsSell)
+                    continue;
+
+                if (disallowedCategories is not null && disallowedCategories.Contains(definition.Key))
+                    continue;
+
+                if (!seen.Add(definition.Key))
+                    continue;
+
+                normalized.Add(definition.Key);
+            }
+
+            return normalized;
+        }
+
         private static Dictionary<string, float> NormalizeMultipliers(
             IDictionary<string, float>? rawMultipliers,
             bool supportsBuy
@@ -571,6 +1155,122 @@ namespace FarmingCapitalist
                     continue;
 
                 if (!definition.SupportsSell)
+                    continue;
+
+                if (!IsValidMultiplier(pair.Value))
+                    continue;
+
+                normalized[definition.Key] = pair.Value;
+            }
+
+            return normalized;
+        }
+
+        private static Dictionary<string, float> NormalizeAnimalProductMultipliers(
+            IDictionary<string, float>? rawMultipliers,
+            bool supportsBuy
+        )
+        {
+            Dictionary<string, float> normalized = new(KeyComparer);
+            if (rawMultipliers is null)
+                return normalized;
+
+            foreach (KeyValuePair<string, float> pair in rawMultipliers)
+            {
+                if (!AnimalProductEconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableAnimalProductEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsBuy && !definition.SupportsBuy)
+                    continue;
+
+                if (!supportsBuy && !definition.SupportsSell)
+                    continue;
+
+                if (!IsValidMultiplier(pair.Value))
+                    continue;
+
+                normalized[definition.Key] = pair.Value;
+            }
+
+            return normalized;
+        }
+
+        private static Dictionary<string, float> NormalizeForageableMultipliers(
+            IDictionary<string, float>? rawMultipliers,
+            bool supportsBuy
+        )
+        {
+            Dictionary<string, float> normalized = new(KeyComparer);
+            if (rawMultipliers is null)
+                return normalized;
+
+            foreach (KeyValuePair<string, float> pair in rawMultipliers)
+            {
+                if (!ForageableEconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableForageableEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsBuy && !definition.SupportsBuy)
+                    continue;
+
+                if (!supportsBuy && !definition.SupportsSell)
+                    continue;
+
+                if (!IsValidMultiplier(pair.Value))
+                    continue;
+
+                normalized[definition.Key] = pair.Value;
+            }
+
+            return normalized;
+        }
+
+        private static Dictionary<string, float> NormalizeArtisanGoodMultipliers(
+            IDictionary<string, float>? rawMultipliers,
+            bool supportsBuy
+        )
+        {
+            Dictionary<string, float> normalized = new(KeyComparer);
+            if (rawMultipliers is null)
+                return normalized;
+
+            foreach (KeyValuePair<string, float> pair in rawMultipliers)
+            {
+                if (!ArtisanGoodEconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableArtisanGoodEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsBuy && !definition.SupportsBuy)
+                    continue;
+
+                if (!supportsBuy && !definition.SupportsSell)
+                    continue;
+
+                if (!IsValidMultiplier(pair.Value))
+                    continue;
+
+                normalized[definition.Key] = pair.Value;
+            }
+
+            return normalized;
+        }
+
+        private static Dictionary<string, float> NormalizeMonsterLootMultipliers(
+            IDictionary<string, float>? rawMultipliers,
+            bool supportsBuy
+        )
+        {
+            Dictionary<string, float> normalized = new(KeyComparer);
+            if (rawMultipliers is null)
+                return normalized;
+
+            foreach (KeyValuePair<string, float> pair in rawMultipliers)
+            {
+                if (!MonsterLootEconomyCategoryRegistry.TryGetCategory(pair.Key, out RandomizableMonsterLootEconomyCategoryDefinition definition))
+                    continue;
+
+                if (supportsBuy && !definition.SupportsBuy)
+                    continue;
+
+                if (!supportsBuy && !definition.SupportsSell)
                     continue;
 
                 if (!IsValidMultiplier(pair.Value))

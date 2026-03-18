@@ -80,6 +80,29 @@ namespace FarmingCapitalist
 
         public static bool IsMineral(Item item) => HasCategory(item, SObject.mineralsCategory);
 
+        public static bool IsStone(Item item) => HasItemId(item, "32");
+
+        public static bool IsCoal(Item item) => HasItemId(item, "382");
+
+        public static bool IsOre(Item item) => item is not null && item.HasContextTag("ore_item");
+
+        public static bool IsBar(Item item) => item is not null && item.HasContextTag("furnace_item");
+
+        public static bool IsGeode(Item item) =>
+            item is not null
+            && item.HasContextTag("geode")
+            && !item.HasContextTag("geode_crusher_ignored")
+            && !item.QualifiedItemId.Contains("MysteryBox", StringComparison.OrdinalIgnoreCase);
+
+        public static bool IsMiningMaterial(Item item) =>
+            IsStone(item)
+            || IsCoal(item)
+            || IsOre(item)
+            || IsBar(item)
+            || IsGem(item)
+            || IsMineral(item)
+            || IsGeode(item);
+
         public static bool IsProduce(Item item) =>
             MatchesAnyCategory(item, SObject.VegetableCategory, SObject.FruitsCategory, SObject.flowersCategory, SObject.GreensCategory);
 
@@ -116,6 +139,13 @@ namespace FarmingCapitalist
                 return true;
 
             return string.Equals(obj.ItemId, "Pumpkin", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasItemId(Item item, string itemId)
+        {
+            return item is SObject obj
+                && !string.IsNullOrWhiteSpace(obj.ItemId)
+                && string.Equals(obj.ItemId, itemId, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

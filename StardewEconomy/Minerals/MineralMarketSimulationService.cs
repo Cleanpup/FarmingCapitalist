@@ -41,7 +41,7 @@ namespace FarmingCapitalist
                     TryWriteActiveData();
 
                     _monitor?.Log(
-                        $"Created mineral market simulation data with {_activeData.Actors.Count} persistent actors.",
+                        $"Created mining market simulation data with {_activeData.Actors.Count} persistent actors.",
                         LogLevel.Trace
                     );
                     return;
@@ -52,13 +52,13 @@ namespace FarmingCapitalist
                     TryWriteActiveData();
 
                 _monitor?.Log(
-                    $"Loaded mineral market simulation data with {_activeData.Actors.Count} persistent actors. LastSimulationDay={_activeData.LastSimulationDay}.",
+                    $"Loaded mining market simulation data with {_activeData.Actors.Count} persistent actors. LastSimulationDay={_activeData.LastSimulationDay}.",
                     LogLevel.Trace
                 );
             }
             catch (Exception ex)
             {
-                _monitor?.Log($"Failed to load mineral market simulation data: {ex}", LogLevel.Error);
+                _monitor?.Log($"Failed to load mining market simulation data: {ex}", LogLevel.Error);
                 _activeData = CreateNewData();
             }
         }
@@ -115,10 +115,10 @@ namespace FarmingCapitalist
                 currentDateLabel = $"{currentDate.SeasonKey} {currentDate.DayOfMonth}, Y{currentDate.Year} ({currentDate.TotalDays})";
             }
 
-            yield return $"Mineral market simulation state: lastSimulationDay={data.LastSimulationDay}, trackedMinerals={trackedMinerals.Count}, actors={data.Actors.Count}, currentDate={currentDateLabel}.";
+            yield return $"Mining market simulation state: lastSimulationDay={data.LastSimulationDay}, trackedItems={trackedMinerals.Count}, actors={data.Actors.Count}, currentDate={currentDateLabel}.";
 
             int activeTrends = data.Actors.Count(actor => actor.TrendDaysRemaining > 0 && actor.FocusMineralItemIds.Count > 0);
-            yield return $"Mineral market actor trends: active={activeTrends}, configured={data.Actors.Count}.";
+            yield return $"Mining market actor trends: active={activeTrends}, configured={data.Actors.Count}.";
         }
 
         private static bool ApplyDailyUpdateRange(
@@ -139,7 +139,7 @@ namespace FarmingCapitalist
                 TryWriteActiveData();
 
                 _monitor?.Log(
-                    $"Mineral market simulation checked {endDay - startDay + 1} day(s) from {source}; no tracked minerals required updates.",
+                    $"Mining market simulation checked {endDay - startDay + 1} day(s) from {source}; no tracked mining items required updates.",
                     LogLevel.Trace
                 );
                 return false;
@@ -190,14 +190,14 @@ namespace FarmingCapitalist
             if (changed)
             {
                 _monitor?.Log(
-                    $"Applied mineral market mean reversion for {endDay - startDay + 1} day(s) from {source}. Tracked minerals: {updatedScores.Count}. Neutral baseline remains {SupplyDataService.NeutralSupplyScore:0.##}.",
+                    $"Applied mining market mean reversion for {endDay - startDay + 1} day(s) from {source}. Tracked items: {updatedScores.Count}. Neutral baseline remains {SupplyDataService.NeutralSupplyScore:0.##}.",
                     LogLevel.Info
                 );
             }
             else
             {
                 _monitor?.Log(
-                    $"Mineral market simulation checked {endDay - startDay + 1} day(s) from {source}; tracked minerals were already at the neutral baseline.",
+                    $"Mining market simulation checked {endDay - startDay + 1} day(s) from {source}; tracked mining items were already at the neutral baseline.",
                     LogLevel.Trace
                 );
             }
@@ -205,7 +205,7 @@ namespace FarmingCapitalist
             if (traceLines is not null)
             {
                 _monitor?.Log(
-                    $"{LogPrefix} Simulated {updatedScores.Count} tracked mineral(s) for days {startDay} through {endDay}.",
+                    $"{LogPrefix} Simulated {updatedScores.Count} tracked mining item(s) for days {startDay} through {endDay}.",
                     VerboseLogLevel
                 );
 
@@ -262,7 +262,7 @@ namespace FarmingCapitalist
             }
             catch (Exception ex)
             {
-                _monitor?.Log($"Failed writing mineral market simulation data: {ex}", LogLevel.Error);
+                _monitor?.Log($"Failed writing mining market simulation data: {ex}", LogLevel.Error);
             }
         }
 
@@ -310,14 +310,14 @@ namespace FarmingCapitalist
 
         private static MarketTemperament DetermineTemperament(MineralEconomicTrait traits, int basePrice)
         {
-            if ((traits & MineralEconomicTrait.Luxury) == MineralEconomicTrait.Luxury)
-                return MarketTemperament.Luxury;
-
-            if ((traits & MineralEconomicTrait.Rare) == MineralEconomicTrait.Rare && basePrice >= 180)
-                return MarketTemperament.Luxury;
-
-            if ((traits & MineralEconomicTrait.Common) == MineralEconomicTrait.Common)
+            if ((traits & (MineralEconomicTrait.Stone | MineralEconomicTrait.Coal | MineralEconomicTrait.Ore)) != 0)
                 return MarketTemperament.Staple;
+
+            if ((traits & MineralEconomicTrait.Gem) == MineralEconomicTrait.Gem)
+                return MarketTemperament.Luxury;
+
+            if ((traits & MineralEconomicTrait.Mineral) == MineralEconomicTrait.Mineral && basePrice >= 250)
+                return MarketTemperament.Luxury;
 
             return MarketTemperament.Mid;
         }

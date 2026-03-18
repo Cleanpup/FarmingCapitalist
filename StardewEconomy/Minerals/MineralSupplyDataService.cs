@@ -35,7 +35,7 @@ namespace FarmingCapitalist
                     _activeData = CreateNewData();
                     TryWriteActiveData();
 
-                    _monitor?.Log("Created mineral supply data for this save.", LogLevel.Trace);
+                    _monitor?.Log("Created mining supply data for this save.", LogLevel.Trace);
                     return;
                 }
 
@@ -44,13 +44,13 @@ namespace FarmingCapitalist
                     TryWriteActiveData();
 
                 _monitor?.Log(
-                    $"Loaded mineral supply data with {_activeData.MineralSupplyScores.Count} tracked minerals.",
+                    $"Loaded mining supply data with {_activeData.MineralSupplyScores.Count} tracked items.",
                     LogLevel.Trace
                 );
             }
             catch (Exception ex)
             {
-                _monitor?.Log($"Failed to load mineral supply data: {ex}", LogLevel.Error);
+                _monitor?.Log($"Failed to load mining supply data: {ex}", LogLevel.Error);
                 _activeData = CreateNewData();
             }
         }
@@ -69,7 +69,7 @@ namespace FarmingCapitalist
             data.MineralSupplyScores.Clear();
             TryWriteActiveData();
 
-            _monitor?.Log("Cleared all tracked mineral supply scores and restored the neutral supply baseline.", LogLevel.Info);
+            _monitor?.Log("Cleared all tracked mining supply scores and restored the neutral supply baseline.", LogLevel.Info);
         }
 
         public static IReadOnlyDictionary<string, float> GetSnapshot()
@@ -136,7 +136,7 @@ namespace FarmingCapitalist
             TryWriteActiveData();
 
             _monitor?.Log(
-                $"Mineral supply increased for {FormatMineralLabel(mineralDisplayName, normalizedMineralItemId)} by {amount:0.##} from {source}. {previousScore:0.##} -> {updatedScore:0.##}.",
+                $"Mining supply increased for {FormatMineralLabel(mineralDisplayName, normalizedMineralItemId)} by {amount:0.##} from {source}. {previousScore:0.##} -> {updatedScore:0.##}.",
                 LogLevel.Trace
             );
 
@@ -202,7 +202,7 @@ namespace FarmingCapitalist
             }
             catch (Exception ex)
             {
-                _monitor?.Log($"Failed writing mineral supply data: {ex}", LogLevel.Error);
+                _monitor?.Log($"Failed writing mining supply data: {ex}", LogLevel.Error);
             }
         }
 

@@ -16,6 +16,10 @@ namespace FarmingCapitalist
         private IMarketSimulationLifecycle _cropMarketSimulation = null!;
         private IMarketSimulationLifecycle _fishMarketSimulation = null!;
         private IMarketSimulationLifecycle _mineralMarketSimulation = null!;
+        private IMarketSimulationLifecycle _animalProductMarketSimulation = null!;
+        private IMarketSimulationLifecycle _forageableMarketSimulation = null!;
+        private IMarketSimulationLifecycle _artisanGoodMarketSimulation = null!;
+        private IMarketSimulationLifecycle _monsterLootMarketSimulation = null!;
 
         public override void Entry(IModHelper helper)
         {
@@ -26,9 +30,17 @@ namespace FarmingCapitalist
             CropSupplyDataService.Initialize(helper, this.Monitor);
             FishSupplyDataService.Initialize(helper, this.Monitor);
             MineralSupplyDataService.Initialize(helper, this.Monitor);
+            AnimalProductSupplyDataService.Initialize(helper, this.Monitor);
+            ForageableSupplyDataService.Initialize(helper, this.Monitor);
+            ArtisanGoodSupplyDataService.Initialize(helper, this.Monitor);
+            MonsterLootSupplyDataService.Initialize(helper, this.Monitor);
             CropSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
             FishSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
             MineralSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
+            AnimalProductSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
+            ForageableSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
+            ArtisanGoodSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
+            MonsterLootSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
 
             _shopEditor = new ShopEditor(helper, this.Monitor);
             _cropEconomyCsvExporter = new CropEconomyCsvExporter(helper, this.Monitor);
@@ -36,9 +48,17 @@ namespace FarmingCapitalist
             _cropMarketSimulation = new CropMarketSimulationLifecycleAdapter();
             _fishMarketSimulation = new FishMarketSimulationLifecycleAdapter();
             _mineralMarketSimulation = new MineralMarketSimulationLifecycleAdapter();
+            _animalProductMarketSimulation = new AnimalProductMarketSimulationLifecycleAdapter();
+            _forageableMarketSimulation = new ForageableMarketSimulationLifecycleAdapter();
+            _artisanGoodMarketSimulation = new ArtisanGoodMarketSimulationLifecycleAdapter();
+            _monsterLootMarketSimulation = new MonsterLootMarketSimulationLifecycleAdapter();
             _cropMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             _fishMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             _mineralMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
+            _animalProductMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
+            _forageableMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
+            _artisanGoodMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
+            _monsterLootMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
 
             helper.ConsoleCommands.Add(
                 "starecon_dump",
@@ -85,6 +105,10 @@ namespace FarmingCapitalist
             _cropMarketSimulation.LoadOrCreateForCurrentSave();
             _fishMarketSimulation.LoadOrCreateForCurrentSave();
             _mineralMarketSimulation.LoadOrCreateForCurrentSave();
+            _animalProductMarketSimulation.LoadOrCreateForCurrentSave();
+            _forageableMarketSimulation.LoadOrCreateForCurrentSave();
+            _artisanGoodMarketSimulation.LoadOrCreateForCurrentSave();
+            _monsterLootMarketSimulation.LoadOrCreateForCurrentSave();
         }
 
         private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
@@ -97,6 +121,10 @@ namespace FarmingCapitalist
             _cropMarketSimulation.ClearActiveData();
             _fishMarketSimulation.ClearActiveData();
             _mineralMarketSimulation.ClearActiveData();
+            _animalProductMarketSimulation.ClearActiveData();
+            _forageableMarketSimulation.ClearActiveData();
+            _artisanGoodMarketSimulation.ClearActiveData();
+            _monsterLootMarketSimulation.ClearActiveData();
         }
 
         private void OnStareconDumpCommand(string command, string[] args)
@@ -146,6 +174,10 @@ namespace FarmingCapitalist
             _cropMarketSimulation.RunDailyUpdateIfNeeded();
             _fishMarketSimulation.RunDailyUpdateIfNeeded();
             _mineralMarketSimulation.RunDailyUpdateIfNeeded();
+            _animalProductMarketSimulation.RunDailyUpdateIfNeeded();
+            _forageableMarketSimulation.RunDailyUpdateIfNeeded();
+            _artisanGoodMarketSimulation.RunDailyUpdateIfNeeded();
+            _monsterLootMarketSimulation.RunDailyUpdateIfNeeded();
         }
 
         private void OnMenuChanged(object? sender, MenuChangedEventArgs e)

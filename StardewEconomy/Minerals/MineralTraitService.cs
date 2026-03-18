@@ -6,30 +6,41 @@ using SObject = StardewValley.Object;
 namespace FarmingCapitalist
 {
     /// <summary>
-    /// Central resolver for broad mineral rarity and value traits.
+    /// Central resolver for mining item traits.
     /// </summary>
     internal static class MineralTraitService
     {
         internal static IMonitor? Monitor;
 
-        private const int CommonPriceMaxInclusive = 75;
-        private const int UncommonPriceMaxInclusive = 180;
-        private const int LuxuryPriceMinInclusive = 250;
-
         public static MineralEconomicTrait GetTraits(Item? item)
         {
-            if (!TryGetMineralData(item, out _, out ObjectData? mineralData) || mineralData is null)
+            if (!MineralEconomyItemRules.TryGetMineralEconomyObject(item, out SObject miningObject))
                 return MineralEconomicTrait.None;
 
-            return GetTraitsForData(mineralData.Price);
+            ObjectData? miningData = null;
+            if (Context.IsWorldReady
+                && MineralEconomyItemRules.TryNormalizeMineralItemId(miningObject.ItemId, out string miningItemId)
+                && Game1.objectData.TryGetValue(miningItemId, out ObjectData? resolvedData))
+            {
+                miningData = resolvedData;
+            }
+
+            return GetTraitsForItem(miningObject, miningData);
         }
 
         public static MineralEconomicTrait GetTraits(string? mineralItemId)
         {
-            if (!TryGetMineralData(mineralItemId, out _, out ObjectData? mineralData) || mineralData is null)
+            if (!MineralEconomyItemRules.TryNormalizeMineralItemId(mineralItemId, out string normalizedMineralItemId))
                 return MineralEconomicTrait.None;
 
-            return GetTraitsForData(mineralData.Price);
+            if (!MineralEconomyItemRules.TryCreateMineralObject(normalizedMineralItemId, out SObject? miningObject) || miningObject is null)
+                return MineralEconomicTrait.None;
+
+            ObjectData? miningData = null;
+            if (Context.IsWorldReady && Game1.objectData.TryGetValue(normalizedMineralItemId, out ObjectData? resolvedData))
+                miningData = resolvedData;
+
+            return GetTraitsForItem(miningObject, miningData);
         }
 
         public static bool HasTrait(Item? item, MineralEconomicTrait trait)
@@ -90,10 +101,10 @@ namespace FarmingCapitalist
         public static string GetDebugSummary(Item? item)
         {
             if (item is null)
-                return "Mineral traits: <null item> -> None";
+                return "Mining traits: <null item> -> None";
 
             MineralEconomicTrait traits = GetTraits(item);
-            return $"Mineral traits: {item.Name} ({item.QualifiedItemId}) -> {FormatTraits(traits)}";
+            return $"Mining traits: {item.Name} ({item.QualifiedItemId}) -> {FormatTraits(traits)}";
         }
 
         public static void LogTraits(Item? item, LogLevel level = LogLevel.Trace)
@@ -101,27 +112,34 @@ namespace FarmingCapitalist
             Monitor?.Log(GetDebugSummary(item), level);
         }
 
-        private static MineralEconomicTrait GetTraitsForData(int price)
+        private static MineralEconomicTrait GetTraitsForItem(SObject miningObject, ObjectData? miningData)
         {
-            if (price < 0)
-                return MineralEconomicTrait.None;
+            _ = miningData;
 
-            MineralEconomicTrait traits = GetRarityTrait(price);
-            if (price >= LuxuryPriceMinInclusive)
-                traits |= MineralEconomicTrait.Luxury;
+            MineralEconomicTrait traits = MineralEconomicTrait.None;
+
+            if (ItemCategoryRules.IsStone(miningObject))
+                traits |= MineralEconomicTrait.Stone;
+
+            if (ItemCategoryRules.IsCoal(miningObject))
+                traits |= MineralEconomicTrait.Coal;
+
+            if (ItemCategoryRules.IsOre(miningObject))
+                traits |= MineralEconomicTrait.Ore;
+
+            if (ItemCategoryRules.IsBar(miningObject))
+                traits |= MineralEconomicTrait.Bar;
+
+            if (ItemCategoryRules.IsMineral(miningObject))
+                traits |= MineralEconomicTrait.Mineral;
+
+            if (ItemCategoryRules.IsGem(miningObject))
+                traits |= MineralEconomicTrait.Gem;
+
+            if (ItemCategoryRules.IsGeode(miningObject))
+                traits |= MineralEconomicTrait.Geode;
 
             return traits;
-        }
-
-        private static MineralEconomicTrait GetRarityTrait(int price)
-        {
-            if (price <= CommonPriceMaxInclusive)
-                return MineralEconomicTrait.Common;
-
-            if (price <= UncommonPriceMaxInclusive)
-                return MineralEconomicTrait.Uncommon;
-
-            return MineralEconomicTrait.Rare;
         }
     }
 }

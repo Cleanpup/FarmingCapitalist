@@ -29,6 +29,7 @@ namespace FarmingCapitalist
             AnimalProductTraitService.Monitor = monitor;
             ForageableTraitService.Monitor = monitor;
             PlantExtraTraitService.Monitor = monitor;
+            CraftingExtraTraitService.Monitor = monitor;
             ArtisanGoodTraitService.Monitor = monitor;
             CookingFoodTraitService.Monitor = monitor;
             MonsterLootTraitService.Monitor = monitor;
@@ -241,6 +242,7 @@ namespace FarmingCapitalist
                 AnimalProductSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
                 ForageableSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
                 PlantExtraSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
+                CraftingExtraSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
                 ArtisanGoodSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
                 CookingFoodSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
                 MonsterLootSupplyTracker.TrackItems(Game1.player.displayedShippedItems, "shipping-bin");
@@ -295,11 +297,12 @@ namespace FarmingCapitalist
                 bool shouldTrackAnimalProduct = AnimalProductSupplyTracker.TryGetAnimalProductInfo(clickedItem, out string animalProductItemId, out string animalProductDisplayName);
                 bool shouldTrackForageable = ForageableSupplyTracker.TryGetForageableInfo(clickedItem, out string forageableItemId, out string forageableDisplayName);
                 bool shouldTrackPlantExtra = PlantExtraSupplyTracker.TryGetPlantExtraInfo(clickedItem, out string plantExtraItemId, out string plantExtraDisplayName);
+                bool shouldTrackCraftingExtra = CraftingExtraSupplyTracker.TryGetCraftingExtraInfo(clickedItem, out string craftingExtraItemId, out string craftingExtraDisplayName);
                 bool shouldTrackArtisanGood = ArtisanGoodSupplyTracker.TryGetArtisanGoodInfo(clickedItem, out string artisanGoodItemId, out string artisanGoodDisplayName);
                 bool shouldTrackCookingFood = CookingFoodSupplyTracker.TryGetCookingFoodInfo(clickedItem, out string cookingFoodItemId, out string cookingFoodDisplayName);
                 bool shouldTrackMonsterLoot = MonsterLootSupplyTracker.TryGetMonsterLootInfo(clickedItem, out string monsterLootItemId, out string monsterLootDisplayName);
                 bool shouldTrackEquipment = EquipmentSupplyTracker.TryGetEquipmentInfo(clickedItem, out string equipmentItemId, out string equipmentDisplayName);
-                if (!shouldTrackCrop && !shouldTrackFish && !shouldTrackMineral && !shouldTrackAnimalProduct && !shouldTrackForageable && !shouldTrackPlantExtra && !shouldTrackArtisanGood && !shouldTrackCookingFood && !shouldTrackMonsterLoot && !shouldTrackEquipment)
+                if (!shouldTrackCrop && !shouldTrackFish && !shouldTrackMineral && !shouldTrackAnimalProduct && !shouldTrackForageable && !shouldTrackPlantExtra && !shouldTrackCraftingExtra && !shouldTrackArtisanGood && !shouldTrackCookingFood && !shouldTrackMonsterLoot && !shouldTrackEquipment)
                     return PendingShopSaleState.CreateSkipped();
 
                 return new PendingShopSaleState(
@@ -321,6 +324,9 @@ namespace FarmingCapitalist
                     ShouldTrackPlantExtra: shouldTrackPlantExtra,
                     PlantExtraItemId: plantExtraItemId,
                     PlantExtraDisplayName: plantExtraDisplayName,
+                    ShouldTrackCraftingExtra: shouldTrackCraftingExtra,
+                    CraftingExtraItemId: craftingExtraItemId,
+                    CraftingExtraDisplayName: craftingExtraDisplayName,
                     ShouldTrackArtisanGood: shouldTrackArtisanGood,
                     ArtisanGoodItemId: artisanGoodItemId,
                     ArtisanGoodDisplayName: artisanGoodDisplayName,
@@ -428,6 +434,16 @@ namespace FarmingCapitalist
                     );
                 }
 
+                if (state.ShouldTrackCraftingExtra)
+                {
+                    CraftingExtraSupplyTracker.TrackCraftingExtraSale(
+                        state.CraftingExtraItemId,
+                        state.CraftingExtraDisplayName,
+                        soldQuantity,
+                        source
+                    );
+                }
+
                 if (state.ShouldTrackArtisanGood)
                 {
                     ArtisanGoodSupplyTracker.TrackArtisanGoodSale(
@@ -490,6 +506,7 @@ namespace FarmingCapitalist
                 AnimalProductTraitService.Monitor = null;
                 ForageableTraitService.Monitor = null;
                 PlantExtraTraitService.Monitor = null;
+                CraftingExtraTraitService.Monitor = null;
                 ArtisanGoodTraitService.Monitor = null;
                 CookingFoodTraitService.Monitor = null;
                 MonsterLootTraitService.Monitor = null;
@@ -502,6 +519,7 @@ namespace FarmingCapitalist
                 AnimalProductSupplyDataService.ClearActiveData();
                 ForageableSupplyDataService.ClearActiveData();
                 PlantExtraSupplyDataService.ClearActiveData();
+                CraftingExtraSupplyDataService.ClearActiveData();
                 ArtisanGoodSupplyDataService.ClearActiveData();
                 CookingFoodSupplyDataService.ClearActiveData();
                 MonsterLootSupplyDataService.ClearActiveData();
@@ -533,6 +551,9 @@ namespace FarmingCapitalist
             bool ShouldTrackPlantExtra,
             string PlantExtraItemId,
             string PlantExtraDisplayName,
+            bool ShouldTrackCraftingExtra,
+            string CraftingExtraItemId,
+            string CraftingExtraDisplayName,
             bool ShouldTrackArtisanGood,
             string ArtisanGoodItemId,
             string ArtisanGoodDisplayName,
@@ -571,6 +592,9 @@ namespace FarmingCapitalist
                     ShouldTrackPlantExtra: false,
                     PlantExtraItemId: string.Empty,
                     PlantExtraDisplayName: string.Empty,
+                    ShouldTrackCraftingExtra: false,
+                    CraftingExtraItemId: string.Empty,
+                    CraftingExtraDisplayName: string.Empty,
                     ShouldTrackArtisanGood: false,
                     ArtisanGoodItemId: string.Empty,
                     ArtisanGoodDisplayName: string.Empty,

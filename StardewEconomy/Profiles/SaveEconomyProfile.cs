@@ -23,6 +23,8 @@ namespace FarmingCapitalist
         public List<string> ForageableNerfCategories { get; set; } = new();
         public List<string> PlantExtraBonusCategories { get; set; } = new();
         public List<string> PlantExtraNerfCategories { get; set; } = new();
+        public List<string> CraftingExtraBonusCategories { get; set; } = new();
+        public List<string> CraftingExtraNerfCategories { get; set; } = new();
         public List<string> ArtisanGoodBonusCategories { get; set; } = new();
         public List<string> ArtisanGoodNerfCategories { get; set; } = new();
         public List<string> CookingFoodBonusCategories { get; set; } = new();
@@ -42,6 +44,8 @@ namespace FarmingCapitalist
         public Dictionary<string, float> ForageableSellMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, float> PlantExtraBuyMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, float> PlantExtraSellMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, float> CraftingExtraBuyMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, float> CraftingExtraSellMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, float> ArtisanGoodBuyMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, float> ArtisanGoodSellMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, float> CookingFoodBuyMultipliers { get; set; } = new(StringComparer.OrdinalIgnoreCase);

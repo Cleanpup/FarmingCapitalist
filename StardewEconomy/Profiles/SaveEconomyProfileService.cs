@@ -126,6 +126,16 @@ namespace FarmingCapitalist
             return GetPlantExtraTraitModifier(traits, useBuySide: false);
         }
 
+        public static float GetBuyModifierForTraits(CraftingExtraEconomicTrait traits)
+        {
+            return GetCraftingExtraTraitModifier(traits, useBuySide: true);
+        }
+
+        public static float GetSellModifierForTraits(CraftingExtraEconomicTrait traits)
+        {
+            return GetCraftingExtraTraitModifier(traits, useBuySide: false);
+        }
+
         public static float GetBuyModifierForTraits(ArtisanGoodEconomicTrait traits)
         {
             return GetArtisanGoodTraitModifier(traits, useBuySide: true);
@@ -169,7 +179,7 @@ namespace FarmingCapitalist
         // Keep this summary in sync when adding randomized category families so debug logs stay complete.
         private static string FormatProfileCategorySummary(SaveEconomyProfile profile)
         {
-            return $"Crop bonuses: [{string.Join(", ", profile.BonusCategories)}], crop nerfs: [{string.Join(", ", profile.NerfCategories)}], fish bonuses: [{string.Join(", ", profile.FishBonusCategories)}], fish nerfs: [{string.Join(", ", profile.FishNerfCategories)}], mining bonuses: [{string.Join(", ", profile.MineralBonusCategories)}], mining nerfs: [{string.Join(", ", profile.MineralNerfCategories)}], animal product bonuses: [{string.Join(", ", profile.AnimalProductBonusCategories)}], animal product nerfs: [{string.Join(", ", profile.AnimalProductNerfCategories)}], forageable bonuses: [{string.Join(", ", profile.ForageableBonusCategories)}], forageable nerfs: [{string.Join(", ", profile.ForageableNerfCategories)}], plant-extra bonuses: [{string.Join(", ", profile.PlantExtraBonusCategories)}], plant-extra nerfs: [{string.Join(", ", profile.PlantExtraNerfCategories)}], artisan good bonuses: [{string.Join(", ", profile.ArtisanGoodBonusCategories)}], artisan good nerfs: [{string.Join(", ", profile.ArtisanGoodNerfCategories)}], cooking food bonuses: [{string.Join(", ", profile.CookingFoodBonusCategories)}], cooking food nerfs: [{string.Join(", ", profile.CookingFoodNerfCategories)}], monster-loot bonuses: [{string.Join(", ", profile.MonsterLootBonusCategories)}], monster-loot nerfs: [{string.Join(", ", profile.MonsterLootNerfCategories)}], equipment bonuses: [{string.Join(", ", profile.EquipmentBonusCategories)}], equipment nerfs: [{string.Join(", ", profile.EquipmentNerfCategories)}].";
+            return $"Crop bonuses: [{string.Join(", ", profile.BonusCategories)}], crop nerfs: [{string.Join(", ", profile.NerfCategories)}], fish bonuses: [{string.Join(", ", profile.FishBonusCategories)}], fish nerfs: [{string.Join(", ", profile.FishNerfCategories)}], mining bonuses: [{string.Join(", ", profile.MineralBonusCategories)}], mining nerfs: [{string.Join(", ", profile.MineralNerfCategories)}], animal product bonuses: [{string.Join(", ", profile.AnimalProductBonusCategories)}], animal product nerfs: [{string.Join(", ", profile.AnimalProductNerfCategories)}], forageable bonuses: [{string.Join(", ", profile.ForageableBonusCategories)}], forageable nerfs: [{string.Join(", ", profile.ForageableNerfCategories)}], plant-extra bonuses: [{string.Join(", ", profile.PlantExtraBonusCategories)}], plant-extra nerfs: [{string.Join(", ", profile.PlantExtraNerfCategories)}], crafting-extra bonuses: [{string.Join(", ", profile.CraftingExtraBonusCategories)}], crafting-extra nerfs: [{string.Join(", ", profile.CraftingExtraNerfCategories)}], artisan good bonuses: [{string.Join(", ", profile.ArtisanGoodBonusCategories)}], artisan good nerfs: [{string.Join(", ", profile.ArtisanGoodNerfCategories)}], cooking food bonuses: [{string.Join(", ", profile.CookingFoodBonusCategories)}], cooking food nerfs: [{string.Join(", ", profile.CookingFoodNerfCategories)}], monster-loot bonuses: [{string.Join(", ", profile.MonsterLootBonusCategories)}], monster-loot nerfs: [{string.Join(", ", profile.MonsterLootNerfCategories)}], equipment bonuses: [{string.Join(", ", profile.EquipmentBonusCategories)}], equipment nerfs: [{string.Join(", ", profile.EquipmentNerfCategories)}].";
         }
 
         private static float GetTraitModifier(CropEconomicTrait traits, bool useBuySide)
@@ -304,6 +314,33 @@ namespace FarmingCapitalist
                 : _activeProfile.PlantExtraSellMultipliers;
 
             foreach (RandomizablePlantExtraEconomyCategoryDefinition definition in PlantExtraEconomyCategoryRegistry.GetRandomizableCategories())
+            {
+                if (useBuySide && !definition.SupportsBuy)
+                    continue;
+
+                if (!useBuySide && !definition.SupportsSell)
+                    continue;
+
+                if (!definition.MatchesTraits(traits))
+                    continue;
+
+                modifier *= GetCategoryMultiplier(multipliers, definition.Key);
+            }
+
+            return modifier;
+        }
+
+        private static float GetCraftingExtraTraitModifier(CraftingExtraEconomicTrait traits, bool useBuySide)
+        {
+            if (traits == CraftingExtraEconomicTrait.None || _activeProfile is null)
+                return 1f;
+
+            float modifier = 1f;
+            Dictionary<string, float> multipliers = useBuySide
+                ? _activeProfile.CraftingExtraBuyMultipliers
+                : _activeProfile.CraftingExtraSellMultipliers;
+
+            foreach (RandomizableCraftingExtraEconomyCategoryDefinition definition in CraftingExtraEconomyCategoryRegistry.GetRandomizableCategories())
             {
                 if (useBuySide && !definition.SupportsBuy)
                     continue;
@@ -473,6 +510,8 @@ namespace FarmingCapitalist
                 ForageableNerfCategories = new List<string>(),
                 PlantExtraBonusCategories = new List<string>(),
                 PlantExtraNerfCategories = new List<string>(),
+                CraftingExtraBonusCategories = new List<string>(),
+                CraftingExtraNerfCategories = new List<string>(),
                 ArtisanGoodBonusCategories = new List<string>(),
                 ArtisanGoodNerfCategories = new List<string>(),
                 CookingFoodBonusCategories = new List<string>(),
@@ -491,6 +530,8 @@ namespace FarmingCapitalist
                 ForageableSellMultipliers = new Dictionary<string, float>(KeyComparer),
                 PlantExtraBuyMultipliers = new Dictionary<string, float>(KeyComparer),
                 PlantExtraSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                CraftingExtraBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                CraftingExtraSellMultipliers = new Dictionary<string, float>(KeyComparer),
                 ArtisanGoodBuyMultipliers = new Dictionary<string, float>(KeyComparer),
                 ArtisanGoodSellMultipliers = new Dictionary<string, float>(KeyComparer),
                 CookingFoodBuyMultipliers = new Dictionary<string, float>(KeyComparer),
@@ -542,6 +583,8 @@ namespace FarmingCapitalist
                 ForageableNerfCategories = new List<string>(),
                 PlantExtraBonusCategories = new List<string>(),
                 PlantExtraNerfCategories = new List<string>(),
+                CraftingExtraBonusCategories = new List<string>(),
+                CraftingExtraNerfCategories = new List<string>(),
                 ArtisanGoodBonusCategories = new List<string>(),
                 ArtisanGoodNerfCategories = new List<string>(),
                 CookingFoodBonusCategories = new List<string>(),
@@ -560,6 +603,8 @@ namespace FarmingCapitalist
                 ForageableSellMultipliers = new Dictionary<string, float>(KeyComparer),
                 PlantExtraBuyMultipliers = new Dictionary<string, float>(KeyComparer),
                 PlantExtraSellMultipliers = new Dictionary<string, float>(KeyComparer),
+                CraftingExtraBuyMultipliers = new Dictionary<string, float>(KeyComparer),
+                CraftingExtraSellMultipliers = new Dictionary<string, float>(KeyComparer),
                 ArtisanGoodBuyMultipliers = new Dictionary<string, float>(KeyComparer),
                 ArtisanGoodSellMultipliers = new Dictionary<string, float>(KeyComparer),
                 CookingFoodBuyMultipliers = new Dictionary<string, float>(KeyComparer),
@@ -901,6 +946,21 @@ namespace FarmingCapitalist
                 }
             }
 
+            if ((loadedProfile.CraftingExtraBonusCategories?.Count ?? 0) > 0
+                || (loadedProfile.CraftingExtraNerfCategories?.Count ?? 0) > 0
+                || loadedProfile.CraftingExtraBuyMultipliers is null
+                || loadedProfile.CraftingExtraSellMultipliers is null
+                || loadedProfile.CraftingExtraBuyMultipliers.Count > 0
+                || loadedProfile.CraftingExtraSellMultipliers.Count > 0)
+            {
+                shouldPersist = true;
+            }
+
+            normalizedProfile.CraftingExtraBonusCategories = new List<string>();
+            normalizedProfile.CraftingExtraNerfCategories = new List<string>();
+            normalizedProfile.CraftingExtraBuyMultipliers = new Dictionary<string, float>(KeyComparer);
+            normalizedProfile.CraftingExtraSellMultipliers = new Dictionary<string, float>(KeyComparer);
+
             List<string> artisanGoodBonusCategories = NormalizeArtisanGoodCategories(
                 loadedProfile.ArtisanGoodBonusCategories,
                 supportsSell: true
@@ -1174,6 +1234,8 @@ namespace FarmingCapitalist
                 || !HaveSameCategoryOrder(loadedProfile.ForageableNerfCategories, normalizedProfile.ForageableNerfCategories)
                 || !HaveSameCategoryOrder(loadedProfile.PlantExtraBonusCategories, normalizedProfile.PlantExtraBonusCategories)
                 || !HaveSameCategoryOrder(loadedProfile.PlantExtraNerfCategories, normalizedProfile.PlantExtraNerfCategories)
+                || !HaveSameCategoryOrder(loadedProfile.CraftingExtraBonusCategories, normalizedProfile.CraftingExtraBonusCategories)
+                || !HaveSameCategoryOrder(loadedProfile.CraftingExtraNerfCategories, normalizedProfile.CraftingExtraNerfCategories)
                 || !HaveSameCategoryOrder(loadedProfile.ArtisanGoodBonusCategories, normalizedProfile.ArtisanGoodBonusCategories)
                 || !HaveSameCategoryOrder(loadedProfile.ArtisanGoodNerfCategories, normalizedProfile.ArtisanGoodNerfCategories)
                 || !HaveSameCategoryOrder(loadedProfile.CookingFoodBonusCategories, normalizedProfile.CookingFoodBonusCategories)

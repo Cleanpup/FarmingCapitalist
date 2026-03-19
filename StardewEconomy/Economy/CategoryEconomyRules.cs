@@ -39,6 +39,9 @@ namespace FarmingCapitalist
             if (PlantExtraEconomyItemRules.IsPlantExtraEligible(asItem))
                 return 1.00f;
 
+            if (CraftingExtraEconomyItemRules.IsCraftingExtraEligible(asItem))
+                return 1.00f;
+
             if (MonsterLootEconomyItemRules.IsMonsterLootEligible(asItem))
                 return 1.00f;
 
@@ -65,6 +68,9 @@ namespace FarmingCapitalist
                 return 1.00f;
 
             if (PlantExtraEconomyItemRules.IsPlantExtraEligible(item))
+                return 1.00f;
+
+            if (CraftingExtraEconomyItemRules.IsCraftingExtraEligible(item))
                 return 1.00f;
 
             if (ArtisanGoodEconomyItemRules.IsArtisanGoodEligible(item))

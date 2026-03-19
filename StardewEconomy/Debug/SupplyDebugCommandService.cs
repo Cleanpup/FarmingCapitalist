@@ -18,42 +18,42 @@ namespace FarmingCapitalist
         {
             helper.ConsoleCommands.Add(
                 "starecon_s_dump",
-                "Dump tracked supply scores and modifiers. Usage: starecon_s_dump [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all].",
+                "Dump tracked supply scores and modifiers. Usage: starecon_s_dump [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all].",
                 this.OnStareconSupplyDumpCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_mod",
-                "Show the current supply score and modifier. Usage: starecon_s_mod [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <item id or exact name>.",
+                "Show the current supply score and modifier. Usage: starecon_s_mod [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <item id or exact name>.",
                 this.OnStareconSupplyModifierCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_add",
-                "Add tracked supply for debugging. Usage: starecon_s_add [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <item id or exact name> <amount>.",
+                "Add tracked supply for debugging. Usage: starecon_s_add [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <item id or exact name> <amount>.",
                 this.OnStareconSupplyAddCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_reset",
-                "Clear tracked supply scores. Usage: starecon_s_reset [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all].",
+                "Clear tracked supply scores. Usage: starecon_s_reset [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all].",
                 this.OnStareconSupplyResetCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_decay",
-                "Apply category-specific debug decay. Usage: starecon_s_decay [fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] [days].",
+                "Apply category-specific debug decay. Usage: starecon_s_decay [fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] [days].",
                 this.OnStareconSupplyDecayCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_set",
-                "Set a debug override for the supply/demand sell modifier. Usage: starecon_s_set [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <value>.",
+                "Set a debug override for the supply/demand sell modifier. Usage: starecon_s_set [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <value>.",
                 this.OnStareconSupplySetModifierCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_clear",
-                "Clear the debug override for the supply/demand sell modifier. Usage: starecon_s_clear [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all].",
+                "Clear the debug override for the supply/demand sell modifier. Usage: starecon_s_clear [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all].",
                 this.OnStareconSupplyClearModifierCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_s_show",
-                "Show the current debug override for the supply/demand sell modifier, if any. Usage: starecon_s_show [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all].",
+                "Show the current debug override for the supply/demand sell modifier, if any. Usage: starecon_s_show [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all].",
                 this.OnStareconSupplyShowModifierOverrideCommand
             );
             helper.ConsoleCommands.Add(
@@ -110,6 +110,21 @@ namespace FarmingCapitalist
                 "starecon_px_price",
                 "Show the current plant-extra buy/sell modifiers. Usage: starecon_px_price <item id or exact name>.",
                 this.OnStareconPlantExtraPriceCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_cx_show",
+                "Show crafting-extra market simulation state.",
+                this.OnStareconCraftingExtraMarketShowCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_cx_reset",
+                "Reset crafting-extra supply and market simulation state.",
+                this.OnStareconCraftingExtraMarketResetCommand
+            );
+            helper.ConsoleCommands.Add(
+                "starecon_cx_price",
+                "Show the current crafting-extra buy/sell modifiers. Usage: starecon_cx_price <item id or exact name>.",
+                this.OnStareconCraftingExtraPriceCommand
             );
             helper.ConsoleCommands.Add(
                 "starecon_ag_show",
@@ -185,13 +200,13 @@ namespace FarmingCapitalist
 
             if (args.Length > 1)
             {
-                _monitor.Log("Usage: starecon_s_dump [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_dump [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
                 return;
             }
 
             if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
             {
-                _monitor.Log("Usage: starecon_s_dump [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_dump [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
                 return;
             }
 
@@ -213,6 +228,9 @@ namespace FarmingCapitalist
 
             if (scope is SupplyDebugScope.PlantExtra or SupplyDebugScope.All)
                 wroteAny |= DumpSupplyForCategory(SupplyDebugCategory.PlantExtra);
+
+            if (scope is SupplyDebugScope.CraftingExtra or SupplyDebugScope.All)
+                wroteAny |= DumpSupplyForCategory(SupplyDebugCategory.CraftingExtra);
 
             if (scope is SupplyDebugScope.ArtisanGood or SupplyDebugScope.All)
                 wroteAny |= DumpSupplyForCategory(SupplyDebugCategory.ArtisanGood);
@@ -242,13 +260,13 @@ namespace FarmingCapitalist
 
             if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
             {
-                _monitor.Log("Usage: starecon_s_mod [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <item id or exact name>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_mod [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <item id or exact name>", LogLevel.Warn);
                 return;
             }
 
             if (argIndex >= args.Length)
             {
-                _monitor.Log("Usage: starecon_s_mod [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <item id or exact name>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_mod [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <item id or exact name>", LogLevel.Warn);
                 return;
             }
 
@@ -274,14 +292,14 @@ namespace FarmingCapitalist
 
             if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
             {
-                _monitor.Log("Usage: starecon_s_add [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <item id or exact name> <amount>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_add [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <item id or exact name> <amount>", LogLevel.Warn);
                 return;
             }
 
             int amountIndex = args.Length - 1;
             if (amountIndex < argIndex)
             {
-                _monitor.Log("Usage: starecon_s_add [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <item id or exact name> <amount>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_add [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <item id or exact name> <amount>", LogLevel.Warn);
                 return;
             }
 
@@ -294,7 +312,7 @@ namespace FarmingCapitalist
             string query = string.Join(" ", args.Skip(argIndex).Take(amountIndex - argIndex));
             if (string.IsNullOrWhiteSpace(query))
             {
-                _monitor.Log("Usage: starecon_s_add [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <item id or exact name> <amount>", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_add [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <item id or exact name> <amount>", LogLevel.Warn);
                 return;
             }
 
@@ -324,13 +342,13 @@ namespace FarmingCapitalist
 
             if (args.Length > 1)
             {
-                _monitor.Log("Usage: starecon_s_reset [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_reset [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
                 return;
             }
 
             if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
             {
-                _monitor.Log("Usage: starecon_s_reset [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_reset [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
                 return;
             }
 
@@ -385,6 +403,15 @@ namespace FarmingCapitalist
                 if (PlantExtraSupplyDataService.GetSnapshot().Count > 0)
                 {
                     PlantExtraSupplyDataService.ResetTrackedSupply();
+                    resetAny = true;
+                }
+            }
+
+            if (scope is SupplyDebugScope.CraftingExtra or SupplyDebugScope.All)
+            {
+                if (CraftingExtraSupplyDataService.GetSnapshot().Count > 0)
+                {
+                    CraftingExtraSupplyDataService.ResetTrackedSupply();
                     resetAny = true;
                 }
             }
@@ -452,18 +479,19 @@ namespace FarmingCapitalist
                 && category is not SupplyDebugCategory.AnimalProduct
                 && category is not SupplyDebugCategory.Forageable
                 && category is not SupplyDebugCategory.PlantExtra
+                && category is not SupplyDebugCategory.CraftingExtra
                 && category is not SupplyDebugCategory.ArtisanGood
                 && category is not SupplyDebugCategory.CookingFood
                 && category is not SupplyDebugCategory.MonsterLoot
                 && category is not SupplyDebugCategory.Equipment)
             {
-                _monitor.Log("Crop supply does not expose a direct decay command. Use starecon_s_decay [fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] [days].", LogLevel.Warn);
+                _monitor.Log("Crop supply does not expose a direct decay command. Use starecon_s_decay [fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] [days].", LogLevel.Warn);
                 return;
             }
 
             if (args.Length - argIndex > 1)
             {
-                _monitor.Log("Usage: starecon_s_decay [fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] [days]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_decay [fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] [days]", LogLevel.Warn);
                 return;
             }
 
@@ -481,6 +509,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductMarketSimulationService.ApplyDebugDailyUpdate(days),
                 SupplyDebugCategory.Forageable => ForageableMarketSimulationService.ApplyDebugDailyUpdate(days),
                 SupplyDebugCategory.PlantExtra => PlantExtraMarketSimulationService.ApplyDebugDailyUpdate(days),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraMarketSimulationService.ApplyDebugDailyUpdate(days),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodMarketSimulationService.ApplyDebugDailyUpdate(days),
                 SupplyDebugCategory.CookingFood => CookingFoodMarketSimulationService.ApplyDebugDailyUpdate(days),
                 SupplyDebugCategory.MonsterLoot => MonsterLootMarketSimulationService.ApplyDebugDailyUpdate(days),
@@ -509,7 +538,7 @@ namespace FarmingCapitalist
             if (!TryResolveSupplyCategory(args, defaultCategory: SupplyDebugCategory.Crop, out SupplyDebugCategory category, out int argIndex))
             {
                 _monitor.Log(
-                    $"Usage: starecon_s_set [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
+                    $"Usage: starecon_s_set [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
                     LogLevel.Warn
                 );
                 return;
@@ -518,7 +547,7 @@ namespace FarmingCapitalist
             if (args.Length - argIndex != 1)
             {
                 _monitor.Log(
-                    $"Usage: starecon_s_set [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
+                    $"Usage: starecon_s_set [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment] <value between {CropSupplyModifierService.MinimumAllowedSellModifier:0.###} and {CropSupplyModifierService.MaximumAllowedSellModifier:0.###}>",
                     LogLevel.Warn
                 );
                 return;
@@ -549,13 +578,13 @@ namespace FarmingCapitalist
 
             if (args.Length > 1)
             {
-                _monitor.Log("Usage: starecon_s_clear [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_clear [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
                 return;
             }
 
             if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
             {
-                _monitor.Log("Usage: starecon_s_clear [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_clear [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
                 return;
             }
 
@@ -577,6 +606,9 @@ namespace FarmingCapitalist
 
             if (scope is SupplyDebugScope.PlantExtra or SupplyDebugScope.All)
                 clearedAny |= ClearSupplyModifierOverride(SupplyDebugCategory.PlantExtra);
+
+            if (scope is SupplyDebugScope.CraftingExtra or SupplyDebugScope.All)
+                clearedAny |= ClearSupplyModifierOverride(SupplyDebugCategory.CraftingExtra);
 
             if (scope is SupplyDebugScope.ArtisanGood or SupplyDebugScope.All)
                 clearedAny |= ClearSupplyModifierOverride(SupplyDebugCategory.ArtisanGood);
@@ -602,13 +634,13 @@ namespace FarmingCapitalist
 
             if (args.Length > 1)
             {
-                _monitor.Log("Usage: starecon_s_show [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_show [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
                 return;
             }
 
             if (!TryResolveSupplyScope(args, defaultScope: SupplyDebugScope.Crop, out SupplyDebugScope scope))
             {
-                _monitor.Log("Usage: starecon_s_show [crop|fish|mining|animal|forage|plant|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
+                _monitor.Log("Usage: starecon_s_show [crop|fish|mining|animal|forage|plant|crafting|artisan|cooking|monster|equipment|all]", LogLevel.Warn);
                 return;
             }
 
@@ -630,6 +662,9 @@ namespace FarmingCapitalist
 
             if (scope is SupplyDebugScope.PlantExtra or SupplyDebugScope.All)
                 showedAny |= ShowSupplyModifierOverride(SupplyDebugCategory.PlantExtra);
+
+            if (scope is SupplyDebugScope.CraftingExtra or SupplyDebugScope.All)
+                showedAny |= ShowSupplyModifierOverride(SupplyDebugCategory.CraftingExtra);
 
             if (scope is SupplyDebugScope.ArtisanGood or SupplyDebugScope.All)
                 showedAny |= ShowSupplyModifierOverride(SupplyDebugCategory.ArtisanGood);
@@ -932,6 +967,89 @@ namespace FarmingCapitalist
 
             _monitor.Log(
                 $"Plant-extra price modifiers for {displayName} ({itemId}): sell trait x{sellTraitModifier:0.###}, sell supply x{sellSupplyModifier:0.###}, total sell x{totalSellModifier:0.###}, buy trait x{buyTraitModifier:0.###}, season {context.Season}.",
+                LogLevel.Info
+            );
+        }
+
+        private void OnStareconCraftingExtraMarketShowCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_cx_show.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length > 0)
+            {
+                _monitor.Log("Usage: starecon_cx_show", LogLevel.Warn);
+                return;
+            }
+
+            foreach (string line in CraftingExtraMarketSimulationService.GetDebugStatusLines())
+                _monitor.Log(line, LogLevel.Info);
+        }
+
+        private void OnStareconCraftingExtraMarketResetCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_cx_reset.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length > 0)
+            {
+                _monitor.Log("Usage: starecon_cx_reset", LogLevel.Warn);
+                return;
+            }
+
+            CraftingExtraSupplyDataService.ResetTrackedSupply();
+            CraftingExtraMarketSimulationService.ResetSimulationState();
+            _monitor.Log("Reset crafting-extra supply and market simulation state.", LogLevel.Info);
+        }
+
+        private void OnStareconCraftingExtraPriceCommand(string command, string[] args)
+        {
+            _ = command;
+
+            if (!Context.IsWorldReady)
+            {
+                _monitor.Log("Load a save before running starecon_cx_price.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                _monitor.Log("Usage: starecon_cx_price <item id or exact name>", LogLevel.Warn);
+                return;
+            }
+
+            string query = string.Join(" ", args);
+            if (!CraftingExtraSupplyTracker.TryResolveCraftingExtraItemId(query, out string itemId, out string displayName))
+            {
+                _monitor.Log($"Could not resolve '{query}' to a crafting-extra item. Use an exact crafting-extra name or item ID.", LogLevel.Warn);
+                return;
+            }
+
+            if (!CraftingExtraEconomyItemRules.TryCreateCraftingExtraObject(itemId, out StardewValley.Object? craftingExtraObject)
+                || craftingExtraObject is null)
+            {
+                _monitor.Log($"Failed to create a crafting-extra item instance for '{displayName}' ({itemId}).", LogLevel.Error);
+                return;
+            }
+
+            EconomyContext context = EconomyContextBuilder.Build(shopkeeperName: null, monitor: _monitor);
+            float sellTraitModifier = CraftingExtraTraitEconomyRules.GetSellTraitModifier(craftingExtraObject, context);
+            float sellSupplyModifier = CraftingExtraSupplyModifierService.GetSellModifier(itemId, displayName);
+            float totalSellModifier = sellTraitModifier * sellSupplyModifier;
+            float buyTraitModifier = CraftingExtraTraitEconomyRules.GetBuyTraitModifier(craftingExtraObject, context);
+
+            _monitor.Log(
+                $"Crafting-extra price modifiers for {displayName} ({itemId}): sell trait x{sellTraitModifier:0.###}, sell supply x{sellSupplyModifier:0.###}, total sell x{totalSellModifier:0.###}, buy trait x{buyTraitModifier:0.###}, season {context.Season}.",
                 LogLevel.Info
             );
         }
@@ -1299,6 +1417,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductSupplyDataService.GetSnapshot(),
                 SupplyDebugCategory.Forageable => ForageableSupplyDataService.GetSnapshot(),
                 SupplyDebugCategory.PlantExtra => PlantExtraSupplyDataService.GetSnapshot(),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraSupplyDataService.GetSnapshot(),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodSupplyDataService.GetSnapshot(),
                 SupplyDebugCategory.CookingFood => CookingFoodSupplyDataService.GetSnapshot(),
                 SupplyDebugCategory.MonsterLoot => MonsterLootSupplyDataService.GetSnapshot(),
@@ -1317,6 +1436,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductSupplyTracker.GetAnimalProductDisplayName(itemId),
                 SupplyDebugCategory.Forageable => ForageableSupplyTracker.GetForageableDisplayName(itemId),
                 SupplyDebugCategory.PlantExtra => PlantExtraSupplyTracker.GetPlantExtraDisplayName(itemId),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraSupplyTracker.GetCraftingExtraDisplayName(itemId),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodSupplyTracker.GetArtisanGoodDisplayName(itemId),
                 SupplyDebugCategory.CookingFood => CookingFoodSupplyTracker.GetCookingFoodDisplayName(itemId),
                 SupplyDebugCategory.MonsterLoot => MonsterLootSupplyTracker.GetMonsterLootDisplayName(itemId),
@@ -1335,6 +1455,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductSupplyModifierService.GetDebugSummary(itemId, displayName),
                 SupplyDebugCategory.Forageable => ForageableSupplyModifierService.GetDebugSummary(itemId, displayName),
                 SupplyDebugCategory.PlantExtra => PlantExtraSupplyModifierService.GetDebugSummary(itemId, displayName),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraSupplyModifierService.GetDebugSummary(itemId, displayName),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodSupplyModifierService.GetDebugSummary(itemId, displayName),
                 SupplyDebugCategory.CookingFood => CookingFoodSupplyModifierService.GetDebugSummary(itemId, displayName),
                 SupplyDebugCategory.MonsterLoot => MonsterLootSupplyModifierService.GetDebugSummary(itemId, displayName),
@@ -1353,6 +1474,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
                 SupplyDebugCategory.Forageable => ForageableSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
                 SupplyDebugCategory.PlantExtra => PlantExtraSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
                 SupplyDebugCategory.CookingFood => CookingFoodSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
                 SupplyDebugCategory.MonsterLoot => MonsterLootSupplyDataService.AddSupply(itemId, amount, displayName, "debug-command"),
@@ -1371,6 +1493,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductSupplyModifierService.GetSellModifier(itemId, displayName),
                 SupplyDebugCategory.Forageable => ForageableSupplyModifierService.GetSellModifier(itemId, displayName),
                 SupplyDebugCategory.PlantExtra => PlantExtraSupplyModifierService.GetSellModifier(itemId, displayName),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraSupplyModifierService.GetSellModifier(itemId, displayName),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodSupplyModifierService.GetSellModifier(itemId, displayName),
                 SupplyDebugCategory.CookingFood => CookingFoodSupplyModifierService.GetSellModifier(itemId, displayName),
                 SupplyDebugCategory.MonsterLoot => MonsterLootSupplyModifierService.GetSellModifier(itemId, displayName),
@@ -1389,6 +1512,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
                 SupplyDebugCategory.Forageable => ForageableSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
                 SupplyDebugCategory.PlantExtra => PlantExtraSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
                 SupplyDebugCategory.CookingFood => CookingFoodSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
                 SupplyDebugCategory.MonsterLoot => MonsterLootSupplyModifierService.TrySetDebugSellModifierOverride(modifier, out error),
@@ -1435,6 +1559,12 @@ namespace FarmingCapitalist
                 return;
             }
 
+            if (category == SupplyDebugCategory.CraftingExtra)
+            {
+                CraftingExtraSupplyDataService.ResetTrackedSupply();
+                return;
+            }
+
             if (category == SupplyDebugCategory.ArtisanGood)
             {
                 ArtisanGoodSupplyDataService.ResetTrackedSupply();
@@ -1473,6 +1603,8 @@ namespace FarmingCapitalist
                 ForageableSupplyModifierService.ClearDebugSellModifierOverride();
             else if (category == SupplyDebugCategory.PlantExtra)
                 PlantExtraSupplyModifierService.ClearDebugSellModifierOverride();
+            else if (category == SupplyDebugCategory.CraftingExtra)
+                CraftingExtraSupplyModifierService.ClearDebugSellModifierOverride();
             else if (category == SupplyDebugCategory.ArtisanGood)
                 ArtisanGoodSupplyModifierService.ClearDebugSellModifierOverride();
             else if (category == SupplyDebugCategory.CookingFood)
@@ -1505,6 +1637,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
                 SupplyDebugCategory.Forageable => ForageableSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
                 SupplyDebugCategory.PlantExtra => PlantExtraSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
                 SupplyDebugCategory.CookingFood => CookingFoodSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
                 SupplyDebugCategory.MonsterLoot => MonsterLootSupplyModifierService.TryGetDebugSellModifierOverride(out modifier),
@@ -1523,6 +1656,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => AnimalProductSupplyTracker.TryResolveAnimalProductItemId(query, out itemId, out displayName),
                 SupplyDebugCategory.Forageable => ForageableSupplyTracker.TryResolveForageableItemId(query, out itemId, out displayName),
                 SupplyDebugCategory.PlantExtra => PlantExtraSupplyTracker.TryResolvePlantExtraItemId(query, out itemId, out displayName),
+                SupplyDebugCategory.CraftingExtra => CraftingExtraSupplyTracker.TryResolveCraftingExtraItemId(query, out itemId, out displayName),
                 SupplyDebugCategory.ArtisanGood => ArtisanGoodSupplyTracker.TryResolveArtisanGoodItemId(query, out itemId, out displayName),
                 SupplyDebugCategory.CookingFood => CookingFoodSupplyTracker.TryResolveCookingFoodItemId(query, out itemId, out displayName),
                 SupplyDebugCategory.MonsterLoot => MonsterLootSupplyTracker.TryResolveMonsterLootItemId(query, out itemId, out displayName),
@@ -1541,6 +1675,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => $"Could not resolve '{query}' to an animal product item. Use an exact animal-product name or item ID.",
                 SupplyDebugCategory.Forageable => $"Could not resolve '{query}' to a forageable item. Use an exact forageable name or item ID.",
                 SupplyDebugCategory.PlantExtra => $"Could not resolve '{query}' to a plant-extra item. Use an exact plant-extra name or item ID.",
+                SupplyDebugCategory.CraftingExtra => $"Could not resolve '{query}' to a crafting-extra item. Use an exact crafting-extra name or item ID.",
                 SupplyDebugCategory.ArtisanGood => $"Could not resolve '{query}' to an artisan good item. Use an exact artisan-good name or item ID.",
                 SupplyDebugCategory.CookingFood => $"Could not resolve '{query}' to a cooking food item. Use an exact cooking-food name or item ID.",
                 SupplyDebugCategory.MonsterLoot => $"Could not resolve '{query}' to a monster loot item. Use an exact monster-loot name or item ID.",
@@ -1631,6 +1766,16 @@ namespace FarmingCapitalist
                 return true;
             }
 
+            if (string.Equals(raw, "crafting", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(raw, "craft", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(raw, "craftingextra", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(raw, "crafting-extra", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(raw, "cx", StringComparison.OrdinalIgnoreCase))
+            {
+                category = SupplyDebugCategory.CraftingExtra;
+                return true;
+            }
+
             if (string.Equals(raw, "artisan", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(raw, "artisangood", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(raw, "artisangoods", StringComparison.OrdinalIgnoreCase)
@@ -1697,13 +1842,15 @@ namespace FarmingCapitalist
                                     ? SupplyDebugScope.Forageable
                                     : category == SupplyDebugCategory.PlantExtra
                                         ? SupplyDebugScope.PlantExtra
-                                        : category == SupplyDebugCategory.ArtisanGood
-                                            ? SupplyDebugScope.ArtisanGood
-                                            : category == SupplyDebugCategory.CookingFood
-                                                ? SupplyDebugScope.CookingFood
-                                                : category == SupplyDebugCategory.MonsterLoot
-                                                    ? SupplyDebugScope.MonsterLoot
-                                                    : SupplyDebugScope.Equipment;
+                                        : category == SupplyDebugCategory.CraftingExtra
+                                            ? SupplyDebugScope.CraftingExtra
+                                            : category == SupplyDebugCategory.ArtisanGood
+                                                ? SupplyDebugScope.ArtisanGood
+                                                : category == SupplyDebugCategory.CookingFood
+                                                    ? SupplyDebugScope.CookingFood
+                                                    : category == SupplyDebugCategory.MonsterLoot
+                                                        ? SupplyDebugScope.MonsterLoot
+                                                        : SupplyDebugScope.Equipment;
                 return true;
             }
 
@@ -1721,6 +1868,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => "animal product",
                 SupplyDebugCategory.Forageable => "forageable",
                 SupplyDebugCategory.PlantExtra => "plant extra",
+                SupplyDebugCategory.CraftingExtra => "crafting extra",
                 SupplyDebugCategory.ArtisanGood => "artisan good",
                 SupplyDebugCategory.CookingFood => "cooking food",
                 SupplyDebugCategory.MonsterLoot => "monster loot",
@@ -1739,6 +1887,7 @@ namespace FarmingCapitalist
                 SupplyDebugCategory.AnimalProduct => "animal products",
                 SupplyDebugCategory.Forageable => "forageables",
                 SupplyDebugCategory.PlantExtra => "plant-extra items",
+                SupplyDebugCategory.CraftingExtra => "crafting-extra items",
                 SupplyDebugCategory.ArtisanGood => "artisan goods",
                 SupplyDebugCategory.CookingFood => "cooking-food items",
                 SupplyDebugCategory.MonsterLoot => "monster-loot items",
@@ -1755,6 +1904,7 @@ namespace FarmingCapitalist
             AnimalProduct,
             Forageable,
             PlantExtra,
+            CraftingExtra,
             ArtisanGood,
             CookingFood,
             MonsterLoot,
@@ -1769,6 +1919,7 @@ namespace FarmingCapitalist
             AnimalProduct,
             Forageable,
             PlantExtra,
+            CraftingExtra,
             ArtisanGood,
             CookingFood,
             MonsterLoot,

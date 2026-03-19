@@ -19,6 +19,7 @@ namespace FarmingCapitalist
         private IMarketSimulationLifecycle _animalProductMarketSimulation = null!;
         private IMarketSimulationLifecycle _forageableMarketSimulation = null!;
         private IMarketSimulationLifecycle _plantExtraMarketSimulation = null!;
+        private IMarketSimulationLifecycle _craftingExtraMarketSimulation = null!;
         private IMarketSimulationLifecycle _artisanGoodMarketSimulation = null!;
         private IMarketSimulationLifecycle _cookingFoodMarketSimulation = null!;
         private IMarketSimulationLifecycle _monsterLootMarketSimulation = null!;
@@ -36,6 +37,7 @@ namespace FarmingCapitalist
             AnimalProductSupplyDataService.Initialize(helper, this.Monitor);
             ForageableSupplyDataService.Initialize(helper, this.Monitor);
             PlantExtraSupplyDataService.Initialize(helper, this.Monitor);
+            CraftingExtraSupplyDataService.Initialize(helper, this.Monitor);
             ArtisanGoodSupplyDataService.Initialize(helper, this.Monitor);
             CookingFoodSupplyDataService.Initialize(helper, this.Monitor);
             MonsterLootSupplyDataService.Initialize(helper, this.Monitor);
@@ -46,6 +48,7 @@ namespace FarmingCapitalist
             AnimalProductSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
             ForageableSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
             PlantExtraSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
+            CraftingExtraSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
             ArtisanGoodSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
             CookingFoodSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
             MonsterLootSupplyModifierService.Initialize(Config.ApplySupplyDemandSellModifier);
@@ -60,6 +63,7 @@ namespace FarmingCapitalist
             _animalProductMarketSimulation = new AnimalProductMarketSimulationLifecycleAdapter();
             _forageableMarketSimulation = new ForageableMarketSimulationLifecycleAdapter();
             _plantExtraMarketSimulation = new PlantExtraMarketSimulationLifecycleAdapter();
+            _craftingExtraMarketSimulation = new CraftingExtraMarketSimulationLifecycleAdapter();
             _artisanGoodMarketSimulation = new ArtisanGoodMarketSimulationLifecycleAdapter();
             _cookingFoodMarketSimulation = new CookingFoodMarketSimulationLifecycleAdapter();
             _monsterLootMarketSimulation = new MonsterLootMarketSimulationLifecycleAdapter();
@@ -70,6 +74,7 @@ namespace FarmingCapitalist
             _animalProductMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             _forageableMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             _plantExtraMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
+            _craftingExtraMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             _artisanGoodMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             _cookingFoodMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
             _monsterLootMarketSimulation.Initialize(helper, this.Monitor, Config.Debug.VerboseLogs);
@@ -123,6 +128,7 @@ namespace FarmingCapitalist
             _animalProductMarketSimulation.LoadOrCreateForCurrentSave();
             _forageableMarketSimulation.LoadOrCreateForCurrentSave();
             _plantExtraMarketSimulation.LoadOrCreateForCurrentSave();
+            _craftingExtraMarketSimulation.LoadOrCreateForCurrentSave();
             _artisanGoodMarketSimulation.LoadOrCreateForCurrentSave();
             _cookingFoodMarketSimulation.LoadOrCreateForCurrentSave();
             _monsterLootMarketSimulation.LoadOrCreateForCurrentSave();
@@ -142,6 +148,7 @@ namespace FarmingCapitalist
             _animalProductMarketSimulation.ClearActiveData();
             _forageableMarketSimulation.ClearActiveData();
             _plantExtraMarketSimulation.ClearActiveData();
+            _craftingExtraMarketSimulation.ClearActiveData();
             _artisanGoodMarketSimulation.ClearActiveData();
             _cookingFoodMarketSimulation.ClearActiveData();
             _monsterLootMarketSimulation.ClearActiveData();
@@ -198,6 +205,7 @@ namespace FarmingCapitalist
             _animalProductMarketSimulation.RunDailyUpdateIfNeeded();
             _forageableMarketSimulation.RunDailyUpdateIfNeeded();
             _plantExtraMarketSimulation.RunDailyUpdateIfNeeded();
+            _craftingExtraMarketSimulation.RunDailyUpdateIfNeeded();
             _artisanGoodMarketSimulation.RunDailyUpdateIfNeeded();
             _cookingFoodMarketSimulation.RunDailyUpdateIfNeeded();
             _monsterLootMarketSimulation.RunDailyUpdateIfNeeded();

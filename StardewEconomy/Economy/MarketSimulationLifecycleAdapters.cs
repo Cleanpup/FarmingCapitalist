@@ -207,6 +207,40 @@ namespace FarmingCapitalist
         }
     }
 
+    /// <summary>Thin lifecycle wrapper around the existing crafting-extra market simulation service.</summary>
+    internal sealed class CraftingExtraMarketSimulationLifecycleAdapter : IMarketSimulationLifecycle
+    {
+        public void Initialize(IModHelper helper, IMonitor monitor, bool debugLoggingEnabled)
+        {
+            CraftingExtraMarketSimulationService.Initialize(helper, monitor, debugLoggingEnabled);
+        }
+
+        public void LoadOrCreateForCurrentSave()
+        {
+            CraftingExtraMarketSimulationService.LoadOrCreateForCurrentSave();
+        }
+
+        public void ClearActiveData()
+        {
+            CraftingExtraMarketSimulationService.ClearActiveData();
+        }
+
+        public bool RunDailyUpdateIfNeeded()
+        {
+            return CraftingExtraMarketSimulationService.RunDailyUpdateIfNeeded();
+        }
+
+        public bool ApplyDebugDailyUpdate(int elapsedDays)
+        {
+            return CraftingExtraMarketSimulationService.ApplyDebugDailyUpdate(elapsedDays);
+        }
+
+        public IEnumerable<string> GetDebugStatusLines()
+        {
+            return CraftingExtraMarketSimulationService.GetDebugStatusLines();
+        }
+    }
+
     /// <summary>Thin lifecycle wrapper around the existing artisan-good market simulation service.</summary>
     internal sealed class ArtisanGoodMarketSimulationLifecycleAdapter : IMarketSimulationLifecycle
     {

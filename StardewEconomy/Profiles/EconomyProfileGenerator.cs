@@ -81,6 +81,19 @@ namespace FarmingCapitalist
                 );
             }
 
+            List<string> plantExtraSellKeys = PlantExtraEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (plantExtraSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate plant-extra profile: requires {requiredCount} sell categories but only {plantExtraSellKeys.Count} are registered."
+                );
+            }
+
             List<string> artisanGoodSellKeys = ArtisanGoodEconomyCategoryRegistry
                 .GetRandomizableCategories()
                 .Where(definition => definition.SupportsSell)
@@ -91,6 +104,19 @@ namespace FarmingCapitalist
             {
                 throw new InvalidOperationException(
                     $"Cannot generate artisan good profile: requires {requiredCount} sell categories but only {artisanGoodSellKeys.Count} are registered."
+                );
+            }
+
+            List<string> cookingFoodSellKeys = CookingFoodEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (cookingFoodSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate cooking food profile: requires {requiredCount} sell categories but only {cookingFoodSellKeys.Count} are registered."
                 );
             }
 
@@ -105,6 +131,19 @@ namespace FarmingCapitalist
             {
                 throw new InvalidOperationException(
                     $"Cannot generate monster-loot profile: requires {requiredMonsterLootCount} sell categories but only {monsterLootSellKeys.Count} are registered."
+                );
+            }
+
+            List<string> equipmentSellKeys = EquipmentEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (equipmentSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate equipment profile: requires {requiredCount} sell categories but only {equipmentSellKeys.Count} are registered."
                 );
             }
 
@@ -129,10 +168,22 @@ namespace FarmingCapitalist
                 out List<string> forageableNerfCategories
             );
             SelectCategories(
+                plantExtraSellKeys,
+                GetPlantExtraGenerationSeed(seed),
+                out List<string> plantExtraBonusCategories,
+                out List<string> plantExtraNerfCategories
+            );
+            SelectCategories(
                 artisanGoodSellKeys,
                 GetArtisanGoodGenerationSeed(seed),
                 out List<string> artisanGoodBonusCategories,
                 out List<string> artisanGoodNerfCategories
+            );
+            SelectCategories(
+                cookingFoodSellKeys,
+                GetCookingFoodGenerationSeed(seed),
+                out List<string> cookingFoodBonusCategories,
+                out List<string> cookingFoodNerfCategories
             );
             SelectCategories(
                 monsterLootSellKeys,
@@ -141,6 +192,12 @@ namespace FarmingCapitalist
                 _settings.MonsterLootNerfCategoryCount,
                 out List<string> monsterLootBonusCategories,
                 out List<string> monsterLootNerfCategories
+            );
+            SelectCategories(
+                equipmentSellKeys,
+                GetEquipmentGenerationSeed(seed),
+                out List<string> equipmentBonusCategories,
+                out List<string> equipmentNerfCategories
             );
 
             SaveEconomyProfile profile = new()
@@ -157,10 +214,16 @@ namespace FarmingCapitalist
                 AnimalProductNerfCategories = animalProductNerfCategories,
                 ForageableBonusCategories = forageableBonusCategories,
                 ForageableNerfCategories = forageableNerfCategories,
+                PlantExtraBonusCategories = plantExtraBonusCategories,
+                PlantExtraNerfCategories = plantExtraNerfCategories,
                 ArtisanGoodBonusCategories = artisanGoodBonusCategories,
                 ArtisanGoodNerfCategories = artisanGoodNerfCategories,
+                CookingFoodBonusCategories = cookingFoodBonusCategories,
+                CookingFoodNerfCategories = cookingFoodNerfCategories,
                 MonsterLootBonusCategories = monsterLootBonusCategories,
                 MonsterLootNerfCategories = monsterLootNerfCategories,
+                EquipmentBonusCategories = equipmentBonusCategories,
+                EquipmentNerfCategories = equipmentNerfCategories,
                 BuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
                 SellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
                 FishSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
@@ -169,10 +232,16 @@ namespace FarmingCapitalist
                 AnimalProductSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
                 ForageableBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
                 ForageableSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
+                PlantExtraBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
+                PlantExtraSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
                 ArtisanGoodBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
                 ArtisanGoodSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
+                CookingFoodBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
+                CookingFoodSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
                 MonsterLootBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
-                MonsterLootSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
+                MonsterLootSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
+                EquipmentBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase),
+                EquipmentSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
             };
 
             foreach (string category in bonusCategories)
@@ -263,6 +332,32 @@ namespace FarmingCapitalist
                 }
             }
 
+            foreach (string category in plantExtraBonusCategories)
+            {
+                profile.PlantExtraSellMultipliers[category] = _settings.BonusSellMultiplier;
+
+                if (PlantExtraEconomyCategoryRegistry.TryGetCategory(category, out RandomizablePlantExtraEconomyCategoryDefinition definition)
+                    && definition.SupportsBuy)
+                {
+                    profile.PlantExtraBuyMultipliers[category] = _settings.BonusBuyMultiplier == 1f
+                        ? _settings.BonusSellMultiplier
+                        : _settings.BonusBuyMultiplier;
+                }
+            }
+
+            foreach (string category in plantExtraNerfCategories)
+            {
+                profile.PlantExtraSellMultipliers[category] = _settings.NerfSellMultiplier;
+
+                if (PlantExtraEconomyCategoryRegistry.TryGetCategory(category, out RandomizablePlantExtraEconomyCategoryDefinition definition)
+                    && definition.SupportsBuy)
+                {
+                    profile.PlantExtraBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
+                        ? _settings.NerfSellMultiplier
+                        : _settings.NerfBuyMultiplier;
+                }
+            }
+
             foreach (string category in artisanGoodBonusCategories)
             {
                 profile.ArtisanGoodSellMultipliers[category] = _settings.BonusSellMultiplier;
@@ -289,6 +384,32 @@ namespace FarmingCapitalist
                 }
             }
 
+            foreach (string category in cookingFoodBonusCategories)
+            {
+                profile.CookingFoodSellMultipliers[category] = _settings.BonusSellMultiplier;
+
+                if (CookingFoodEconomyCategoryRegistry.TryGetCategory(category, out RandomizableCookingFoodEconomyCategoryDefinition definition)
+                    && definition.SupportsBuy)
+                {
+                    profile.CookingFoodBuyMultipliers[category] = _settings.BonusBuyMultiplier == 1f
+                        ? _settings.BonusSellMultiplier
+                        : _settings.BonusBuyMultiplier;
+                }
+            }
+
+            foreach (string category in cookingFoodNerfCategories)
+            {
+                profile.CookingFoodSellMultipliers[category] = _settings.NerfSellMultiplier;
+
+                if (CookingFoodEconomyCategoryRegistry.TryGetCategory(category, out RandomizableCookingFoodEconomyCategoryDefinition definition)
+                    && definition.SupportsBuy)
+                {
+                    profile.CookingFoodBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
+                        ? _settings.NerfSellMultiplier
+                        : _settings.NerfBuyMultiplier;
+                }
+            }
+
             foreach (string category in monsterLootBonusCategories)
             {
                 profile.MonsterLootSellMultipliers[category] = _settings.BonusSellMultiplier;
@@ -310,6 +431,32 @@ namespace FarmingCapitalist
                     && definition.SupportsBuy)
                 {
                     profile.MonsterLootBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
+                        ? _settings.NerfSellMultiplier
+                        : _settings.NerfBuyMultiplier;
+                }
+            }
+
+            foreach (string category in equipmentBonusCategories)
+            {
+                profile.EquipmentSellMultipliers[category] = _settings.BonusSellMultiplier;
+
+                if (EquipmentEconomyCategoryRegistry.TryGetCategory(category, out RandomizableEquipmentEconomyCategoryDefinition definition)
+                    && definition.SupportsBuy)
+                {
+                    profile.EquipmentBuyMultipliers[category] = _settings.BonusBuyMultiplier == 1f
+                        ? _settings.BonusSellMultiplier
+                        : _settings.BonusBuyMultiplier;
+                }
+            }
+
+            foreach (string category in equipmentNerfCategories)
+            {
+                profile.EquipmentSellMultipliers[category] = _settings.NerfSellMultiplier;
+
+                if (EquipmentEconomyCategoryRegistry.TryGetCategory(category, out RandomizableEquipmentEconomyCategoryDefinition definition)
+                    && definition.SupportsBuy)
+                {
+                    profile.EquipmentBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
                         ? _settings.NerfSellMultiplier
                         : _settings.NerfBuyMultiplier;
                 }
@@ -488,6 +635,54 @@ namespace FarmingCapitalist
             }
         }
 
+        public void PopulatePlantExtraSelections(SaveEconomyProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            List<string> plantExtraSellKeys = PlantExtraEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            int requiredCount = _settings.BonusCategoryCount + _settings.NerfCategoryCount;
+            if (plantExtraSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate plant-extra profile: requires {requiredCount} sell categories but only {plantExtraSellKeys.Count} are registered."
+                );
+            }
+
+            SelectCategories(
+                plantExtraSellKeys,
+                GetPlantExtraGenerationSeed(profile.Seed),
+                out List<string> plantExtraBonusCategories,
+                out List<string> plantExtraNerfCategories
+            );
+
+            profile.PlantExtraBonusCategories = plantExtraBonusCategories;
+            profile.PlantExtraNerfCategories = plantExtraNerfCategories;
+            profile.PlantExtraBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+            profile.PlantExtraSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string category in plantExtraBonusCategories)
+            {
+                profile.PlantExtraSellMultipliers[category] = _settings.BonusSellMultiplier;
+                profile.PlantExtraBuyMultipliers[category] = _settings.BonusBuyMultiplier == 1f
+                    ? _settings.BonusSellMultiplier
+                    : _settings.BonusBuyMultiplier;
+            }
+
+            foreach (string category in plantExtraNerfCategories)
+            {
+                profile.PlantExtraSellMultipliers[category] = _settings.NerfSellMultiplier;
+                profile.PlantExtraBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
+                    ? _settings.NerfSellMultiplier
+                    : _settings.NerfBuyMultiplier;
+            }
+        }
+
         public void PopulateArtisanGoodSelections(SaveEconomyProfile profile)
         {
             ArgumentNullException.ThrowIfNull(profile);
@@ -531,6 +726,54 @@ namespace FarmingCapitalist
             {
                 profile.ArtisanGoodSellMultipliers[category] = _settings.NerfSellMultiplier;
                 profile.ArtisanGoodBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
+                    ? _settings.NerfSellMultiplier
+                    : _settings.NerfBuyMultiplier;
+            }
+        }
+
+        public void PopulateCookingFoodSelections(SaveEconomyProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            List<string> cookingFoodSellKeys = CookingFoodEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            int requiredCount = _settings.BonusCategoryCount + _settings.NerfCategoryCount;
+            if (cookingFoodSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate cooking food profile: requires {requiredCount} sell categories but only {cookingFoodSellKeys.Count} are registered."
+                );
+            }
+
+            SelectCategories(
+                cookingFoodSellKeys,
+                GetCookingFoodGenerationSeed(profile.Seed),
+                out List<string> cookingFoodBonusCategories,
+                out List<string> cookingFoodNerfCategories
+            );
+
+            profile.CookingFoodBonusCategories = cookingFoodBonusCategories;
+            profile.CookingFoodNerfCategories = cookingFoodNerfCategories;
+            profile.CookingFoodBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+            profile.CookingFoodSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string category in cookingFoodBonusCategories)
+            {
+                profile.CookingFoodSellMultipliers[category] = _settings.BonusSellMultiplier;
+                profile.CookingFoodBuyMultipliers[category] = _settings.BonusBuyMultiplier == 1f
+                    ? _settings.BonusSellMultiplier
+                    : _settings.BonusBuyMultiplier;
+            }
+
+            foreach (string category in cookingFoodNerfCategories)
+            {
+                profile.CookingFoodSellMultipliers[category] = _settings.NerfSellMultiplier;
+                profile.CookingFoodBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
                     ? _settings.NerfSellMultiplier
                     : _settings.NerfBuyMultiplier;
             }
@@ -581,6 +824,54 @@ namespace FarmingCapitalist
             {
                 profile.MonsterLootSellMultipliers[category] = _settings.NerfSellMultiplier;
                 profile.MonsterLootBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
+                    ? _settings.NerfSellMultiplier
+                    : _settings.NerfBuyMultiplier;
+            }
+        }
+
+        public void PopulateEquipmentSelections(SaveEconomyProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            List<string> equipmentSellKeys = EquipmentEconomyCategoryRegistry
+                .GetRandomizableCategories()
+                .Where(definition => definition.SupportsSell)
+                .Select(definition => definition.Key)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            int requiredCount = _settings.BonusCategoryCount + _settings.NerfCategoryCount;
+            if (equipmentSellKeys.Count < requiredCount)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot generate equipment profile: requires {requiredCount} sell categories but only {equipmentSellKeys.Count} are registered."
+                );
+            }
+
+            SelectCategories(
+                equipmentSellKeys,
+                GetEquipmentGenerationSeed(profile.Seed),
+                out List<string> equipmentBonusCategories,
+                out List<string> equipmentNerfCategories
+            );
+
+            profile.EquipmentBonusCategories = equipmentBonusCategories;
+            profile.EquipmentNerfCategories = equipmentNerfCategories;
+            profile.EquipmentBuyMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+            profile.EquipmentSellMultipliers = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string category in equipmentBonusCategories)
+            {
+                profile.EquipmentSellMultipliers[category] = _settings.BonusSellMultiplier;
+                profile.EquipmentBuyMultipliers[category] = _settings.BonusBuyMultiplier == 1f
+                    ? _settings.BonusSellMultiplier
+                    : _settings.BonusBuyMultiplier;
+            }
+
+            foreach (string category in equipmentNerfCategories)
+            {
+                profile.EquipmentSellMultipliers[category] = _settings.NerfSellMultiplier;
+                profile.EquipmentBuyMultipliers[category] = _settings.NerfBuyMultiplier == 1f
                     ? _settings.NerfSellMultiplier
                     : _settings.NerfBuyMultiplier;
             }
@@ -651,9 +942,24 @@ namespace FarmingCapitalist
             return unchecked((seed * 1597) ^ 0x27D4EB2D);
         }
 
+        private static int GetPlantExtraGenerationSeed(int seed)
+        {
+            return unchecked((seed * 1451) ^ 0x3F84D5B5);
+        }
+
+        private static int GetCookingFoodGenerationSeed(int seed)
+        {
+            return unchecked((seed * 1741) ^ 0x52DCE729);
+        }
+
         private static int GetMonsterLootGenerationSeed(int seed)
         {
             return unchecked((seed * 1879) ^ 0x13579BDF);
+        }
+
+        private static int GetEquipmentGenerationSeed(int seed)
+        {
+            return unchecked((seed * 1999) ^ 0x2468ACE1);
         }
 
         private static void ShuffleInPlace(List<string> values, Random random)

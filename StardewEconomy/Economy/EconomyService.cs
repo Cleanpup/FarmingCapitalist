@@ -25,15 +25,21 @@ namespace FarmingCapitalist
             float mineralTraitModifier = MineralTraitEconomyRules.GetSellTraitModifier(item, context);
             float animalProductTraitModifier = AnimalProductTraitEconomyRules.GetSellTraitModifier(item, context);
             float forageableTraitModifier = ForageableTraitEconomyRules.GetSellTraitModifier(item, context);
+            float plantExtraTraitModifier = PlantExtraTraitEconomyRules.GetSellTraitModifier(item, context);
             float artisanGoodTraitModifier = ArtisanGoodTraitEconomyRules.GetSellTraitModifier(item, context);
+            float cookingFoodTraitModifier = CookingFoodTraitEconomyRules.GetSellTraitModifier(item, context);
             float monsterLootTraitModifier = MonsterLootTraitEconomyRules.GetSellTraitModifier(item, context);
+            float equipmentTraitModifier = EquipmentTraitEconomyRules.GetSellTraitModifier(item, context);
             float cropSupplyModifier = 1f;
             float fishSupplyModifier = 1f;
             float mineralSupplyModifier = 1f;
             float animalProductSupplyModifier = 1f;
             float forageableSupplyModifier = 1f;
+            float plantExtraSupplyModifier = 1f;
             float artisanGoodSupplyModifier = 1f;
+            float cookingFoodSupplyModifier = 1f;
             float monsterLootSupplyModifier = 1f;
+            float equipmentSupplyModifier = 1f;
             bool applyCropSupplyModifier = CropSupplyModifierService.ApplyToLiveSellPricing
                 || CropSupplyModifierService.HasDebugSellModifierOverride;
             bool fishSupplySystemEnabled = FishSupplyModifierService.ApplyToLiveSellPricing
@@ -44,16 +50,25 @@ namespace FarmingCapitalist
                 || AnimalProductSupplyModifierService.HasDebugSellModifierOverride;
             bool forageableSupplySystemEnabled = ForageableSupplyModifierService.ApplyToLiveSellPricing
                 || ForageableSupplyModifierService.HasDebugSellModifierOverride;
+            bool plantExtraSupplySystemEnabled = PlantExtraSupplyModifierService.ApplyToLiveSellPricing
+                || PlantExtraSupplyModifierService.HasDebugSellModifierOverride;
             bool artisanGoodSupplySystemEnabled = ArtisanGoodSupplyModifierService.ApplyToLiveSellPricing
                 || ArtisanGoodSupplyModifierService.HasDebugSellModifierOverride;
+            bool cookingFoodSupplySystemEnabled = CookingFoodSupplyModifierService.ApplyToLiveSellPricing
+                || CookingFoodSupplyModifierService.HasDebugSellModifierOverride;
             bool monsterLootSupplySystemEnabled = MonsterLootSupplyModifierService.ApplyToLiveSellPricing
                 || MonsterLootSupplyModifierService.HasDebugSellModifierOverride;
+            bool equipmentSupplySystemEnabled = EquipmentSupplyModifierService.ApplyToLiveSellPricing
+                || EquipmentSupplyModifierService.HasDebugSellModifierOverride;
             bool applyFishSupplyModifier = false;
             bool applyMineralSupplyModifier = false;
             bool applyAnimalProductSupplyModifier = false;
             bool applyForageableSupplyModifier = false;
+            bool applyPlantExtraSupplyModifier = false;
             bool applyArtisanGoodSupplyModifier = false;
+            bool applyCookingFoodSupplyModifier = false;
             bool applyMonsterLootSupplyModifier = false;
+            bool applyEquipmentSupplyModifier = false;
 
             if (fishSupplySystemEnabled
                 && FishEconomyItemRules.TryGetFishEconomyClassification(
@@ -76,11 +91,20 @@ namespace FarmingCapitalist
             if (forageableSupplySystemEnabled && ForageableEconomyItemRules.IsForageableEligible(item))
                 applyForageableSupplyModifier = true;
 
+            if (plantExtraSupplySystemEnabled && PlantExtraEconomyItemRules.IsPlantExtraEligible(item))
+                applyPlantExtraSupplyModifier = true;
+
             if (artisanGoodSupplySystemEnabled && ArtisanGoodEconomyItemRules.IsArtisanGoodEligible(item))
                 applyArtisanGoodSupplyModifier = true;
 
+            if (cookingFoodSupplySystemEnabled && CookingFoodEconomyItemRules.IsCookingFoodEligible(item))
+                applyCookingFoodSupplyModifier = true;
+
             if (monsterLootSupplySystemEnabled && MonsterLootEconomyItemRules.IsMonsterLootEligible(item))
                 applyMonsterLootSupplyModifier = true;
+
+            if (equipmentSupplySystemEnabled && EquipmentEconomyItemRules.IsEquipmentEligible(item))
+                applyEquipmentSupplyModifier = true;
 
             totalModifier *= festivalModifier;
             totalModifier *= categoryModifier;
@@ -90,8 +114,11 @@ namespace FarmingCapitalist
             totalModifier *= mineralTraitModifier;
             totalModifier *= animalProductTraitModifier;
             totalModifier *= forageableTraitModifier;
+            totalModifier *= plantExtraTraitModifier;
             totalModifier *= artisanGoodTraitModifier;
+            totalModifier *= cookingFoodTraitModifier;
             totalModifier *= monsterLootTraitModifier;
+            totalModifier *= equipmentTraitModifier;
             if (applyCropSupplyModifier)
             {
                 cropSupplyModifier = CropSupplyModifierService.GetSellModifier(item);
@@ -122,16 +149,34 @@ namespace FarmingCapitalist
                 totalModifier *= forageableSupplyModifier;
             }
 
+            if (applyPlantExtraSupplyModifier)
+            {
+                plantExtraSupplyModifier = PlantExtraSupplyModifierService.GetSellModifier(item);
+                totalModifier *= plantExtraSupplyModifier;
+            }
+
             if (applyArtisanGoodSupplyModifier)
             {
                 artisanGoodSupplyModifier = ArtisanGoodSupplyModifierService.GetSellModifier(item);
                 totalModifier *= artisanGoodSupplyModifier;
             }
 
+            if (applyCookingFoodSupplyModifier)
+            {
+                cookingFoodSupplyModifier = CookingFoodSupplyModifierService.GetSellModifier(item);
+                totalModifier *= cookingFoodSupplyModifier;
+            }
+
             if (applyMonsterLootSupplyModifier)
             {
                 monsterLootSupplyModifier = MonsterLootSupplyModifierService.GetSellModifier(item);
                 totalModifier *= monsterLootSupplyModifier;
+            }
+
+            if (applyEquipmentSupplyModifier)
+            {
+                equipmentSupplyModifier = EquipmentSupplyModifierService.GetSellModifier(item);
+                totalModifier *= equipmentSupplyModifier;
             }
 
             int adjustedBeforeClamp = Math.Max(0, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));
@@ -154,15 +199,24 @@ namespace FarmingCapitalist
             string forageableSupplyTrace = applyForageableSupplyModifier
                 ? $", {(ForageableSupplyModifierService.HasDebugSellModifierOverride ? "forageableSupplyOverride" : "forageableSupply")} x{forageableSupplyModifier:0.###}"
                 : string.Empty;
+            string plantExtraSupplyTrace = applyPlantExtraSupplyModifier
+                ? $", {(PlantExtraSupplyModifierService.HasDebugSellModifierOverride ? "plantExtraSupplyOverride" : "plantExtraSupply")} x{plantExtraSupplyModifier:0.###}"
+                : string.Empty;
             string artisanGoodSupplyTrace = applyArtisanGoodSupplyModifier
                 ? $", {(ArtisanGoodSupplyModifierService.HasDebugSellModifierOverride ? "artisanGoodSupplyOverride" : "artisanGoodSupply")} x{artisanGoodSupplyModifier:0.###}"
+                : string.Empty;
+            string cookingFoodSupplyTrace = applyCookingFoodSupplyModifier
+                ? $", {(CookingFoodSupplyModifierService.HasDebugSellModifierOverride ? "cookingFoodSupplyOverride" : "cookingFoodSupply")} x{cookingFoodSupplyModifier:0.###}"
                 : string.Empty;
             string monsterLootSupplyTrace = applyMonsterLootSupplyModifier
                 ? $", {(MonsterLootSupplyModifierService.HasDebugSellModifierOverride ? "monsterLootSupplyOverride" : "monsterLootSupply")} x{monsterLootSupplyModifier:0.###}"
                 : string.Empty;
+            string equipmentSupplyTrace = applyEquipmentSupplyModifier
+                ? $", {(EquipmentSupplyModifierService.HasDebugSellModifierOverride ? "equipmentSupplyOverride" : "equipmentSupply")} x{equipmentSupplyModifier:0.###}"
+                : string.Empty;
 
             VerbosePriceTraceLogger.Log(
-                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###}, fishTrait x{fishTraitModifier:0.###}, miningTrait x{mineralTraitModifier:0.###}, animalProductTrait x{animalProductTraitModifier:0.###}, forageableTrait x{forageableTraitModifier:0.###}, artisanGoodTrait x{artisanGoodTraitModifier:0.###}, monsterLootTrait x{monsterLootTraitModifier:0.###}{supplyTrace}{fishSupplyTrace}{mineralSupplyTrace}{animalProductSupplyTrace}{forageableSupplyTrace}{artisanGoodSupplyTrace}{monsterLootSupplyTrace} -> total x{totalModifier:0.###}"
+                $"Sell price modifiers: festival x{festivalModifier:0.###}, category x{categoryModifier:0.###}, cropTrait x{cropTraitModifier:0.###}, cropItem x{cropItemModifier:0.###}, fishTrait x{fishTraitModifier:0.###}, miningTrait x{mineralTraitModifier:0.###}, animalProductTrait x{animalProductTraitModifier:0.###}, forageableTrait x{forageableTraitModifier:0.###}, plantExtraTrait x{plantExtraTraitModifier:0.###}, artisanGoodTrait x{artisanGoodTraitModifier:0.###}, cookingFoodTrait x{cookingFoodTraitModifier:0.###}, monsterLootTrait x{monsterLootTraitModifier:0.###}, equipmentTrait x{equipmentTraitModifier:0.###}{supplyTrace}{fishSupplyTrace}{mineralSupplyTrace}{animalProductSupplyTrace}{forageableSupplyTrace}{plantExtraSupplyTrace}{artisanGoodSupplyTrace}{cookingFoodSupplyTrace}{monsterLootSupplyTrace}{equipmentSupplyTrace} -> total x{totalModifier:0.###}"
             );
 
             VerbosePriceTraceLogger.Log(
@@ -192,16 +246,22 @@ namespace FarmingCapitalist
             float cropItemMultiplier = 1f;
             float animalProductTraitMultiplier = 1f;
             float forageableTraitMultiplier = 1f;
+            float plantExtraTraitMultiplier = 1f;
             float artisanGoodTraitMultiplier = 1f;
+            float cookingFoodTraitMultiplier = 1f;
             float monsterLootTraitMultiplier = 1f;
+            float equipmentTraitMultiplier = 1f;
             if (item is Item asItem)
             {
                 cropTraitMultiplier = CropTraitEconomyRules.GetBuyTraitModifier(asItem, context);
                 cropItemMultiplier = CropItemEconomyRules.GetBuyItemModifier(asItem, context);
                 animalProductTraitMultiplier = AnimalProductTraitEconomyRules.GetBuyTraitModifier(asItem, context);
                 forageableTraitMultiplier = ForageableTraitEconomyRules.GetBuyTraitModifier(asItem, context);
+                plantExtraTraitMultiplier = PlantExtraTraitEconomyRules.GetBuyTraitModifier(asItem, context);
                 artisanGoodTraitMultiplier = ArtisanGoodTraitEconomyRules.GetBuyTraitModifier(asItem, context);
+                cookingFoodTraitMultiplier = CookingFoodTraitEconomyRules.GetBuyTraitModifier(asItem, context);
                 monsterLootTraitMultiplier = MonsterLootTraitEconomyRules.GetBuyTraitModifier(asItem, context);
+                equipmentTraitMultiplier = EquipmentTraitEconomyRules.GetBuyTraitModifier(asItem, context);
             }
             float bulkRampMultiplier = BulkBuyRampRules.GetMultiplier(
                 item,
@@ -218,11 +278,14 @@ namespace FarmingCapitalist
             totalModifier *= cropItemMultiplier;
             totalModifier *= animalProductTraitMultiplier;
             totalModifier *= forageableTraitMultiplier;
+            totalModifier *= plantExtraTraitMultiplier;
             totalModifier *= artisanGoodTraitMultiplier;
+            totalModifier *= cookingFoodTraitMultiplier;
             totalModifier *= monsterLootTraitMultiplier;
+            totalModifier *= equipmentTraitMultiplier;
             totalModifier *= bulkRampMultiplier;
             VerbosePriceTraceLogger.Log(
-                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###}, category x{categoryMultiplier:0.###}, cropTrait x{cropTraitMultiplier:0.###}, cropItem x{cropItemMultiplier:0.###}, animalProductTrait x{animalProductTraitMultiplier:0.###}, forageableTrait x{forageableTraitMultiplier:0.###}, artisanGoodTrait x{artisanGoodTraitMultiplier:0.###}, monsterLootTrait x{monsterLootTraitMultiplier:0.###}, bulk x{bulkRampMultiplier:0.###} (daily {cumulativePurchasedToday}, qty {purchaseQuantity}) -> total x{totalModifier:0.###}"
+                $"Buy price modifiers for shop {shopId}: day x{dayMultiplier:0.###}, friendship x{friendshipMultiplier:0.###}, festival x{festivalMultiplier:0.###}, category x{categoryMultiplier:0.###}, cropTrait x{cropTraitMultiplier:0.###}, cropItem x{cropItemMultiplier:0.###}, animalProductTrait x{animalProductTraitMultiplier:0.###}, forageableTrait x{forageableTraitMultiplier:0.###}, plantExtraTrait x{plantExtraTraitMultiplier:0.###}, artisanGoodTrait x{artisanGoodTraitMultiplier:0.###}, cookingFoodTrait x{cookingFoodTraitMultiplier:0.###}, monsterLootTrait x{monsterLootTraitMultiplier:0.###}, equipmentTrait x{equipmentTraitMultiplier:0.###}, bulk x{bulkRampMultiplier:0.###} (daily {cumulativePurchasedToday}, qty {purchaseQuantity}) -> total x{totalModifier:0.###}"
             );
 
             int adjusted = Math.Max(1, (int)Math.Round(vanillaPrice * totalModifier, MidpointRounding.AwayFromZero));

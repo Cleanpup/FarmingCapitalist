@@ -173,6 +173,40 @@ namespace FarmingCapitalist
         }
     }
 
+    /// <summary>Thin lifecycle wrapper around the existing plant-extra market simulation service.</summary>
+    internal sealed class PlantExtraMarketSimulationLifecycleAdapter : IMarketSimulationLifecycle
+    {
+        public void Initialize(IModHelper helper, IMonitor monitor, bool debugLoggingEnabled)
+        {
+            PlantExtraMarketSimulationService.Initialize(helper, monitor, debugLoggingEnabled);
+        }
+
+        public void LoadOrCreateForCurrentSave()
+        {
+            PlantExtraMarketSimulationService.LoadOrCreateForCurrentSave();
+        }
+
+        public void ClearActiveData()
+        {
+            PlantExtraMarketSimulationService.ClearActiveData();
+        }
+
+        public bool RunDailyUpdateIfNeeded()
+        {
+            return PlantExtraMarketSimulationService.RunDailyUpdateIfNeeded();
+        }
+
+        public bool ApplyDebugDailyUpdate(int elapsedDays)
+        {
+            return PlantExtraMarketSimulationService.ApplyDebugDailyUpdate(elapsedDays);
+        }
+
+        public IEnumerable<string> GetDebugStatusLines()
+        {
+            return PlantExtraMarketSimulationService.GetDebugStatusLines();
+        }
+    }
+
     /// <summary>Thin lifecycle wrapper around the existing artisan-good market simulation service.</summary>
     internal sealed class ArtisanGoodMarketSimulationLifecycleAdapter : IMarketSimulationLifecycle
     {
@@ -207,6 +241,40 @@ namespace FarmingCapitalist
         }
     }
 
+    /// <summary>Thin lifecycle wrapper around the existing cooking-food market simulation service.</summary>
+    internal sealed class CookingFoodMarketSimulationLifecycleAdapter : IMarketSimulationLifecycle
+    {
+        public void Initialize(IModHelper helper, IMonitor monitor, bool debugLoggingEnabled)
+        {
+            CookingFoodMarketSimulationService.Initialize(helper, monitor, debugLoggingEnabled);
+        }
+
+        public void LoadOrCreateForCurrentSave()
+        {
+            CookingFoodMarketSimulationService.LoadOrCreateForCurrentSave();
+        }
+
+        public void ClearActiveData()
+        {
+            CookingFoodMarketSimulationService.ClearActiveData();
+        }
+
+        public bool RunDailyUpdateIfNeeded()
+        {
+            return CookingFoodMarketSimulationService.RunDailyUpdateIfNeeded();
+        }
+
+        public bool ApplyDebugDailyUpdate(int elapsedDays)
+        {
+            return CookingFoodMarketSimulationService.ApplyDebugDailyUpdate(elapsedDays);
+        }
+
+        public IEnumerable<string> GetDebugStatusLines()
+        {
+            return CookingFoodMarketSimulationService.GetDebugStatusLines();
+        }
+    }
+
     /// <summary>Thin lifecycle wrapper around the existing monster-loot market simulation service.</summary>
     internal sealed class MonsterLootMarketSimulationLifecycleAdapter : IMarketSimulationLifecycle
     {
@@ -238,6 +306,40 @@ namespace FarmingCapitalist
         public IEnumerable<string> GetDebugStatusLines()
         {
             return MonsterLootMarketSimulationService.GetDebugStatusLines();
+        }
+    }
+
+    /// <summary>Thin lifecycle wrapper around the existing equipment market simulation service.</summary>
+    internal sealed class EquipmentMarketSimulationLifecycleAdapter : IMarketSimulationLifecycle
+    {
+        public void Initialize(IModHelper helper, IMonitor monitor, bool debugLoggingEnabled)
+        {
+            EquipmentMarketSimulationService.Initialize(helper, monitor, debugLoggingEnabled);
+        }
+
+        public void LoadOrCreateForCurrentSave()
+        {
+            EquipmentMarketSimulationService.LoadOrCreateForCurrentSave();
+        }
+
+        public void ClearActiveData()
+        {
+            EquipmentMarketSimulationService.ClearActiveData();
+        }
+
+        public bool RunDailyUpdateIfNeeded()
+        {
+            return EquipmentMarketSimulationService.RunDailyUpdateIfNeeded();
+        }
+
+        public bool ApplyDebugDailyUpdate(int elapsedDays)
+        {
+            return EquipmentMarketSimulationService.ApplyDebugDailyUpdate(elapsedDays);
+        }
+
+        public IEnumerable<string> GetDebugStatusLines()
+        {
+            return EquipmentMarketSimulationService.GetDebugStatusLines();
         }
     }
 }

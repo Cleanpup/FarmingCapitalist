@@ -1,0 +1,133 @@
+
+Created memory file [](file:///home/cleanpup/.config/Code/User/workspaceStorage/a80bf52642cd5b98262ed5157a78ea87/GitHub.copilot-chat/memory-tool/memories/MTRkNDg0MDEtOTFkYS00N2Y1LTg4ZWEtYTY1ZjYzMjQzN2Y5/plan.md)
+
+A. High-level recommendation
+Use a mixed architecture: worker appears as a normal in-world NPC actor, 
+but behavior is chosen by a host-authoritative runtime controller (not schedule-only logic). 
+This gives you the best balance of shippable gameplay, mod compatibility, and a clean runway toward traditional AI
+ without a full rewrite.
+
+1. Hybrid NPC shell + custom runtime brain (recommended)
+- Concept: Reuse vanilla NPC/world integration, but runtime controller selects goals, destinations, and actions continuously.
+- Feasibility: High.
+- Maintainability: High if you separate decision layer from movement/persistence.
+- Compatibility: High-medium (mostly vanilla-compatible, minimal targeted hooks).
+- Pathfinding: Medium; leverage vanilla path controllers, add custom replanning/recovery.
+- AI growth: High; easy progression from FSM to utility-based behavior.
+
+C. Engine/system constraints from SMAPI + Stardew 1.6
+1. Update loop and lifecycle boundaries
+- Runtime decisions should run on game-loop events, with strict world-ready checks.
+- Relevant hooks: IGameLoopEvents.cs, IGameLoopEvents.cs, Context.cs.
+
+2. Pathfinding and collision pain points
+- Dynamic destinations are viable, but route failure, tile occupancy changes, and blocked chokepoints must be handled explicitly.
+- Core references: PathFindController.cs, PathFindController.cs, GameLocation.cs, GameLocation.cs.
+
+3. Schedule interruption and event interference
+- Vanilla NPC systems prioritize certain controllers/schedule states; runtime worker logic must pause/resume cleanly around events/festivals and forced movement.
+- Relevant anchor: NPC.cs, NPC.cs.
+
+4. Map changes and custom locations
+- Dynamic map edits, missing warps, and custom location availability can invalidate routes mid-task.
+- Use defensive destination validation before commit/repath.
+
+5. Multiplayer authority and syncing
+- Host should own all AI decisions and state mutation; clients should render mirrored results and send requests only.
+- Relevant systems: Multiplayer.cs, Multiplayer.cs, IMultiplayerEvents.cs, IMultiplayerHelper.cs.
+
+6. Persistence/save data
+- Persist worker brain/task progress in mod save data, rehydrate at load/day start, clear on return-to-title.
+- Existing repo pattern to reuse: ModEntry.cs, ModEntry.cs.
+
+D. Best architecture direction
+Treat this as mostly NPC presentation plus custom runtime logic, not a fully custom entity.
+1. Worker body: vanilla NPC-compatible actor in location character lists.
+2. Worker brain: custom decision service that picks next task/destination from live world/business state.
+3. Worker execution: movement/path controller layer with retries, reroutes, and interruption handling.
+4. Worker data: mod-owned persistent state (task token, role state, cooldowns, last valid destination).
+5. Worker networking: host-authoritative decisions, client mirror-only.
+
+This mixed direction is the strongest fit for your three goals:
+- Shippable soon
+- Good AI learning substrate
+- Minimal rewrite risk later
+
+E. AI model recommendation (FSM vs behavior tree vs utility AI)
+Best fit now: FSM with utility scoring inside states.
+1. FSM for top-level reliability
+- Clear, debuggable states like OffDuty, TravelToTask, PerformTask, Recover, Idle.
+- Great for first shippable versions and edge-case control.
+
+2. Utility scoring for dynamic runtime choices
+- Inside PerformTask/SelectTask phases, score candidate jobs from world state (distance, urgency, business demand, fatigue, time window).
+- This gives runtime-derived behavior without full planner complexity.
+
+3. Behavior tree later, only if needed
+- Adopt BT when behavior breadth and interruption combinatorics grow large.
+- Not ideal as a first model here because you still need strong world-specific recovery and host-sync discipline first.
+
+In short:
+- Phase 1-2: FSM
+- Phase 2-3: FSM + utility (recommended long-term baseline)
+- Later only: BT for large behavior libraries
+
+F. Step-by-step implementation roadmap
+1. Stage 0: Design contract (easiest)
+- Define worker task taxonomy, authority model, and persistence schema boundaries.
+- Decide what is vanilla-owned vs custom-owned state.
+
+2. Stage 1: Visual/scripted worker
+- In-world worker with deterministic routine in one location/work area.
+- Limited dynamic behavior, mostly fixed destinations and canned actions.
+- Goal: prove world presence, movement, animation cadence, persistence lifecycle.
+
+3. Stage 2: Runtime task-selection worker
+- Replace static sequence with runtime task queue/selector.
+- Dynamic destination choice based on live business state.
+- Add blocked-path recovery and interruption/resume rules.
+
+4. Stage 3: Multi-location robust worker
+- Add cross-location routing/warps, fallback destinations, map-change resilience.
+- Harden for custom locations and temporary route invalidation.
+
+5. Stage 4: Multiplayer-hardening pass
+- Enforce host-only decision mutation, client request/observe flow.
+- Add desync-safe reconciliation and deterministic rehydration rules.
+
+6. Stage 5: AI enrichment
+- Introduce utility scoring inputs (workload, urgency, distance, preference, fatigue).
+- Add higher-level planning only after telemetry shows bottlenecks in current policy.
+
+G. Specific vanilla / SMAPI systems and decompiled files to inspect
+1. Core NPC behavior and schedule plumbing
+- NPC.cs
+- NPC.cs
+- NPC.cs
+
+2. Pathfinding and route execution
+- PathFindController.cs
+- PathFindController.cs
+- PathFindController.cs
+
+3. Collision/occupancy/location updates
+- GameLocation.cs
+- GameLocation.cs
+- Game1.cs
+
+4. Multiplayer replication semantics
+- Multiplayer.cs
+- Multiplayer.cs
+- Multiplayer.cs
+
+5. SMAPI lifecycle, save, and messaging APIs
+- IGameLoopEvents.cs
+- IGameLoopEvents.cs
+- Context.cs
+- IMultiplayerHelper.cs
+- IDataHelper.cs
+
+6. Your repo’s proven lifecycle/persistence pattern
+- ModEntry.cs
+- ModEntry.cs
+- ModEntry.cs

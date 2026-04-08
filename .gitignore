@@ -1,0 +1,9 @@
+# Ignore everything in this project by default
+*
+
+# Keep this ignore file tracked
+!.gitignore
+
+# Keep only the core mod entry files tracked
+!ModEntry.cs
+!manifest.json

@@ -7,3 +7,4 @@
 # Keep only the core mod entry files tracked
 !ModEntry.cs
 !manifest.json
+!Workers

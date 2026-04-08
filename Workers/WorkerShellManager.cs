@@ -186,7 +186,9 @@ internal sealed class WorkerShellManager
         renderWorker.FarmerSprite.StopAnimation();
 
         float layerDepth = Math.Max(0f, (float)worker.StandingPixel.Y / 10000f);
-        Vector2 origin = new(8f, (128f - (worker.GetBoundingBox().Height / 2f)) / 4f + 4f);
+        Vector2 origin = new(
+            renderWorker.xOffset,
+            (renderWorker.yOffset + 128f - (worker.GetBoundingBox().Height / 2f)) / 4f + 4f);
 
         renderWorker.FarmerRenderer.draw(
             spriteBatch,

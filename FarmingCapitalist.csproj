@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>FarmingCapitalistFull</AssemblyName>
+    <RootNamespace>FarmingCapitalist</RootNamespace>
+    <EnableHarmony>true</EnableHarmony>
+    <!-- If the package can't detect your game path, uncomment and set GamePath. -->
+    <!-- <GamePath>/path/to/Stardew Valley</GamePath> -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

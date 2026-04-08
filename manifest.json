@@ -1,0 +1,10 @@
+{
+  "Name": "FarmingCapitalist",
+  "Author": "Cleanpup",
+  "Version": "1.0.0",
+  "Description": "<One or two sentences about the mod>",
+  "UniqueID": "Cleanpup.FarmingCapitalist",
+  "EntryDll": "FarmingCapitalistFull.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}

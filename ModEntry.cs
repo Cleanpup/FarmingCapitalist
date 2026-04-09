@@ -1,5 +1,4 @@
 using FarmingCapitalist.Workers;
-using HarmonyLib;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
@@ -9,6 +8,7 @@ namespace FarmingCapitalist
     /// <summary>The mod entry point.</summary>
     internal sealed class ModEntry : Mod
     {
+        private WorkerBehaviorManager? workerBehaviorManager;
         private WorkerCustomizationManager? workerCustomizationManager;
         private WorkerShellManager? workerShellManager;
 
@@ -20,10 +20,9 @@ namespace FarmingCapitalist
         public override void Entry(IModHelper helper)
         {
             this.workerShellManager = new WorkerShellManager(helper, this.ModManifest, this.Monitor);
-            this.workerCustomizationManager = new WorkerCustomizationManager(this.Monitor, this.workerShellManager);
-
-            Harmony harmony = new(this.ModManifest.UniqueID);
-            WorkerNpcDrawPatch.Apply(harmony, this.workerShellManager);
+            WorkerNavigationManager workerNavigationManager = new(this.workerShellManager, this.Monitor);
+            this.workerBehaviorManager = new WorkerBehaviorManager(workerNavigationManager, this.workerShellManager, this.Monitor);
+            this.workerCustomizationManager = new WorkerCustomizationManager(this.Monitor, this.workerShellManager, this.workerBehaviorManager);
 
             helper.ConsoleCommands.Add(
                 "workerstatus",
@@ -31,7 +30,7 @@ namespace FarmingCapitalist
                 this.OnWorkerStatusCommand);
             helper.ConsoleCommands.Add(
                 "spawn",
-                "Open the worker appearance menu, then save that appearance and spawn/update the worker shell.",
+                "Use `spawn` to open the worker appearance menu, or `spawn d` to spawn/update the worker with the default appearance preset.",
                 this.OnWorkerCustomizeSpawnCommand);
             helper.ConsoleCommands.Add(
                 "delete",
@@ -40,6 +39,7 @@ namespace FarmingCapitalist
 
             helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
             helper.Events.GameLoop.DayStarted += this.OnDayStarted;
+            helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
             helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
             helper.Events.Player.Warped += this.OnWarped;
         }
@@ -51,17 +51,25 @@ namespace FarmingCapitalist
         private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
         {
             this.workerShellManager!.ReloadWorkerAppearance();
-            this.workerShellManager.EnsureConfiguredWorkerPresent();
+            NPC? worker = this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+            this.workerBehaviorManager!.HandleWorkerInitialized(worker, "save loaded");
         }
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
         {
-            this.workerShellManager!.EnsureConfiguredWorkerPresent();
+            NPC? worker = this.workerShellManager!.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+            this.workerBehaviorManager!.HandleWorkerInitialized(worker, "day started");
+        }
+
+        private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
+        {
+            this.workerBehaviorManager!.Update();
         }
 
         private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
         {
             this.workerCustomizationManager!.Reset();
+            this.workerBehaviorManager!.Reset();
             this.workerShellManager!.Reset();
         }
 
@@ -72,7 +80,7 @@ namespace FarmingCapitalist
                 return;
             }
 
-            this.workerShellManager!.EnsureConfiguredWorkerPresent();
+            this.workerShellManager!.EnsureConfiguredWorkerPresent(respawnAtSpawn: false);
         }
 
         private void OnWorkerStatusCommand(string command, string[] args)
@@ -105,6 +113,16 @@ namespace FarmingCapitalist
 
         private void OnWorkerCustomizeSpawnCommand(string command, string[] args)
         {
+            if (args.Length > 0)
+            {
+                string mode = args[0].Trim().ToLowerInvariant();
+                if (mode is "d" or "default")
+                {
+                    this.workerCustomizationManager!.SpawnWithDefaultAppearance();
+                    return;
+                }
+            }
+
             this.workerCustomizationManager!.StartCustomizationSession();
         }
 
@@ -116,6 +134,7 @@ namespace FarmingCapitalist
                 return;
             }
 
+            this.workerBehaviorManager!.Reset();
             if (this.workerShellManager!.DeleteConfiguredWorker())
             {
                 this.Monitor.Log("Deleted the test worker shell and cleared its saved appearance.", LogLevel.Info);

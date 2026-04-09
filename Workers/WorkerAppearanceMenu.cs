@@ -12,6 +12,12 @@ namespace FarmingCapitalist.Workers;
 
 internal sealed class WorkerAppearanceMenu : IClickableMenu
 {
+    private static readonly HashSet<string> MaleRandomShirtExclusions = new()
+    {
+        "1056", "1057", "1070", "1046", "1040", "1060", "1090", "1051",
+        "1082", "1107", "1080", "1083", "1092", "1072", "1076", "1041",
+    };
+
     private sealed class SelectionField
     {
         public SelectionField(
@@ -54,6 +60,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     private ClickableTextureComponent directionRightButton = null!;
     private ClickableTextureComponent maleButton = null!;
     private ClickableTextureComponent femaleButton = null!;
+    private ClickableTextureComponent randomButton = null!;
     private ClickableTextureComponent okButton = null!;
     private ColorPicker hairColorPicker = null!;
     private ColorPicker eyeColorPicker = null!;
@@ -65,6 +72,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     private ColorPicker? heldColorPicker;
     private Action<Color>? heldColorApply;
     private int previewDirectionIndex;
+    private int timesRandom;
 
     public WorkerAppearanceMenu(WorkerAppearanceData initialAppearance, Action<WorkerAppearanceData> onSave)
         : base(
@@ -108,6 +116,12 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
             Game1.playSound("smallSelect");
             this.onSave(WorkerAppearanceData.FromFarmer(this.previewFarmer));
             this.exitThisMenu();
+            return;
+        }
+
+        if (this.randomButton.containsPoint(x, y))
+        {
+            this.RandomizeAppearance();
             return;
         }
 
@@ -211,6 +225,12 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         base.receiveKeyPress(key);
     }
 
+    public override void performHoverAction(int x, int y)
+    {
+        this.randomButton.tryHover(x, y, 0.25f);
+        base.performHoverAction(x, y);
+    }
+
     public override void draw(SpriteBatch b)
     {
         Game1.drawDialogueBox(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height, speaker: false, drawOnlyBox: true);
@@ -223,6 +243,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
 
         this.maleButton.draw(b);
         this.femaleButton.draw(b);
+        this.randomButton.draw(b);
 
         ClickableTextureComponent selectedGenderButton = this.previewFarmer.IsMale ? this.maleButton : this.femaleButton;
         b.Draw(Game1.mouseCursors, selectedGenderButton.bounds, Game1.getSourceRectForStandardTileSheet(Game1.mouseCursors, 34), Color.White);
@@ -305,6 +326,11 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
             "Female",
             Game1.mouseCursors,
             new Rectangle(144, 192, 16, 16),
+            4f);
+        this.randomButton = new ClickableTextureComponent(
+            new Rectangle(this.xPositionOnScreen + 48, this.yPositionOnScreen + 64 + 56, 40, 40),
+            Game1.mouseCursors,
+            new Rectangle(381, 361, 10, 10),
             4f);
 
         this.okButton = new ClickableTextureComponent(
@@ -439,6 +465,286 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.previewFarmer.rotatePantStyle(delta, this.pantsIds);
     }
 
+    private void RandomizeAppearance()
+    {
+        string sound = "drumkit6";
+        if (this.timesRandom > 0)
+        {
+            switch (Game1.random.Next(15))
+            {
+                case 0:
+                    sound = "drumkit1";
+                    break;
+                case 1:
+                    sound = "dirtyHit";
+                    break;
+                case 2:
+                    sound = "axchop";
+                    break;
+                case 3:
+                    sound = "hoeHit";
+                    break;
+                case 4:
+                    sound = "fishSlap";
+                    break;
+                case 5:
+                    sound = "drumkit6";
+                    break;
+                case 6:
+                    sound = "drumkit5";
+                    break;
+                case 7:
+                    sound = "drumkit6";
+                    break;
+                case 8:
+                    sound = "junimoMeep1";
+                    break;
+                case 9:
+                    sound = "coin";
+                    break;
+                case 10:
+                    sound = "axe";
+                    break;
+                case 11:
+                    sound = "hammer";
+                    break;
+                case 12:
+                    sound = "drumkit2";
+                    break;
+                case 13:
+                    sound = "drumkit4";
+                    break;
+                case 14:
+                    sound = "drumkit3";
+                    break;
+            }
+        }
+
+        Game1.playSound(sound);
+        this.timesRandom++;
+
+        if (Game1.random.NextDouble() < 0.33)
+        {
+            if (this.previewFarmer.IsMale)
+            {
+                if (Game1.random.NextDouble() < 0.33)
+                {
+                    if (Game1.random.NextDouble() < 0.8)
+                    {
+                        this.previewFarmer.changeAccessory(Game1.random.Next(7));
+                    }
+                    else
+                    {
+                        this.previewFarmer.changeAccessory(Game1.random.Next(19, 21));
+                    }
+                }
+                else if (Game1.random.NextDouble() < 0.33)
+                {
+                    this.previewFarmer.changeAccessory(Choose(Game1.random, 25, 14, 17, 10, 9));
+                }
+                else if (Game1.random.NextDouble() < 0.1)
+                {
+                    this.previewFarmer.changeAccessory(Game1.random.Next(19));
+                }
+            }
+            else if (Game1.random.NextDouble() < 0.33)
+            {
+                this.previewFarmer.changeAccessory(Game1.random.Next(6, 19));
+            }
+            else if (Game1.random.NextDouble() < 0.5)
+            {
+                this.previewFarmer.changeAccessory(Choose(Game1.random, 23, 27, 28));
+            }
+            else
+            {
+                this.previewFarmer.changeAccessory(Choose(Game1.random, 25, 14, 17, 10, 9));
+            }
+        }
+        else
+        {
+            this.previewFarmer.changeAccessory(-1);
+        }
+
+        this.previewFarmer.changeSkinColor(Game1.random.Next(6), force: true);
+        if (Game1.random.NextDouble() < 0.15)
+        {
+            this.previewFarmer.changeSkinColor(Game1.random.Next(24), force: true);
+        }
+
+        if (this.previewFarmer.IsMale)
+        {
+            this.previewFarmer.changeHairStyle(NextBool(Game1.random) ? Game1.random.Next(16) : Game1.random.Next(108, 118));
+        }
+        else
+        {
+            this.previewFarmer.changeHairStyle(Game1.random.Next(16, 41));
+        }
+
+        Color hairColor = new(Game1.random.Next(25, 254), Game1.random.Next(25, 254), Game1.random.Next(25, 254));
+        if (NextBool(Game1.random))
+        {
+            hairColor.R /= 2;
+            hairColor.G /= 2;
+            hairColor.B /= 2;
+        }
+
+        if (NextBool(Game1.random))
+        {
+            hairColor.R = (byte)Game1.random.Next(15, 50);
+        }
+
+        if (NextBool(Game1.random))
+        {
+            hairColor.G = (byte)Game1.random.Next(15, 50);
+        }
+
+        if (NextBool(Game1.random))
+        {
+            hairColor.B = (byte)Game1.random.Next(15, 50);
+        }
+
+        if (NextBool(Game1.random))
+        {
+            if (hairColor.B > hairColor.R)
+            {
+                hairColor.B = (byte)Math.Max(0, hairColor.B - 50);
+            }
+
+            if (hairColor.B > hairColor.G)
+            {
+                hairColor.B = (byte)Math.Max(0, hairColor.B - 50);
+            }
+
+            if (hairColor.G > hairColor.R)
+            {
+                hairColor.G = (byte)Math.Max(0, hairColor.R - 50);
+            }
+
+            hairColor.R = (byte)Math.Min(255, hairColor.R + 50);
+            hairColor.G = (byte)Math.Min(255, hairColor.G + 50);
+        }
+        else if (Game1.random.NextDouble() < 0.33)
+        {
+            hairColor = new Color(Game1.random.Next(80, 130), Game1.random.Next(35, 70), 0);
+        }
+
+        if (hairColor.R < 100 && hairColor.G < 100 && hairColor.B < 100 && Game1.random.NextDouble() < 0.8)
+        {
+            hairColor = Utility.getBlendedColor(hairColor, Color.Tan);
+        }
+
+        if (this.previewFarmer.hasDarkSkin() && Game1.random.NextDouble() < 0.5)
+        {
+            hairColor = new Color(Game1.random.Next(50, 100), Game1.random.Next(25, 40), 0);
+        }
+
+        this.previewFarmer.changeHairColor(hairColor);
+
+        string shirtSelection = string.Empty;
+        Utility.TryGetRandomExcept(
+            this.shirtIds,
+            this.previewFarmer.IsMale ? MaleRandomShirtExclusions : new HashSet<string>(),
+            Game1.random,
+            out shirtSelection);
+
+        if (!string.IsNullOrEmpty(shirtSelection))
+        {
+            this.previewFarmer.changeShirt(shirtSelection);
+        }
+
+        Color pantsColor = new(Game1.random.Next(25, 254), Game1.random.Next(25, 254), Game1.random.Next(25, 254));
+        if (NextBool(Game1.random))
+        {
+            pantsColor.R /= 2;
+            pantsColor.G /= 2;
+            pantsColor.B /= 2;
+        }
+
+        if (NextBool(Game1.random))
+        {
+            pantsColor.R = (byte)Game1.random.Next(15, 50);
+        }
+
+        if (NextBool(Game1.random))
+        {
+            pantsColor.G = (byte)Game1.random.Next(15, 50);
+        }
+
+        if (NextBool(Game1.random))
+        {
+            pantsColor.B = (byte)Game1.random.Next(15, 50);
+        }
+
+        switch (this.previewFarmer.GetShirtIndex())
+        {
+            case 50:
+                pantsColor = new Color(226, 133, 160);
+                break;
+            case 0:
+            case 7:
+            case 71:
+                pantsColor = new Color(34, 29, 173);
+                break;
+            case 68:
+            case 88:
+                pantsColor = new Color(119, 215, 130);
+                break;
+            case 67:
+            case 72:
+                pantsColor = new Color(108, 134, 224);
+                break;
+            case 79:
+            case 99:
+            case 103:
+                pantsColor = new Color(55, 55, 60);
+                break;
+        }
+
+        this.previewFarmer.changePantsColor(pantsColor);
+
+        Color eyeColor = new(Game1.random.Next(25, 254), Game1.random.Next(25, 254), Game1.random.Next(25, 254));
+        eyeColor.R /= 2;
+        eyeColor.G /= 2;
+        eyeColor.B /= 2;
+
+        if (NextBool(Game1.random))
+        {
+            eyeColor.R = (byte)Game1.random.Next(15, 50);
+        }
+
+        if (NextBool(Game1.random))
+        {
+            eyeColor.G = (byte)Game1.random.Next(15, 50);
+        }
+
+        if (NextBool(Game1.random))
+        {
+            eyeColor.B = (byte)Game1.random.Next(15, 50);
+        }
+
+        if (NextBool(Game1.random))
+        {
+            if (eyeColor.B > eyeColor.R)
+            {
+                eyeColor.B = (byte)Math.Max(0, eyeColor.B - 50);
+            }
+
+            if (eyeColor.B > eyeColor.G)
+            {
+                eyeColor.B = (byte)Math.Max(0, eyeColor.B - 50);
+            }
+
+            if (eyeColor.G > eyeColor.R)
+            {
+                eyeColor.G = (byte)Math.Max(0, eyeColor.R - 50);
+            }
+        }
+
+        this.previewFarmer.changeEyeColor(eyeColor);
+        this.randomButton.scale = 3.5f;
+        this.RefreshPreviewFarmer();
+    }
+
     private void RotatePreviewDirection(int delta)
     {
         this.previewDirectionIndex = Utility.WrapIndex(this.previewDirectionIndex + delta, this.previewDirections.Count);
@@ -514,6 +820,16 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     {
         int currentIndex = ids.IndexOf(currentId);
         return currentIndex < 0 ? 0 : currentIndex;
+    }
+
+    private static bool NextBool(Random random)
+    {
+        return random.NextDouble() < 0.5;
+    }
+
+    private static T Choose<T>(Random random, params T[] values)
+    {
+        return values[random.Next(values.Length)];
     }
 
     private static List<string> GetValidClothingIds<TData>(string currentId, IDictionary<string, TData> data, Func<TData, bool> canChooseDuringCharacterCustomization)

@@ -1,8 +1,8 @@
+using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewValley;
-using StardewValley.Locations;
 
 namespace FarmingCapitalist.Workers;
 
@@ -12,8 +12,9 @@ internal sealed class WorkerShellManager
     private readonly IMonitor monitor;
     private readonly string saveDataKey;
     private readonly string workerIdDataKey;
+    private readonly WorkerSpriteSheetBuilder spriteSheetBuilder;
     private NPC? cachedWorker;
-    private Farmer? renderFarmer;
+    private Texture2D? generatedSpriteSheet;
     private WorkerAppearanceData? savedAppearance;
 
     public WorkerShellManager(IModHelper helper, IManifest manifest, IMonitor monitor)
@@ -22,6 +23,7 @@ internal sealed class WorkerShellManager
         this.monitor = monitor;
         this.saveDataKey = $"{manifest.UniqueID}.TestWorkerAppearance";
         this.workerIdDataKey = $"{manifest.UniqueID}/WorkerId";
+        this.spriteSheetBuilder = new WorkerSpriteSheetBuilder(monitor);
     }
 
     public Vector2 GetExpectedSpawnTile()
@@ -51,14 +53,14 @@ internal sealed class WorkerShellManager
         }
 
         this.cachedWorker = null;
-        this.renderFarmer = null;
+        this.RebuildGeneratedSpriteSheet();
     }
 
     public void SaveWorkerAppearance(WorkerAppearanceData appearance)
     {
         this.savedAppearance = appearance;
-        this.renderFarmer = null;
         this.helper.Data.WriteSaveData(this.saveDataKey, appearance);
+        this.RebuildGeneratedSpriteSheet();
     }
 
     public bool DeleteConfiguredWorker()
@@ -67,25 +69,27 @@ internal sealed class WorkerShellManager
         bool removedAppearance = this.savedAppearance is not null;
 
         this.savedAppearance = null;
-        this.renderFarmer = null;
         this.cachedWorker = null;
         this.helper.Data.WriteSaveData<WorkerAppearanceData>(this.saveDataKey, null);
+        this.DisposeGeneratedSpriteSheet();
 
         return removedWorker || removedAppearance;
     }
 
-    public void EnsureConfiguredWorkerPresent()
+    public NPC? EnsureConfiguredWorkerPresent(bool respawnAtSpawn = true)
     {
         if (!Context.IsWorldReady || this.savedAppearance is null)
         {
-            return;
+            return null;
         }
+
+        this.EnsureGeneratedSpriteSheet();
 
         GameLocation? targetLocation = Game1.getLocationFromName(TestWorkerDefinition.LocationName);
         if (targetLocation is null)
         {
             this.monitor.Log($"Could not find test worker location '{TestWorkerDefinition.LocationName}'.", LogLevel.Warn);
-            return;
+            return null;
         }
 
         Vector2 spawnTile = this.GetExpectedSpawnTile();
@@ -96,7 +100,7 @@ internal sealed class WorkerShellManager
             this.monitor.Log(
                 $"Test worker spawn tile {spawnTile} in {targetLocation.NameOrUniqueName} is blocked, so the worker shell was not spawned.",
                 LogLevel.Warn);
-            return;
+            return null;
         }
 
         if (worker is null)
@@ -104,27 +108,41 @@ internal sealed class WorkerShellManager
             worker = this.CreateWorkerShell(targetLocation, spawnTile);
             targetLocation.addCharacter(worker);
             this.monitor.Log($"Spawned test worker shell at {targetLocation.NameOrUniqueName} tile {spawnTile}.", LogLevel.Info);
+            this.cachedWorker = worker;
+            return worker;
         }
-        else if (worker.currentLocation != targetLocation)
+
+        if (!respawnAtSpawn)
+        {
+            this.cachedWorker = worker;
+            return worker;
+        }
+
+        bool canUseSpawnTile = this.IsSpawnTileAvailable(
+            targetLocation,
+            spawnTile,
+            worker.currentLocation == targetLocation ? worker : null);
+        if (!canUseSpawnTile)
+        {
+            this.monitor.Log(
+                $"Test worker shell was found, but spawn tile {spawnTile} is currently blocked. Leaving the worker at tile {worker.Tile}.",
+                LogLevel.Warn);
+            this.cachedWorker = worker;
+            return worker;
+        }
+
+        if (worker.currentLocation != targetLocation)
         {
             worker.currentLocation?.characters.Remove(worker);
-
             if (!targetLocation.characters.Contains(worker))
             {
                 targetLocation.addCharacter(worker);
             }
         }
 
-        bool canUseSpawnTile = this.IsSpawnTileAvailable(targetLocation, spawnTile, worker);
-        if (!canUseSpawnTile)
-        {
-            this.monitor.Log(
-                $"Test worker shell was found, but spawn tile {spawnTile} is currently blocked. Leaving the worker at tile {worker.Tile}.",
-                LogLevel.Warn);
-        }
-
-        this.ApplyWorkerShellState(worker, targetLocation, spawnTile, moveToSpawn: canUseSpawnTile);
+        this.ApplyWorkerShellState(worker, targetLocation, spawnTile, moveToSpawn: true);
         this.cachedWorker = worker;
+        return worker;
     }
 
     public bool TryGetTestWorker(out NPC? worker)
@@ -163,53 +181,15 @@ internal sealed class WorkerShellManager
     public void Reset()
     {
         this.cachedWorker = null;
-        this.renderFarmer = null;
         this.savedAppearance = null;
-    }
-
-    public bool TryDrawCustomizedWorker(NPC worker, SpriteBatch spriteBatch, float alpha)
-    {
-        if (this.savedAppearance is null || !this.IsTestWorker(worker))
-        {
-            return false;
-        }
-
-        if (worker.IsInvisible || !(Utility.isOnScreen(worker.Position, 128) || (worker.EventActor && worker.currentLocation is Summit)))
-        {
-            return true;
-        }
-
-        Farmer renderWorker = this.GetOrCreateRenderFarmer();
-        renderWorker.currentLocation = worker.currentLocation;
-        renderWorker.Position = worker.Position;
-        renderWorker.faceDirection(worker.FacingDirection);
-        renderWorker.FarmerSprite.StopAnimation();
-
-        float layerDepth = Math.Max(0f, (float)worker.StandingPixel.Y / 10000f);
-        Vector2 origin = new(
-            renderWorker.xOffset,
-            (renderWorker.yOffset + 128f - (worker.GetBoundingBox().Height / 2f)) / 4f + 4f);
-
-        renderWorker.FarmerRenderer.draw(
-            spriteBatch,
-            renderWorker.FarmerSprite,
-            renderWorker.FarmerSprite.SourceRect,
-            worker.getLocalPosition(Game1.viewport),
-            origin,
-            layerDepth,
-            Color.White * alpha,
-            0f,
-            renderWorker);
-
-        worker.DrawEmote(spriteBatch);
-        return true;
+        this.DisposeGeneratedSpriteSheet();
     }
 
     private NPC CreateWorkerShell(GameLocation location, Vector2 spawnTile)
     {
         Texture2D portrait = Game1.content.Load<Texture2D>(TestWorkerDefinition.ShellPortraitAssetName);
         NPC worker = new(
-            new AnimatedSprite(TestWorkerDefinition.ShellSpriteAssetName, 0, 16, 32),
+            this.CreateWorkerSprite(),
             spawnTile * Game1.tileSize,
             location.NameOrUniqueName,
             TestWorkerDefinition.FacingDirection,
@@ -252,7 +232,7 @@ internal sealed class WorkerShellManager
         worker.Name = TestWorkerDefinition.InternalName;
         worker.displayName = TestWorkerDefinition.DisplayName;
         worker.SimpleNonVillagerNPC = true;
-        worker.Sprite = new AnimatedSprite(TestWorkerDefinition.ShellSpriteAssetName, 0, 16, 32);
+        worker.Sprite = this.CreateWorkerSprite();
         worker.Portrait = Game1.content.Load<Texture2D>(TestWorkerDefinition.ShellPortraitAssetName);
         worker.modData[this.workerIdDataKey] = TestWorkerDefinition.WorkerId;
 
@@ -333,20 +313,6 @@ internal sealed class WorkerShellManager
         return npc.Name == TestWorkerDefinition.InternalName;
     }
 
-    private Farmer GetOrCreateRenderFarmer()
-    {
-        if (this.renderFarmer is null)
-        {
-            this.renderFarmer = new Farmer();
-            this.renderFarmer.Name = TestWorkerDefinition.DisplayName;
-            this.renderFarmer.displayName = TestWorkerDefinition.DisplayName;
-            this.renderFarmer.currentLocation = Game1.getLocationFromName(TestWorkerDefinition.LocationName) ?? Game1.player.currentLocation;
-        }
-
-        this.savedAppearance!.ApplyTo(this.renderFarmer);
-        return this.renderFarmer;
-    }
-
     private bool RemoveExistingWorkerShell()
     {
         NPC? worker = this.FindWorkerAnywhere();
@@ -362,5 +328,74 @@ internal sealed class WorkerShellManager
         }
 
         return true;
+    }
+
+    private AnimatedSprite CreateWorkerSprite()
+    {
+        if (this.generatedSpriteSheet is null)
+        {
+            return new AnimatedSprite(TestWorkerDefinition.ShellSpriteAssetName, 0, 16, 32);
+        }
+
+        AnimatedSprite sprite = new()
+        {
+            SpriteWidth = 16,
+            SpriteHeight = 32,
+            framesPerAnimation = 4,
+            spriteTexture = this.generatedSpriteSheet,
+            overrideTextureName = $"{TestWorkerDefinition.InternalName}.GeneratedSheet",
+            loadedTexture = $"{TestWorkerDefinition.InternalName}.GeneratedSheet",
+            textureUsesFlippedRightForLeft = false,
+        };
+
+        sprite.CurrentFrame = 0;
+        return sprite;
+    }
+
+    private void EnsureGeneratedSpriteSheet()
+    {
+        if (this.generatedSpriteSheet is null && this.savedAppearance is not null)
+        {
+            this.RebuildGeneratedSpriteSheet();
+        }
+    }
+
+    private void RebuildGeneratedSpriteSheet()
+    {
+        if (!Context.IsWorldReady || this.savedAppearance is null)
+        {
+            this.DisposeGeneratedSpriteSheet();
+            return;
+        }
+
+        Texture2D newSheet;
+        try
+        {
+            newSheet = this.spriteSheetBuilder.BuildSheet(this.savedAppearance);
+        }
+        catch (Exception ex)
+        {
+            this.monitor.Log($"Failed to rebuild the generated worker sprite sheet: {ex.Message}", LogLevel.Warn);
+            return;
+        }
+
+        Texture2D? previousSheet = this.generatedSpriteSheet;
+        this.generatedSpriteSheet = newSheet;
+
+        NPC? existingWorker = this.FindWorkerAnywhere();
+        if (existingWorker is not null)
+        {
+            int currentFrame = existingWorker.Sprite?.CurrentFrame ?? 0;
+            existingWorker.Sprite = this.CreateWorkerSprite();
+            existingWorker.Sprite.CurrentFrame = currentFrame;
+        }
+
+        previousSheet?.Dispose();
+    }
+
+    private void DisposeGeneratedSpriteSheet()
+    {
+        this.generatedSpriteSheet?.Dispose();
+        this.generatedSpriteSheet = null;
     }
 }

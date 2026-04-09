@@ -6,12 +6,14 @@ namespace FarmingCapitalist.Workers;
 internal sealed class WorkerCustomizationManager
 {
     private readonly IMonitor monitor;
+    private readonly WorkerBehaviorManager workerBehaviorManager;
     private readonly WorkerShellManager workerShellManager;
 
-    public WorkerCustomizationManager(IMonitor monitor, WorkerShellManager workerShellManager)
+    public WorkerCustomizationManager(IMonitor monitor, WorkerShellManager workerShellManager, WorkerBehaviorManager workerBehaviorManager)
     {
         this.monitor = monitor;
         this.workerShellManager = workerShellManager;
+        this.workerBehaviorManager = workerBehaviorManager;
     }
 
     public void StartCustomizationSession()
@@ -33,6 +35,18 @@ internal sealed class WorkerCustomizationManager
         this.monitor.Log("Opened the worker appearance menu. Save there to update and spawn the worker shell.", LogLevel.Info);
     }
 
+    public void SpawnWithDefaultAppearance()
+    {
+        if (!Context.IsWorldReady)
+        {
+            this.monitor.Log("Load a save first before spawning the worker.", LogLevel.Info);
+            return;
+        }
+
+        this.SaveCustomization(WorkerAppearanceData.CreateDefault());
+        this.monitor.Log("Spawned the test worker using the default appearance preset.", LogLevel.Info);
+    }
+
     public void Reset()
     {
     }
@@ -40,7 +54,8 @@ internal sealed class WorkerCustomizationManager
     private void SaveCustomization(WorkerAppearanceData appearance)
     {
         this.workerShellManager.SaveWorkerAppearance(appearance);
-        this.workerShellManager.EnsureConfiguredWorkerPresent();
+        NPC? worker = this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+        this.workerBehaviorManager.HandleWorkerInitialized(worker, "appearance update");
         this.monitor.Log(
             $"Saved the worker appearance and ensured the worker shell is present at {TestWorkerDefinition.LocationName} tile {this.workerShellManager.GetExpectedSpawnTile()}.",
             LogLevel.Info);

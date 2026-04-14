@@ -9,6 +9,7 @@ namespace FarmingCapitalist
     internal sealed class ModEntry : Mod
     {
         private WorkerBehaviorManager? workerBehaviorManager;
+        private WorkerControlMenuController? workerControlMenuController;
         private WorkerCustomizationManager? workerCustomizationManager;
         private WorkerShellManager? workerShellManager;
 
@@ -22,6 +23,7 @@ namespace FarmingCapitalist
             this.workerShellManager = new WorkerShellManager(helper, this.ModManifest, this.Monitor);
             WorkerNavigationManager workerNavigationManager = new(this.workerShellManager, this.Monitor);
             this.workerBehaviorManager = new WorkerBehaviorManager(workerNavigationManager, this.workerShellManager, this.Monitor);
+            this.workerControlMenuController = new WorkerControlMenuController(helper.Input, this.workerShellManager);
             this.workerCustomizationManager = new WorkerCustomizationManager(this.Monitor, this.workerShellManager, this.workerBehaviorManager);
 
             helper.ConsoleCommands.Add(
@@ -41,6 +43,7 @@ namespace FarmingCapitalist
             helper.Events.GameLoop.DayStarted += this.OnDayStarted;
             helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
             helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
+            helper.Events.Input.ButtonPressed += this.workerControlMenuController.OnButtonPressed;
             helper.Events.Player.Warped += this.OnWarped;
         }
 
@@ -51,14 +54,14 @@ namespace FarmingCapitalist
         private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
         {
             this.workerShellManager!.ReloadWorkerAppearance();
-            NPC? worker = this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
-            this.workerBehaviorManager!.HandleWorkerInitialized(worker, "save loaded");
+            this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+            this.workerBehaviorManager!.HandleConfiguredWorkersInitialized("save loaded");
         }
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
         {
-            NPC? worker = this.workerShellManager!.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
-            this.workerBehaviorManager!.HandleWorkerInitialized(worker, "day started");
+            this.workerShellManager!.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+            this.workerBehaviorManager!.HandleConfiguredWorkersInitialized("day started");
         }
 
         private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
@@ -68,6 +71,7 @@ namespace FarmingCapitalist
 
         private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
         {
+            this.workerControlMenuController!.Reset();
             this.workerCustomizationManager!.Reset();
             this.workerBehaviorManager!.Reset();
             this.workerShellManager!.Reset();
@@ -94,6 +98,7 @@ namespace FarmingCapitalist
             string configuredState = this.workerShellManager!.HasSavedWorkerAppearance()
                 ? "configured"
                 : "not configured";
+            int configuredWorkerCount = this.workerShellManager.GetConfiguredWorkerCount();
 
             if (this.workerShellManager!.TryGetTestWorker(out NPC? worker))
             {
@@ -101,13 +106,13 @@ namespace FarmingCapitalist
                 string tileText = worker?.Tile.ToString() ?? "unknown";
 
                 this.Monitor.Log(
-                    $"Test worker found in {locationName} at tile {tileText}. Appearance is {configuredState}. Expected spawn tile: {this.workerShellManager.GetExpectedSpawnTile()}.",
+                    $"Primary worker found in {locationName} at tile {tileText}. Appearance is {configuredState}. Configured worker count: {configuredWorkerCount}. Expected base spawn tile: {this.workerShellManager.GetExpectedSpawnTile()}.",
                     LogLevel.Info);
                 return;
             }
 
             this.Monitor.Log(
-                $"Test worker shell not found. Appearance is {configuredState}. Expected location: {TestWorkerDefinition.LocationName}; expected spawn tile: {this.workerShellManager.GetExpectedSpawnTile()}.",
+                $"No primary worker shell was found. Appearance is {configuredState}. Configured worker count: {configuredWorkerCount}. Expected location: {TestWorkerDefinition.LocationName}; expected base spawn tile: {this.workerShellManager.GetExpectedSpawnTile()}.",
                 LogLevel.Warn);
         }
 
@@ -137,11 +142,11 @@ namespace FarmingCapitalist
             this.workerBehaviorManager!.Reset();
             if (this.workerShellManager!.DeleteConfiguredWorker())
             {
-                this.Monitor.Log("Deleted the test worker shell and cleared its saved appearance.", LogLevel.Info);
+                this.Monitor.Log("Deleted all spawned worker shells and cleared the saved worker roster.", LogLevel.Info);
                 return;
             }
 
-            this.Monitor.Log("No test worker shell or saved worker appearance was found to delete.", LogLevel.Info);
+            this.Monitor.Log("No spawned worker shells or saved worker roster entries were found to delete.", LogLevel.Info);
         }
     }
 }

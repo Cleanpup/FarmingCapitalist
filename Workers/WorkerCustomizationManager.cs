@@ -53,11 +53,11 @@ internal sealed class WorkerCustomizationManager
 
     private void SaveCustomization(WorkerAppearanceData appearance)
     {
-        this.workerShellManager.SaveWorkerAppearance(appearance);
-        NPC? worker = this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+        NPC? worker = this.workerShellManager.SpawnConfiguredWorker(appearance);
         this.workerBehaviorManager.HandleWorkerInitialized(worker, "appearance update");
+
         this.monitor.Log(
-            $"Saved the worker appearance and ensured the worker shell is present at {TestWorkerDefinition.LocationName} tile {this.workerShellManager.GetExpectedSpawnTile()}.",
+            $"Saved the worker appearance and spawned a worker shell. Total configured workers: {this.workerShellManager.GetConfiguredWorkerCount()}.",
             LogLevel.Info);
     }
 }

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -12,6 +13,7 @@ internal sealed class WorkerBehaviorManager
         ReturningToFarmhouse,
     }
 
+    private readonly Dictionary<string, WorkerTravelPhase> activePhases = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly IMonitor monitor;
     private readonly WorkerNavigationManager navigationManager;
     private readonly WorkerShellManager workerShellManager;
@@ -19,11 +21,6 @@ internal sealed class WorkerBehaviorManager
         TestWorkerDefinition.InitialTravelLocationName,
         TestWorkerDefinition.InitialTravelTile,
         TestWorkerDefinition.InitialTravelFacingDirection);
-    private readonly WorkerNavigationTarget returnTravelTarget = new(
-        TestWorkerDefinition.LocationName,
-        TestWorkerDefinition.SpawnTile,
-        TestWorkerDefinition.FacingDirection);
-    private WorkerTravelPhase activePhase;
 
     public WorkerBehaviorManager(WorkerNavigationManager navigationManager, WorkerShellManager workerShellManager, IMonitor monitor)
     {
@@ -34,21 +31,34 @@ internal sealed class WorkerBehaviorManager
 
     public void HandleWorkerInitialized(NPC? worker, string triggerReason)
     {
-        if (worker is null)
+        if (worker is null || !this.workerShellManager.TryGetWorkerId(worker, out string workerId))
         {
             return;
         }
 
         this.monitor.Log(
-            $"Worker initialization trigger '{triggerReason}' is attempting travel to {this.initialTravelTarget.LocationName} tile {this.initialTravelTarget.Tile}.",
+            $"{worker.displayName} initialization trigger '{triggerReason}' is attempting travel to {this.initialTravelTarget.LocationName} tile {this.initialTravelTarget.Tile}.",
             LogLevel.Info);
         if (this.navigationManager.TryStartTravel(worker, this.initialTravelTarget, triggerReason))
         {
-            this.activePhase = WorkerTravelPhase.TravellingToFarmTarget;
+            this.activePhases[workerId] = WorkerTravelPhase.TravellingToFarmTarget;
         }
         else
         {
-            this.activePhase = WorkerTravelPhase.None;
+            this.activePhases[workerId] = WorkerTravelPhase.None;
+        }
+    }
+
+    public void HandleConfiguredWorkersInitialized(string triggerReason)
+    {
+        if (!Context.IsWorldReady)
+        {
+            return;
+        }
+
+        foreach (NPC worker in this.workerShellManager.GetSpawnedWorkers())
+        {
+            this.HandleWorkerInitialized(worker, triggerReason);
         }
     }
 
@@ -56,49 +66,70 @@ internal sealed class WorkerBehaviorManager
     {
         this.navigationManager.Update();
 
-        if (!Context.IsWorldReady || !this.workerShellManager.TryGetTestWorker(out NPC? worker) || worker is null)
+        if (!Context.IsWorldReady)
         {
             return;
         }
 
-        switch (this.activePhase)
+        foreach (NPC worker in this.workerShellManager.GetSpawnedWorkers())
         {
-            case WorkerTravelPhase.TravellingToFarmTarget:
-                if (worker.currentLocation?.NameOrUniqueName == this.initialTravelTarget.LocationName
-                    && worker.TilePoint == this.initialTravelTarget.Tile
-                    && worker.controller is null)
-                {
-                    this.monitor.Log(
-                        $"Worker reached the farm target and is now returning to {this.returnTravelTarget.LocationName} tile {this.returnTravelTarget.Tile}.",
-                        LogLevel.Info);
-                    if (this.navigationManager.TryStartTravel(worker, this.returnTravelTarget, "return to farmhouse"))
-                    {
-                        this.activePhase = WorkerTravelPhase.ReturningToFarmhouse;
-                    }
-                    else
-                    {
-                        this.activePhase = WorkerTravelPhase.None;
-                    }
-                }
-                break;
+            if (!this.workerShellManager.TryGetWorkerId(worker, out string workerId))
+            {
+                continue;
+            }
 
-            case WorkerTravelPhase.ReturningToFarmhouse:
-                if (worker.currentLocation?.NameOrUniqueName == this.returnTravelTarget.LocationName
-                    && worker.TilePoint == this.returnTravelTarget.Tile
-                    && worker.controller is null)
-                {
-                    this.monitor.Log(
-                        $"Worker completed the round trip and is back at {this.returnTravelTarget.LocationName} tile {this.returnTravelTarget.Tile}.",
-                        LogLevel.Info);
-                    this.activePhase = WorkerTravelPhase.None;
-                }
-                break;
+            WorkerTravelPhase phase = this.activePhases.GetValueOrDefault(workerId, WorkerTravelPhase.None);
+            switch (phase)
+            {
+                case WorkerTravelPhase.TravellingToFarmTarget:
+                    if (worker.currentLocation?.NameOrUniqueName == this.initialTravelTarget.LocationName
+                        && worker.TilePoint == this.initialTravelTarget.Tile
+                        && worker.controller is null)
+                    {
+                        if (!this.workerShellManager.TryGetWorkerReturnTarget(worker, out WorkerNavigationTarget returnTravelTarget))
+                        {
+                            this.activePhases[workerId] = WorkerTravelPhase.None;
+                            continue;
+                        }
+
+                        this.monitor.Log(
+                            $"{worker.displayName} reached the farm target and is now returning to {returnTravelTarget.LocationName} tile {returnTravelTarget.Tile}.",
+                            LogLevel.Info);
+                        if (this.navigationManager.TryStartTravel(worker, returnTravelTarget, "return to farmhouse"))
+                        {
+                            this.activePhases[workerId] = WorkerTravelPhase.ReturningToFarmhouse;
+                        }
+                        else
+                        {
+                            this.activePhases[workerId] = WorkerTravelPhase.None;
+                        }
+                    }
+                    break;
+
+                case WorkerTravelPhase.ReturningToFarmhouse:
+                    if (!this.workerShellManager.TryGetWorkerReturnTarget(worker, out WorkerNavigationTarget homeTarget))
+                    {
+                        this.activePhases[workerId] = WorkerTravelPhase.None;
+                        continue;
+                    }
+
+                    if (worker.currentLocation?.NameOrUniqueName == homeTarget.LocationName
+                        && worker.TilePoint == homeTarget.Tile
+                        && worker.controller is null)
+                    {
+                        this.monitor.Log(
+                            $"{worker.displayName} completed the round trip and is back at {homeTarget.LocationName} tile {homeTarget.Tile}.",
+                            LogLevel.Info);
+                        this.activePhases[workerId] = WorkerTravelPhase.None;
+                    }
+                    break;
+            }
         }
     }
 
     public void Reset()
     {
-        this.activePhase = WorkerTravelPhase.None;
+        this.activePhases.Clear();
         this.navigationManager.Reset();
     }
 }

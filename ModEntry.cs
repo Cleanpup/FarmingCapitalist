@@ -3,150 +3,220 @@ using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
 
-namespace FarmingCapitalist
+namespace FarmingCapitalist;
+
+/// <summary>Connects worker services to SMAPI; decisions live in the worker runtime.</summary>
+internal sealed class ModEntry : Mod
 {
-    /// <summary>The mod entry point.</summary>
-    internal sealed class ModEntry : Mod
+    private WorkerBehaviorManager workerBehaviorManager = null!;
+    private WorkerControlMenuController workerControlMenuController = null!;
+    private WorkerCustomizationManager workerCustomizationManager = null!;
+    private WorkerShellManager workerShellManager = null!;
+
+    public override void Entry(IModHelper helper)
     {
-        private WorkerBehaviorManager? workerBehaviorManager;
-        private WorkerControlMenuController? workerControlMenuController;
-        private WorkerCustomizationManager? workerCustomizationManager;
-        private WorkerShellManager? workerShellManager;
+        this.workerShellManager = new WorkerShellManager(helper, this.ModManifest, this.Monitor);
+        WorkerNavigationManager navigation = new(this.workerShellManager, this.Monitor);
+        this.workerBehaviorManager = new WorkerBehaviorManager(navigation, this.workerShellManager, this.Monitor);
+        this.workerCustomizationManager = new WorkerCustomizationManager(this.Monitor, this.workerShellManager, this.workerBehaviorManager);
+        this.workerControlMenuController = new WorkerControlMenuController(helper.Input, this.workerShellManager, this.workerCustomizationManager, this.workerBehaviorManager);
 
-        /*********
-        ** Public methods
-        *********/
-        /// <summary>The mod entry point, called after the mod is first loaded.</summary>
-        /// <param name="helper">Provides simplified APIs for writing mods.</param>
-        public override void Entry(IModHelper helper)
+        helper.ConsoleCommands.Add("workers", "Manage hired workers. Use 'workers help' for commands, or 'workers' to open the menu.", this.OnWorkersCommand);
+        helper.ConsoleCommands.Add("workerstatus", "List every worker's ID, assignment, activity and location.", (_, _) => this.LogWorkerStatus());
+        helper.ConsoleCommands.Add("spawn", "Hire a worker with custom appearance (500g), or 'spawn d' for the default appearance.", this.OnWorkerHireCommand);
+        helper.ConsoleCommands.Add("delete", "Use 'delete all' to dismiss all workers, or 'workers dismiss <id>' for one worker.", this.OnWorkerDeleteCommand);
+
+        helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
+        helper.Events.GameLoop.DayStarted += this.OnDayStarted;
+        helper.Events.GameLoop.Saving += this.OnSaving;
+        helper.Events.GameLoop.Saved += this.OnSaved;
+        helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
+        helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
+        helper.Events.Input.ButtonPressed += this.workerControlMenuController.OnButtonPressed;
+        helper.Events.Player.Warped += this.OnWarped;
+    }
+
+    private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
+    {
+        this.workerShellManager.ReloadWorkerAppearance();
+        if (!Context.IsMainPlayer)
+            return;
+        this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+        this.workerBehaviorManager.HandleConfiguredWorkersInitialized("save loaded");
+    }
+
+    private void OnDayStarted(object? sender, DayStartedEventArgs e)
+    {
+        if (!Context.IsMainPlayer)
         {
-            this.workerShellManager = new WorkerShellManager(helper, this.ModManifest, this.Monitor);
-            WorkerNavigationManager workerNavigationManager = new(this.workerShellManager, this.Monitor);
-            this.workerBehaviorManager = new WorkerBehaviorManager(workerNavigationManager, this.workerShellManager, this.Monitor);
-            this.workerControlMenuController = new WorkerControlMenuController(helper.Input, this.workerShellManager);
-            this.workerCustomizationManager = new WorkerCustomizationManager(this.Monitor, this.workerShellManager, this.workerBehaviorManager);
-
-            helper.ConsoleCommands.Add(
-                "workerstatus",
-                "Logs the current location and tile for the test worker shell, plus whether an appearance is configured.",
-                this.OnWorkerStatusCommand);
-            helper.ConsoleCommands.Add(
-                "spawn",
-                "Use `spawn` to open the worker appearance menu, or `spawn d` to spawn/update the worker with the default appearance preset.",
-                this.OnWorkerCustomizeSpawnCommand);
-            helper.ConsoleCommands.Add(
-                "delete",
-                "Delete the test worker shell and clear its saved appearance so it won't respawn.",
-                this.OnWorkerDeleteCommand);
-
-            helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
-            helper.Events.GameLoop.DayStarted += this.OnDayStarted;
-            helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
-            helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
-            helper.Events.Input.ButtonPressed += this.workerControlMenuController.OnButtonPressed;
-            helper.Events.Player.Warped += this.OnWarped;
+            this.workerShellManager.RefreshClientRoster();
+            return;
         }
+        this.workerBehaviorManager.Reset();
+        this.workerShellManager.ProcessDailyWages();
+        this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+        this.workerBehaviorManager.HandleConfiguredWorkersInitialized("day started");
+    }
 
+    private void OnSaving(object? sender, SavingEventArgs e)
+    {
+        if (!Context.IsMainPlayer)
+            return;
+        this.workerShellManager.SaveRoster();
+        this.workerShellManager.RemoveWorkersForSaving();
+    }
 
-        /*********
-        ** Private methods
-        *********/
-        private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
+    private void OnSaved(object? sender, SavedEventArgs e)
+    {
+        if (Context.IsMainPlayer)
+            this.workerShellManager.RestoreWorkersAfterSaving();
+    }
+
+    private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
+    {
+        if (!Context.IsWorldReady)
+            return;
+        if (!Context.IsMainPlayer && e.IsMultipleOf(60))
+            this.workerShellManager.RefreshClientRoster();
+        this.workerBehaviorManager.Update();
+    }
+
+    private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
+    {
+        this.workerControlMenuController.Reset();
+        this.workerCustomizationManager.Reset();
+        this.workerBehaviorManager.Reset();
+        this.workerShellManager.Reset();
+    }
+
+    private void OnWarped(object? sender, WarpedEventArgs e)
+    {
+        if (!e.IsLocalPlayer || !Context.IsWorldReady)
+            return;
+        if (!Context.IsMainPlayer)
+            this.workerShellManager.RefreshClientRoster();
+        else if (e.NewLocation.NameOrUniqueName == TestWorkerDefinition.LocationName)
+            this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: false);
+    }
+
+    private void OnWorkersCommand(string command, string[] args)
+    {
+        string action = args.Length == 0 ? "menu" : args[0].ToLowerInvariant();
+        if (action == "help")
         {
-            this.workerShellManager!.ReloadWorkerAppearance();
-            this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
-            this.workerBehaviorManager!.HandleConfiguredWorkersInitialized("save loaded");
-        }
-
-        private void OnDayStarted(object? sender, DayStartedEventArgs e)
-        {
-            this.workerShellManager!.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
-            this.workerBehaviorManager!.HandleConfiguredWorkersInitialized("day started");
-        }
-
-        private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
-        {
-            this.workerBehaviorManager!.Update();
-        }
-
-        private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
-        {
-            this.workerControlMenuController!.Reset();
-            this.workerCustomizationManager!.Reset();
-            this.workerBehaviorManager!.Reset();
-            this.workerShellManager!.Reset();
-        }
-
-        private void OnWarped(object? sender, WarpedEventArgs e)
-        {
-            if (!e.IsLocalPlayer || e.NewLocation.NameOrUniqueName != TestWorkerDefinition.LocationName)
-            {
-                return;
-            }
-
-            this.workerShellManager!.EnsureConfiguredWorkerPresent(respawnAtSpawn: false);
-        }
-
-        private void OnWorkerStatusCommand(string command, string[] args)
-        {
-            if (!Context.IsWorldReady)
-            {
-                this.Monitor.Log("Load a save first before checking worker status.", LogLevel.Info);
-                return;
-            }
-
-            string configuredState = this.workerShellManager!.HasSavedWorkerAppearance()
-                ? "configured"
-                : "not configured";
-            int configuredWorkerCount = this.workerShellManager.GetConfiguredWorkerCount();
-
-            if (this.workerShellManager!.TryGetTestWorker(out NPC? worker))
-            {
-                string locationName = worker?.currentLocation?.NameOrUniqueName ?? "unknown";
-                string tileText = worker?.Tile.ToString() ?? "unknown";
-
-                this.Monitor.Log(
-                    $"Primary worker found in {locationName} at tile {tileText}. Appearance is {configuredState}. Configured worker count: {configuredWorkerCount}. Expected base spawn tile: {this.workerShellManager.GetExpectedSpawnTile()}.",
-                    LogLevel.Info);
-                return;
-            }
-
             this.Monitor.Log(
-                $"No primary worker shell was found. Appearance is {configuredState}. Configured worker count: {configuredWorkerCount}. Expected location: {TestWorkerDefinition.LocationName}; expected base spawn tile: {this.workerShellManager.GetExpectedSpawnTile()}.",
-                LogLevel.Warn);
+                $"Press B or use 'workers' to manage your crew. Hire: {WorkerEmploymentTerms.HiringCost}g including today's wage; later {WorkerEmploymentTerms.DailyWage}g/day.\n"
+                + "workers status — list IDs, orders, activity and location\n"
+                + "workers hire [default] — hire with custom or default appearance\n"
+                + "workers assign <id> <water|harvest|tend|idle> — assign farm work or return home\n"
+                + "workers dismiss <id> — dismiss one worker\n"
+                + "workers pay — retry unpaid wages without charging paid workers again\n"
+                + "Harvested crops go to the farm shipping bin. Only the host can manage workers.", LogLevel.Info);
+            return;
         }
-
-        private void OnWorkerCustomizeSpawnCommand(string command, string[] args)
+        if (!this.RequireWorld())
+            return;
+        switch (action)
         {
-            if (args.Length > 0)
-            {
-                string mode = args[0].Trim().ToLowerInvariant();
-                if (mode is "d" or "default")
+            case "menu":
+                this.workerControlMenuController.OpenMenu();
+                break;
+            case "status":
+            case "list":
+                this.LogWorkerStatus();
+                break;
+            case "hire":
+                this.OnWorkerHireCommand(command, args.Skip(1).ToArray());
+                break;
+            case "assign" when args.Length == 3:
+                if (!this.RequireHost())
+                    return;
+                WorkerTaskKind? task = args[2].ToLowerInvariant() switch
                 {
-                    this.workerCustomizationManager!.SpawnWithDefaultAppearance();
+                    "water" or "watercrops" => WorkerTaskKind.WaterCrops,
+                    "harvest" or "harvestcrops" => WorkerTaskKind.HarvestCrops,
+                    "tend" or "tendcrops" => WorkerTaskKind.TendCrops,
+                    "idle" or "stop" => WorkerTaskKind.Idle,
+                    _ => null,
+                };
+                if (task is null)
+                {
+                    this.Monitor.Log("Choose water, harvest, tend, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
                     return;
                 }
-            }
-
-            this.workerCustomizationManager!.StartCustomizationSession();
+                bool assigned = this.workerBehaviorManager.TryAssignTask(args[1], task.Value, out string assignmentMessage);
+                this.Monitor.Log(assignmentMessage, assigned ? LogLevel.Info : LogLevel.Warn);
+                break;
+            case "dismiss" when args.Length == 2:
+                if (!this.RequireHost())
+                    return;
+                this.workerBehaviorManager.StopWorker(args[1]);
+                bool dismissed = this.workerShellManager.TryDismissWorker(args[1], out string dismissalMessage);
+                this.Monitor.Log(dismissalMessage, dismissed ? LogLevel.Info : LogLevel.Warn);
+                break;
+            case "pay":
+                if (!this.RequireHost())
+                    return;
+                this.workerShellManager.ProcessDailyWages();
+                this.LogWorkerStatus();
+                break;
+            default:
+                this.Monitor.Log("Unknown or incomplete command. Use 'workers help' for usage.", LogLevel.Info);
+                break;
         }
+    }
 
-        private void OnWorkerDeleteCommand(string command, string[] args)
+    private void LogWorkerStatus()
+    {
+        if (!this.RequireWorld())
+            return;
+        IReadOnlyList<WorkerSummarySnapshot> workers = this.workerShellManager.GetWorkerSummaries();
+        if (workers.Count == 0)
+            this.Monitor.Log("No workers hired. Press B or use 'workers hire' to hire one.", LogLevel.Info);
+        foreach (WorkerSummarySnapshot worker in workers)
         {
-            if (!Context.IsWorldReady)
-            {
-                this.Monitor.Log("Load a save first before deleting the worker shell.", LogLevel.Info);
-                return;
-            }
-
-            this.workerBehaviorManager!.Reset();
-            if (this.workerShellManager!.DeleteConfiguredWorker())
-            {
-                this.Monitor.Log("Deleted all spawned worker shells and cleared the saved worker roster.", LogLevel.Info);
-                return;
-            }
-
-            this.Monitor.Log("No spawned worker shells or saved worker roster entries were found to delete.", LogLevel.Info);
+            var activity = this.workerBehaviorManager.GetRuntimeSnapshot(worker.WorkerId);
+            this.Monitor.Log($"{worker.DisplayName} [{worker.WorkerId}] — {this.workerShellManager.GetAssignedTask(worker.WorkerId)}; {activity}; location: {worker.CurrentLocationName ?? "not spawned"}, tile: {worker.CurrentTile?.ToString() ?? "unknown"}; paid today: {this.workerShellManager.CanWorkerWorkToday(worker.WorkerId)}.", LogLevel.Info);
         }
+    }
+
+    private void OnWorkerHireCommand(string command, string[] args)
+    {
+        if (!this.RequireWorld() || !this.RequireHost())
+            return;
+        if (args.Length > 0 && args[0].ToLowerInvariant() is "d" or "default")
+            this.workerCustomizationManager.SpawnWithDefaultAppearance();
+        else
+            this.workerCustomizationManager.StartHiringSession();
+    }
+
+    private void OnWorkerDeleteCommand(string command, string[] args)
+    {
+        if (!this.RequireWorld() || !this.RequireHost())
+            return;
+        if (args.Length != 1 || !string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase))
+        {
+            this.Monitor.Log("Use 'workers dismiss <id>' for one worker, or 'delete all' to dismiss the entire roster.", LogLevel.Info);
+            return;
+        }
+        this.workerBehaviorManager.Reset();
+        bool deleted = this.workerShellManager.DeleteConfiguredWorker();
+        this.Monitor.Log(deleted ? "Dismissed every worker and cleared the saved roster." : "No workers to dismiss.", LogLevel.Info);
+    }
+
+    private bool RequireWorld()
+    {
+        if (Context.IsWorldReady)
+            return true;
+        this.Monitor.Log("Load a save before managing workers.", LogLevel.Info);
+        return false;
+    }
+
+    private bool RequireHost()
+    {
+        if (Context.IsMainPlayer)
+            return true;
+        this.Monitor.Log("Only the host can hire, assign, pay or dismiss workers. Press B to view the crew.", LogLevel.Info);
+        return false;
     }
 }

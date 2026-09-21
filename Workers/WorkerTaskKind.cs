@@ -1,0 +1,10 @@
+namespace FarmingCapitalist.Workers;
+
+/// <summary>Persistent worker assignments. Numeric values must remain stable in existing saves.</summary>
+internal enum WorkerTaskKind
+{
+    Idle = 0,
+    WaterCrops = 1,
+    HarvestCrops = 2,
+    TendCrops = 3,
+}

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
@@ -14,9 +16,15 @@ internal sealed class WorkerShellManager
     private readonly string legacyAppearanceSaveDataKey;
     private readonly string rosterSaveDataKey;
     private readonly string workerIdDataKey;
+    private readonly string rosterMirrorDataKey;
     private readonly WorkerSpriteSheetBuilder spriteSheetBuilder;
     private readonly List<WorkerRosterEntry> savedWorkers = new();
     private readonly Dictionary<string, Texture2D> generatedSpriteSheets = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly List<(NPC Worker, GameLocation Location)> detachedWorkers = new();
+    private readonly Dictionary<string, NPC> clientAppearanceWorkers = new(StringComparer.OrdinalIgnoreCase);
+    private string? lastMirrorPayload;
+    private int nextWorkerNumber = 1;
 
     public WorkerShellManager(IModHelper helper, IManifest manifest, IMonitor monitor)
     {
@@ -25,6 +33,7 @@ internal sealed class WorkerShellManager
         this.legacyAppearanceSaveDataKey = $"{manifest.UniqueID}.TestWorkerAppearance";
         this.rosterSaveDataKey = $"{manifest.UniqueID}.WorkerRoster";
         this.workerIdDataKey = $"{manifest.UniqueID}/WorkerId";
+        this.rosterMirrorDataKey = $"{manifest.UniqueID}/WorkerRoster";
         this.spriteSheetBuilder = new WorkerSpriteSheetBuilder(monitor);
     }
 
@@ -52,72 +61,360 @@ internal sealed class WorkerShellManager
 
     public void ReloadWorkerAppearance()
     {
-        this.savedWorkers.Clear();
-        this.savedWorkers.AddRange(this.LoadRosterEntries());
-
-        if (Context.IsWorldReady && this.savedWorkers.Count == 0)
-        {
-            this.RemoveAllWorkerShells();
-        }
-
-        this.RebuildAllGeneratedSpriteSheets();
-    }
-
-    public NPC? SpawnConfiguredWorker(WorkerAppearanceData appearance)
-    {
         if (!Context.IsWorldReady)
         {
-            return null;
+            return;
+        }
+
+        if (!Context.IsMainPlayer)
+        {
+            this.RefreshClientRoster();
+            return;
+        }
+
+        this.savedWorkers.Clear();
+        this.savedWorkers.AddRange(this.LoadRosterEntries());
+        this.RemoveOrphanedWorkerShells();
+        this.RebuildAllGeneratedSpriteSheets();
+        this.PersistRoster();
+    }
+
+    /// <summary>Compatibility alias for the old spawn command; all hires use the same paid contract.</summary>
+    public NPC? SpawnConfiguredWorker(WorkerAppearanceData appearance)
+    {
+        this.TryHireWorker(appearance, out NPC? worker, out string message);
+        this.monitor.Log(message, worker is null ? LogLevel.Warn : LogLevel.Info);
+        return worker;
+    }
+
+    public bool TryHireWorker(WorkerAppearanceData appearance, out NPC? worker, out string message)
+    {
+        worker = null;
+        if (!this.CanManageWorkers(out message))
+        {
+            return false;
+        }
+
+        if (this.savedWorkers.Count >= WorkerEmploymentTerms.MaximumWorkers)
+        {
+            message = $"You can hire up to {WorkerEmploymentTerms.MaximumWorkers} workers.";
+            return false;
+        }
+
+        if (Game1.player.Money < WorkerEmploymentTerms.HiringCost)
+        {
+            message = $"Hiring costs {WorkerEmploymentTerms.HiringCost}g, including today's wages.";
+            return false;
         }
 
         GameLocation? targetLocation = Game1.getLocationFromName(TestWorkerDefinition.LocationName);
-        if (targetLocation is null)
+        if (targetLocation is null || !this.TryFindNextAvailableSpawnTile(targetLocation, null, out Point spawnTile))
         {
-            this.monitor.Log($"Could not find worker location '{TestWorkerDefinition.LocationName}'.", LogLevel.Warn);
-            return null;
+            message = "There is no clear space for a worker in the farmhouse. Clear some floor space and try again.";
+            return false;
         }
 
-        Point spawnTile = this.FindNextAvailableSpawnTile(targetLocation, reservedWorkerId: null);
+        int workerNumber = this.nextWorkerNumber++;
         WorkerRosterEntry entry = new()
         {
-            WorkerId = this.CreateNextWorkerId(),
-            DisplayName = this.CreateNextDisplayName(),
+            WorkerId = workerNumber == 1 ? TestWorkerDefinition.WorkerId : $"worker-{workerNumber}",
+            DisplayName = $"Worker {workerNumber}",
             SpawnTileX = spawnTile.X,
             SpawnTileY = spawnTile.Y,
             Appearance = appearance.Clone(),
+            LastPaidDay = Game1.Date.TotalDays,
+            LastWageAttemptDay = Game1.Date.TotalDays,
         };
 
         this.savedWorkers.Add(entry);
-        this.PersistRoster();
-        this.RebuildGeneratedSpriteSheet(entry);
-
-        NPC? worker = this.EnsureWorkerPresent(entry, respawnAtSpawn: true);
-        if (worker is not null)
+        try
         {
-            this.monitor.Log(
-                $"Spawned {entry.DisplayName} at {targetLocation.NameOrUniqueName} tile {spawnTile}. Total configured workers: {this.savedWorkers.Count}.",
-                LogLevel.Info);
+            worker = this.EnsureWorkerPresent(entry, respawnAtSpawn: true);
+        }
+        catch (Exception ex)
+        {
+            this.monitor.Log($"Could not create {entry.DisplayName}: {ex}", LogLevel.Error);
         }
 
-        return worker;
+        if (worker is null)
+        {
+            this.savedWorkers.Remove(entry);
+            this.RemoveWorkerShells(entry.WorkerId);
+            this.DisposeGeneratedSpriteSheet(entry.WorkerId);
+            message = "The worker could not arrive. No gold was charged; see the SMAPI log for details.";
+            return false;
+        }
+
+        Game1.player.Money -= WorkerEmploymentTerms.HiringCost;
+        this.PersistRoster();
+        message = $"Hired {entry.DisplayName} for {WorkerEmploymentTerms.HiringCost}g. Today's wages are included; assign a task in Workers.";
+        return true;
+    }
+
+    public bool TryDismissWorker(string workerId, out string message)
+    {
+        if (!this.CanManageWorkers(out message))
+        {
+            return false;
+        }
+
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null)
+        {
+            message = "That worker is no longer employed.";
+            return false;
+        }
+
+        this.RemoveWorkerShells(workerId);
+        this.detachedWorkers.RemoveAll(saved => this.IsManagedWorker(saved.Worker, workerId));
+        this.savedWorkers.Remove(entry);
+        this.DisposeGeneratedSpriteSheet(workerId);
+        this.PersistRoster();
+        message = $"Dismissed {entry.DisplayName}. Paid hiring fees and wages are not refunded.";
+        return true;
     }
 
     public bool DeleteConfiguredWorker()
     {
+        if (!this.CanManageWorkers(out _))
+        {
+            return false;
+        }
+
         bool removedWorkers = this.RemoveAllWorkerShells();
         bool hadRosterEntries = this.savedWorkers.Count > 0;
-
         this.savedWorkers.Clear();
+        this.detachedWorkers.Clear();
         this.PersistRoster();
         this.helper.Data.WriteSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey, null);
         this.DisposeAllGeneratedSpriteSheets();
-
         return removedWorkers || hadRosterEntries;
+    }
+
+    public IReadOnlyList<WorkerRosterEntry> GetRosterEntries()
+    {
+        return this.savedWorkers.Select(entry => entry.Clone()).ToArray();
+    }
+
+    public WorkerTaskKind GetAssignedTask(string workerId)
+    {
+        return this.GetWorkerEntry(workerId)?.AssignedTask ?? WorkerTaskKind.Idle;
+    }
+
+    public bool TrySetAssignedTask(string workerId, WorkerTaskKind task)
+    {
+        if (!this.CanManageWorkers(out _) || !Enum.IsDefined(typeof(WorkerTaskKind), task))
+        {
+            return false;
+        }
+
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null)
+        {
+            return false;
+        }
+
+        entry.AssignedTask = task;
+        this.PersistRoster();
+        return true;
+    }
+
+    public bool CanWorkerWorkToday(string workerId)
+    {
+        return Context.IsWorldReady && this.GetWorkerEntry(workerId)?.LastPaidDay == Game1.Date.TotalDays;
+    }
+
+    /// <summary>Charge each employee at most once per day, including repeated DayStarted callbacks.</summary>
+    public void ProcessDailyWages()
+    {
+        if (!this.CanManageWorkers(out _))
+        {
+            return;
+        }
+
+        int today = Game1.Date.TotalDays;
+        int unpaidCount = 0;
+        int totalPaid = 0;
+        bool changed = false;
+        foreach (WorkerRosterEntry entry in this.savedWorkers)
+        {
+            if (entry.LastPaidDay == today || entry.LastWageAttemptDay == today)
+            {
+                continue;
+            }
+
+            changed = true;
+            entry.LastWageAttemptDay = today;
+            if (Game1.player.Money < entry.DailyWage)
+            {
+                unpaidCount++;
+                continue;
+            }
+
+            Game1.player.Money -= entry.DailyWage;
+            entry.LastPaidDay = today;
+            totalPaid += entry.DailyWage;
+        }
+
+        if (changed)
+        {
+            this.PersistRoster();
+        }
+
+        if (totalPaid > 0)
+        {
+            this.monitor.Log($"Paid {totalPaid}g in daily worker wages.", LogLevel.Info);
+        }
+
+        if (unpaidCount > 0)
+        {
+            string message = $"{unpaidCount} worker(s) are unpaid. Open Workers to pay today's wages and resume work.";
+            this.monitor.Log(message, LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage(message, HUDMessage.error_type));
+        }
+    }
+
+    public bool TryPayWorkerForToday(string workerId, out string message)
+    {
+        if (!this.CanManageWorkers(out message))
+        {
+            return false;
+        }
+
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null)
+        {
+            message = "That worker is no longer employed.";
+            return false;
+        }
+
+        if (entry.LastPaidDay == Game1.Date.TotalDays)
+        {
+            message = $"{entry.DisplayName} is already paid for today.";
+            return true;
+        }
+
+        if (Game1.player.Money < entry.DailyWage)
+        {
+            message = $"You need {entry.DailyWage}g to pay {entry.DisplayName} for today.";
+            return false;
+        }
+
+        Game1.player.Money -= entry.DailyWage;
+        entry.LastPaidDay = Game1.Date.TotalDays;
+        entry.LastWageAttemptDay = Game1.Date.TotalDays;
+        this.PersistRoster();
+        message = $"Paid {entry.DisplayName} {entry.DailyWage}g for today.";
+        return true;
+    }
+
+    public void SaveRoster()
+    {
+        this.PersistRoster();
+    }
+
+    /// <summary>Transient generated sprites must never be written into vanilla NPC save data.</summary>
+    public void RemoveWorkersForSaving()
+    {
+        if (!Context.IsMainPlayer || this.detachedWorkers.Count > 0)
+        {
+            return;
+        }
+
+        Utility.ForEachLocation(location =>
+        {
+            for (int i = location.characters.Count - 1; i >= 0; i--)
+            {
+                NPC worker = location.characters[i];
+                if (this.IsManagedWorker(worker))
+                {
+                    this.detachedWorkers.Add((worker, location));
+                    location.characters.RemoveAt(i);
+                }
+            }
+
+            return true;
+        });
+    }
+
+    public void RestoreWorkersAfterSaving()
+    {
+        if (!Context.IsMainPlayer)
+        {
+            return;
+        }
+
+        foreach ((NPC worker, GameLocation location) in this.detachedWorkers)
+        {
+            if (this.TryGetWorkerId(worker, out string workerId) && this.GetWorkerEntry(workerId) is not null
+                && this.FindWorkerById(workerId) is null)
+            {
+                worker.currentLocation = location;
+                location.addCharacter(worker);
+            }
+        }
+
+        this.detachedWorkers.Clear();
+    }
+
+    public WorkerRosterSaveData GetRosterSnapshot()
+    {
+        return new WorkerRosterSaveData
+        {
+            SchemaVersion = WorkerEmploymentTerms.RosterSchemaVersion,
+            NextWorkerNumber = this.nextWorkerNumber,
+            Workers = this.savedWorkers.Select(entry => entry.Clone()).ToList(),
+        };
+    }
+
+    public void ApplyRosterSnapshot(WorkerRosterSaveData snapshot)
+    {
+        if (!Context.IsWorldReady || Context.IsMainPlayer)
+        {
+            return;
+        }
+
+        this.savedWorkers.Clear();
+        this.savedWorkers.AddRange(this.NormalizeRosterEntries(snapshot.Workers ?? new List<WorkerRosterEntry>(), migrateEmployment: false));
+        this.clientAppearanceWorkers.Clear();
+        this.RebuildAllGeneratedSpriteSheets();
+        this.RefreshClientAppearances();
+    }
+
+    /// <summary>Farm modData is replicated by vanilla; farmhands only rebuild local display textures.</summary>
+    public void RefreshClientRoster()
+    {
+        if (!Context.IsWorldReady || Context.IsMainPlayer)
+        {
+            return;
+        }
+
+        Game1.getFarm().modData.TryGetValue(this.rosterMirrorDataKey, out string? payload);
+        if (payload != this.lastMirrorPayload)
+        {
+            this.lastMirrorPayload = payload;
+            try
+            {
+                WorkerRosterSaveData? snapshot = string.IsNullOrWhiteSpace(payload)
+                    ? new WorkerRosterSaveData()
+                    : JsonSerializer.Deserialize<WorkerRosterSaveData>(payload);
+                if (snapshot is not null)
+                {
+                    this.ApplyRosterSnapshot(snapshot);
+                }
+            }
+            catch (JsonException ex)
+            {
+                this.monitor.Log($"Could not read the host's worker roster: {ex.Message}", LogLevel.Warn);
+            }
+        }
+
+        this.RefreshClientAppearances();
     }
 
     public NPC? EnsureConfiguredWorkerPresent(bool respawnAtSpawn = true)
     {
-        if (!Context.IsWorldReady || this.savedWorkers.Count == 0)
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.savedWorkers.Count == 0)
         {
             return null;
         }
@@ -282,15 +579,24 @@ internal sealed class WorkerShellManager
     public void Reset()
     {
         this.savedWorkers.Clear();
+        this.detachedWorkers.Clear();
+        this.clientAppearanceWorkers.Clear();
+        this.lastMirrorPayload = null;
+        this.nextWorkerNumber = 1;
         this.DisposeAllGeneratedSpriteSheets();
     }
 
     private List<WorkerRosterEntry> LoadRosterEntries()
     {
         WorkerRosterSaveData? rosterData = this.helper.Data.ReadSaveData<WorkerRosterSaveData>(this.rosterSaveDataKey);
-        if (rosterData?.Workers is { Count: > 0 })
+        // An explicitly empty roster wins over any stale legacy appearance so dismissed workers stay dismissed.
+        if (rosterData is not null)
         {
-            return this.NormalizeRosterEntries(rosterData.Workers);
+            List<WorkerRosterEntry> entries = this.NormalizeRosterEntries(rosterData.Workers ?? new List<WorkerRosterEntry>(),
+                migrateEmployment: rosterData.SchemaVersion < WorkerEmploymentTerms.RosterSchemaVersion);
+            this.nextWorkerNumber = Math.Max(Math.Max(1, rosterData.NextWorkerNumber), this.GetNextWorkerNumber(entries));
+            this.helper.Data.WriteSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey, null);
+            return entries;
         }
 
         WorkerAppearanceData? legacyAppearance = this.helper.Data.ReadSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey);
@@ -308,20 +614,21 @@ internal sealed class WorkerShellManager
                 SpawnTileX = TestWorkerDefinition.SpawnTile.X,
                 SpawnTileY = TestWorkerDefinition.SpawnTile.Y,
                 Appearance = legacyAppearance.Clone(),
+                LastPaidDay = Game1.Date.TotalDays,
+                LastWageAttemptDay = Game1.Date.TotalDays,
             },
         };
 
-        this.helper.Data.WriteSaveData(this.rosterSaveDataKey, new WorkerRosterSaveData { Workers = migratedEntries });
+        this.nextWorkerNumber = 2;
         this.helper.Data.WriteSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey, null);
-        this.monitor.Log("Migrated the legacy single-worker save data into the worker roster.", LogLevel.Info);
+        this.monitor.Log("Migrated the legacy worker appearance into the roster; today's wages are included.", LogLevel.Info);
         return migratedEntries;
     }
 
-    private List<WorkerRosterEntry> NormalizeRosterEntries(IEnumerable<WorkerRosterEntry> entries)
+    private List<WorkerRosterEntry> NormalizeRosterEntries(IEnumerable<WorkerRosterEntry> entries, bool migrateEmployment)
     {
         List<WorkerRosterEntry> normalizedEntries = new();
         HashSet<string> seenWorkerIds = new(StringComparer.OrdinalIgnoreCase);
-
         foreach (WorkerRosterEntry entry in entries)
         {
             if (entry is null)
@@ -330,25 +637,38 @@ internal sealed class WorkerShellManager
             }
 
             string workerId = string.IsNullOrWhiteSpace(entry.WorkerId)
-                ? this.CreateFallbackWorkerId(normalizedEntries.Count)
+                ? $"worker-recovered-{normalizedEntries.Count + 1}"
                 : entry.WorkerId.Trim();
             if (!seenWorkerIds.Add(workerId))
             {
+                this.monitor.Log($"Ignored duplicate worker roster ID '{workerId}'.", LogLevel.Warn);
                 continue;
             }
 
-            string displayName = string.IsNullOrWhiteSpace(entry.DisplayName)
-                ? this.CreateDisplayNameForIndex(normalizedEntries.Count)
+            WorkerRosterEntry normalized = entry.Clone();
+            normalized.WorkerId = workerId;
+            normalized.DisplayName = string.IsNullOrWhiteSpace(entry.DisplayName)
+                ? $"Worker {normalizedEntries.Count + 1}"
                 : entry.DisplayName.Trim();
-
-            normalizedEntries.Add(new WorkerRosterEntry
+            if (!Enum.IsDefined(typeof(WorkerTaskKind), normalized.AssignedTask))
             {
-                WorkerId = workerId,
-                DisplayName = displayName,
-                SpawnTileX = entry.SpawnTileX,
-                SpawnTileY = entry.SpawnTileY,
-                Appearance = entry.Appearance?.Clone() ?? WorkerAppearanceData.CreateDefault(),
-            });
+                normalized.AssignedTask = WorkerTaskKind.Idle;
+            }
+
+            // Employment prices aren't save-editable contracts yet; normalize corrupt/older values.
+            normalized.DailyWage = WorkerEmploymentTerms.DailyWage;
+            if (migrateEmployment)
+            {
+                normalized.LastPaidDay = Game1.Date.TotalDays;
+                normalized.LastWageAttemptDay = Game1.Date.TotalDays;
+            }
+            else
+            {
+                normalized.LastPaidDay = Math.Clamp(normalized.LastPaidDay, -1, Game1.Date.TotalDays);
+                normalized.LastWageAttemptDay = Math.Clamp(normalized.LastWageAttemptDay, -1, Game1.Date.TotalDays);
+            }
+
+            normalizedEntries.Add(normalized);
         }
 
         return normalizedEntries;
@@ -356,24 +676,50 @@ internal sealed class WorkerShellManager
 
     private void PersistRoster()
     {
-        WorkerRosterSaveData saveData = new()
+        if (!Context.IsWorldReady || !Context.IsMainPlayer)
         {
-            Workers = new List<WorkerRosterEntry>(this.savedWorkers.Count),
-        };
-
-        foreach (WorkerRosterEntry entry in this.savedWorkers)
-        {
-            saveData.Workers.Add(new WorkerRosterEntry
-            {
-                WorkerId = entry.WorkerId,
-                DisplayName = entry.DisplayName,
-                SpawnTileX = entry.SpawnTileX,
-                SpawnTileY = entry.SpawnTileY,
-                Appearance = entry.Appearance.Clone(),
-            });
+            return;
         }
 
+        WorkerRosterSaveData saveData = this.GetRosterSnapshot();
         this.helper.Data.WriteSaveData(this.rosterSaveDataKey, saveData);
+        string payload = JsonSerializer.Serialize(saveData);
+        Game1.getFarm().modData[this.rosterMirrorDataKey] = payload;
+    }
+
+    private bool CanManageWorkers(out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "Load a save before managing workers.";
+            return false;
+        }
+
+        if (!Context.IsMainPlayer)
+        {
+            message = "Only the farm host can hire, pay, dismiss, or assign workers.";
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
+    }
+
+    private void RefreshClientAppearances()
+    {
+        foreach (WorkerRosterEntry entry in this.savedWorkers)
+        {
+            NPC? worker = this.FindWorkerById(entry.WorkerId);
+            if (worker is null || (this.clientAppearanceWorkers.TryGetValue(entry.WorkerId, out NPC? previous) && previous == worker
+                && this.generatedSpriteSheets.TryGetValue(entry.WorkerId, out Texture2D? expected) && worker.Sprite?.spriteTexture == expected))
+            {
+                continue;
+            }
+
+            this.EnsureGeneratedSpriteSheet(entry);
+            this.ApplyLocalWorkerTexture(worker, entry.WorkerId);
+            this.clientAppearanceWorkers[entry.WorkerId] = worker;
+        }
     }
 
     private NPC? EnsureWorkerPresent(WorkerRosterEntry entry, bool respawnAtSpawn)
@@ -393,7 +739,12 @@ internal sealed class WorkerShellManager
         {
             if (!this.IsSpawnTileAvailable(targetLocation, spawnTile.ToVector2(), workerToIgnore: null))
             {
-                Point alternateSpawnTile = this.FindNextAvailableSpawnTile(targetLocation, entry.WorkerId);
+                if (!this.TryFindNextAvailableSpawnTile(targetLocation, entry.WorkerId, out Point alternateSpawnTile))
+                {
+                    this.monitor.Log($"No clear farmhouse tile is available for {entry.DisplayName}; clear floor space and reopen Workers.", LogLevel.Trace);
+                    return null;
+                }
+
                 entry.SpawnTileX = alternateSpawnTile.X;
                 entry.SpawnTileY = alternateSpawnTile.Y;
                 spawnTile = alternateSpawnTile;
@@ -416,10 +767,15 @@ internal sealed class WorkerShellManager
             worker.currentLocation == targetLocation ? worker : null);
         if (!canUseSpawnTile)
         {
-            this.monitor.Log(
-                $"{entry.DisplayName} spawn tile {spawnTile} is currently blocked. Leaving the worker at tile {worker.Tile}.",
-                LogLevel.Warn);
-            return worker;
+            if (!this.TryFindNextAvailableSpawnTile(targetLocation, entry.WorkerId, out Point alternateTile))
+            {
+                return worker;
+            }
+
+            spawnTile = alternateTile;
+            entry.SpawnTileX = spawnTile.X;
+            entry.SpawnTileY = spawnTile.Y;
+            this.PersistRoster();
         }
 
         if (worker.currentLocation != targetLocation)
@@ -495,68 +851,88 @@ internal sealed class WorkerShellManager
 
     private NPC? FindWorkerById(string workerId)
     {
-        foreach (GameLocation location in Game1.locations)
+        NPC? found = null;
+        Utility.ForEachLocation(location =>
         {
-            NPC? worker = this.FindWorkerInLocation(location, workerId);
-            if (worker is not null)
+            foreach (NPC npc in location.characters)
             {
-                return worker;
+                if (this.IsManagedWorker(npc, workerId))
+                {
+                    found = npc;
+                    return false;
+                }
             }
-        }
 
-        NPC? namedWorker = Game1.getCharacterFromName(this.GetInternalName(workerId), mustBeVillager: false);
-        if (namedWorker is not null && this.IsManagedWorker(namedWorker, workerId))
-        {
-            return namedWorker;
-        }
-
-        return null;
-    }
-
-    private NPC? FindWorkerInLocation(GameLocation location, string workerId)
-    {
-        foreach (NPC npc in location.characters)
-        {
-            if (this.IsManagedWorker(npc, workerId))
-            {
-                return npc;
-            }
-        }
-
-        return null;
+            return true;
+        });
+        return found;
     }
 
     private bool IsManagedWorker(NPC npc, string? workerId = null)
     {
-        if (npc.modData.TryGetValue(this.workerIdDataKey, out string? storedWorkerId))
+        if (npc.modData.TryGetValue(this.workerIdDataKey, out string? storedWorkerId) && !string.IsNullOrWhiteSpace(storedWorkerId))
         {
-            return workerId is null
-                ? !string.IsNullOrWhiteSpace(storedWorkerId)
-                : string.Equals(storedWorkerId, workerId, StringComparison.OrdinalIgnoreCase);
+            return workerId is null || string.Equals(storedWorkerId, workerId, StringComparison.OrdinalIgnoreCase);
         }
 
-        return workerId == TestWorkerDefinition.WorkerId && npc.Name == TestWorkerDefinition.InternalName;
+        return npc.Name == TestWorkerDefinition.InternalName
+            && (workerId is null || string.Equals(workerId, TestWorkerDefinition.WorkerId, StringComparison.OrdinalIgnoreCase));
     }
 
     private bool RemoveAllWorkerShells()
     {
-        bool removedAny = false;
+        return this.RemoveWorkerShells(workerId: null);
+    }
 
-        foreach (GameLocation location in Game1.locations)
+    private bool RemoveWorkerShells(string? workerId)
+    {
+        bool removedAny = false;
+        Utility.ForEachLocation(location =>
         {
             for (int i = location.characters.Count - 1; i >= 0; i--)
             {
-                if (!this.IsManagedWorker(location.characters[i]))
+                NPC worker = location.characters[i];
+                if (!this.IsManagedWorker(worker, workerId))
                 {
                     continue;
                 }
 
+                worker.controller = null;
+                worker.temporaryController = null;
+                worker.Halt();
                 location.characters.RemoveAt(i);
                 removedAny = true;
             }
-        }
 
+            return true;
+        });
         return removedAny;
+    }
+
+    private void RemoveOrphanedWorkerShells()
+    {
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        Utility.ForEachLocation(location =>
+        {
+            for (int i = location.characters.Count - 1; i >= 0; i--)
+            {
+                NPC worker = location.characters[i];
+                if (!this.TryGetWorkerId(worker, out string id))
+                {
+                    continue;
+                }
+
+                if (this.GetWorkerEntry(id) is null || !seen.Add(id))
+                {
+                    worker.controller = null;
+                    worker.temporaryController = null;
+                    worker.Halt();
+                    location.characters.RemoveAt(i);
+                }
+            }
+
+            return true;
+        });
     }
 
     private AnimatedSprite CreateWorkerSprite(string workerId)
@@ -566,7 +942,8 @@ internal sealed class WorkerShellManager
             return new AnimatedSprite(TestWorkerDefinition.ShellSpriteAssetName, 0, 16, 32);
         }
 
-        AnimatedSprite sprite = new()
+        // Replicate a real asset name; generated texture data is rebuilt locally on each peer.
+        AnimatedSprite sprite = new(TestWorkerDefinition.ShellSpriteAssetName, 0, 16, 32)
         {
             SpriteWidth = 16,
             SpriteHeight = 32,
@@ -591,8 +968,6 @@ internal sealed class WorkerShellManager
 
     private void RebuildAllGeneratedSpriteSheets()
     {
-        this.DisposeAllGeneratedSpriteSheets();
-
         if (!Context.IsWorldReady)
         {
             return;
@@ -601,6 +976,11 @@ internal sealed class WorkerShellManager
         foreach (WorkerRosterEntry entry in this.savedWorkers)
         {
             this.RebuildGeneratedSpriteSheet(entry);
+        }
+
+        foreach (string obsoleteId in this.generatedSpriteSheets.Keys.Where(id => this.GetWorkerEntry(id) is null).ToArray())
+        {
+            this.DisposeGeneratedSpriteSheet(obsoleteId);
         }
     }
 
@@ -634,9 +1014,16 @@ internal sealed class WorkerShellManager
         NPC? existingWorker = this.FindWorkerById(entry.WorkerId);
         if (existingWorker is not null)
         {
-            int currentFrame = existingWorker.Sprite?.CurrentFrame ?? 0;
-            existingWorker.Sprite = this.CreateWorkerSprite(entry.WorkerId);
-            existingWorker.Sprite.CurrentFrame = currentFrame;
+            if (Context.IsMainPlayer)
+            {
+                int currentFrame = existingWorker.Sprite?.CurrentFrame ?? 0;
+                existingWorker.Sprite = this.CreateWorkerSprite(entry.WorkerId);
+                existingWorker.Sprite.CurrentFrame = currentFrame;
+            }
+            else
+            {
+                this.ApplyLocalWorkerTexture(existingWorker, entry.WorkerId);
+            }
         }
 
         previousSheet?.Dispose();
@@ -659,6 +1046,17 @@ internal sealed class WorkerShellManager
             return;
         }
 
+        // A farmhand may receive the roster removal before the corresponding character removal.
+        // Keep that briefly visible NPC on a valid local fallback until vanilla replication removes it.
+        NPC? worker = Context.IsWorldReady ? this.FindWorkerById(workerId) : null;
+        if (worker?.Sprite is not null && worker.Sprite.spriteTexture == texture)
+        {
+            worker.Sprite.overrideTextureName = TestWorkerDefinition.ShellSpriteAssetName;
+            worker.Sprite.loadedTexture = TestWorkerDefinition.ShellSpriteAssetName;
+            worker.Sprite.spriteTexture = Game1.content.Load<Texture2D>(TestWorkerDefinition.ShellSpriteAssetName);
+            worker.Sprite.UpdateSourceRect();
+        }
+
         texture.Dispose();
     }
 
@@ -675,37 +1073,39 @@ internal sealed class WorkerShellManager
         return null;
     }
 
-    private string CreateNextWorkerId()
+    private void ApplyLocalWorkerTexture(NPC worker, string workerId)
     {
-        if (this.savedWorkers.Count == 0)
+        if (worker.Sprite is null || !this.generatedSpriteSheets.TryGetValue(workerId, out Texture2D? sheet))
         {
-            return TestWorkerDefinition.WorkerId;
+            return;
         }
 
-        int nextIndex = 2;
-        while (this.GetWorkerEntry($"worker-{nextIndex}") is not null)
+        // These fields are local-only. Never replace the host-owned NetRef Sprite on a farmhand.
+        worker.Sprite.overrideTextureName = $"{TestWorkerDefinition.InternalName}.{workerId}.GeneratedSheet";
+        worker.Sprite.loadedTexture = worker.Sprite.overrideTextureName;
+        worker.Sprite.spriteTexture = sheet;
+        worker.Sprite.textureUsesFlippedRightForLeft = false;
+        worker.Sprite.UpdateSourceRect();
+    }
+
+    private int GetNextWorkerNumber(IEnumerable<WorkerRosterEntry> entries)
+    {
+        int next = 1;
+        foreach (WorkerRosterEntry entry in entries)
         {
-            nextIndex++;
+            if (entry.WorkerId == TestWorkerDefinition.WorkerId)
+            {
+                next = Math.Max(next, 2);
+            }
+            else if (entry.WorkerId.StartsWith("worker-", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(entry.WorkerId.AsSpan("worker-".Length), out int number)
+                && number > 0 && number < int.MaxValue)
+            {
+                next = Math.Max(next, number + 1);
+            }
         }
 
-        return $"worker-{nextIndex}";
-    }
-
-    private string CreateNextDisplayName()
-    {
-        return this.savedWorkers.Count == 0
-            ? TestWorkerDefinition.DisplayName
-            : $"{TestWorkerDefinition.DisplayName} {this.savedWorkers.Count + 1}";
-    }
-
-    private string CreateFallbackWorkerId(int index)
-    {
-        return index == 0 ? TestWorkerDefinition.WorkerId : $"worker-{index + 1}";
-    }
-
-    private string CreateDisplayNameForIndex(int index)
-    {
-        return index == 0 ? TestWorkerDefinition.DisplayName : $"{TestWorkerDefinition.DisplayName} {index + 1}";
+        return Math.Max(next, entries.Count() + 1);
     }
 
     private string GetInternalName(string workerId)
@@ -715,7 +1115,7 @@ internal sealed class WorkerShellManager
             : $"{TestWorkerDefinition.InternalName}.{workerId}";
     }
 
-    private Point FindNextAvailableSpawnTile(GameLocation location, string? reservedWorkerId)
+    private bool TryFindNextAvailableSpawnTile(GameLocation location, string? reservedWorkerId, out Point spawnTile)
     {
         HashSet<Point> reservedTiles = new();
         foreach (WorkerRosterEntry entry in this.savedWorkers)
@@ -738,11 +1138,13 @@ internal sealed class WorkerShellManager
 
             if (this.IsSpawnTileAvailable(location, candidate.ToVector2(), workerToIgnore: null))
             {
-                return candidate;
+                spawnTile = candidate;
+                return true;
             }
         }
 
-        return origin;
+        spawnTile = Point.Zero;
+        return false;
     }
 
     private IEnumerable<Point> GetPreferredSpawnCandidates(Point origin, int maxRadius)
@@ -792,12 +1194,21 @@ internal sealed class WorkerShellManager
             return false;
         }
 
-        if (location.IsTileBlockedBy(spawnTile, CollisionMask.All, CollisionMask.Characters, useFarmerTile: true))
+        if (location.IsTileBlockedBy(spawnTile, CollisionMask.All & ~CollisionMask.Characters,
+            CollisionMask.All & ~CollisionMask.Farmers, useFarmerTile: true))
         {
             return false;
         }
 
-        NPC? occupant = location.isCharacterAtTile(spawnTile);
-        return occupant is null || occupant == workerToIgnore;
+        Rectangle tileBounds = new((int)spawnTile.X * Game1.tileSize, (int)spawnTile.Y * Game1.tileSize, Game1.tileSize, Game1.tileSize);
+        foreach (NPC occupant in location.characters)
+        {
+            if (occupant != workerToIgnore && !occupant.IsInvisible && occupant.GetBoundingBox().Intersects(tileBounds))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

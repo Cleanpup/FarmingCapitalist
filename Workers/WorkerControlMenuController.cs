@@ -8,11 +8,19 @@ internal sealed class WorkerControlMenuController
 {
     private readonly IInputHelper inputHelper;
     private readonly WorkerShellManager workerShellManager;
+    private readonly WorkerCustomizationManager workerCustomizationManager;
+    private readonly WorkerBehaviorManager workerBehaviorManager;
 
-    public WorkerControlMenuController(IInputHelper inputHelper, WorkerShellManager workerShellManager)
+    public WorkerControlMenuController(
+        IInputHelper inputHelper,
+        WorkerShellManager workerShellManager,
+        WorkerCustomizationManager workerCustomizationManager,
+        WorkerBehaviorManager workerBehaviorManager)
     {
         this.inputHelper = inputHelper;
         this.workerShellManager = workerShellManager;
+        this.workerCustomizationManager = workerCustomizationManager;
+        this.workerBehaviorManager = workerBehaviorManager;
     }
 
     public void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
@@ -26,7 +34,7 @@ internal sealed class WorkerControlMenuController
 
         if (Game1.activeClickableMenu is WorkerControlMenu workerControlMenu)
         {
-            workerControlMenu.exitThisMenu();
+            workerControlMenu.RequestClose();
             this.inputHelper.Suppress(e.Button);
             return;
         }
@@ -36,9 +44,22 @@ internal sealed class WorkerControlMenuController
             return;
         }
 
-        Game1.activeClickableMenu = new WorkerControlMenu(this.workerShellManager);
+        if (this.OpenMenu())
+        {
+            this.inputHelper.Suppress(e.Button);
+        }
+    }
+
+    public bool OpenMenu()
+    {
+        if (!Context.IsWorldReady || !Context.IsPlayerFree || Game1.activeClickableMenu is not null)
+        {
+            return false;
+        }
+
+        Game1.activeClickableMenu = new WorkerControlMenu(this.workerShellManager, this.workerBehaviorManager, this.workerCustomizationManager);
         Game1.playSound("bigSelect");
-        this.inputHelper.Suppress(e.Button);
+        return true;
     }
 
     public void Reset()

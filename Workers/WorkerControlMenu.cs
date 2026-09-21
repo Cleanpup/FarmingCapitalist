@@ -1,97 +1,171 @@
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+using StardewModdingAPI;
 using StardewValley;
 using StardewValley.BellsAndWhistles;
 using StardewValley.Menus;
 
 namespace FarmingCapitalist.Workers;
 
+/// <summary>Host-owned hiring and orders, with a read-only roster for farmhands.</summary>
 internal sealed class WorkerControlMenu : IClickableMenu
 {
-    [System.Flags]
-    private enum ResizeEdges
+    [Flags]
+    private enum ResizeEdges { None = 0, Left = 1, Top = 2, Right = 4, Bottom = 8 }
+
+    private enum WorkerMenuTab
     {
-        None = 0,
-        Left = 1,
-        Top = 2,
-        Right = 4,
-        Bottom = 8,
+        Roster,
+        FarmerJobs,
     }
 
-    private const int DefaultMenuWidth = 1920;
-    private const int DefaultMenuHeight = 1280;
-    private const int MinMenuWidth = 960;
-    private const int MinMenuHeight = 640;
-    private const int EdgeMargin = 32;
     private const int WorkerRowIdBase = 91000;
-    private const int ResizeBorderThickness = 28;
-    private const int PanelGap = 32;
-    private const int SectionPadding = 28;
-    private const int WorkerRowHeight = 120;
+    private const int HireId = 90000;
+    private const int PreviousId = 90001;
+    private const int NextId = 90002;
+    private const int PayId = 90003;
+    private const int DismissId = 90004;
+    private const int ConfirmId = 90005;
+    private const int CancelId = 90006;
+    private const int RosterTabId = 90007;
+    private const int FarmerJobsTabId = 90008;
+    private const int OrderIdBase = 90010;
+    private const int Padding = 20;
+    private const int Gap = 12;
+    private static readonly WorkerTaskKind[] TaskKinds =
+    {
+        WorkerTaskKind.WaterCrops, WorkerTaskKind.HarvestCrops, WorkerTaskKind.TendCrops, WorkerTaskKind.Idle,
+    };
 
     private readonly WorkerShellManager workerShellManager;
-    private readonly List<ClickableComponent> workerRowComponents = new();
+    private readonly WorkerBehaviorManager workerBehaviorManager;
+    private readonly WorkerCustomizationManager workerCustomizationManager;
     private readonly List<WorkerSummarySnapshot> workerSnapshots = new();
-    private readonly List<Rectangle> orderCardBounds = new();
+    private readonly Dictionary<string, WorkerRuntimeSnapshot> runtimeSnapshots = new(StringComparer.Ordinal);
+    private readonly List<ClickableComponent> workerRows = new();
+    private readonly List<ClickableComponent> orderButtons = new();
+    private ClickableComponent hireButton = null!;
+    private ClickableComponent previousButton = null!;
+    private ClickableComponent nextButton = null!;
+    private ClickableComponent payButton = null!;
+    private ClickableComponent dismissButton = null!;
+    private ClickableComponent confirmButton = null!;
+    private ClickableComponent cancelButton = null!;
+    private ClickableComponent rosterTabButton = null!;
+    private ClickableComponent farmerJobsTabButton = null!;
     private Rectangle headerBounds;
-    private Rectangle workerListPanelBounds;
-    private Rectangle workerDetailsPanelBounds;
-    private Rectangle workerOrdersPanelBounds;
-    private ResizeEdges activeResizeEdges;
-    private bool isResizing;
+    private Rectangle rosterBounds;
+    private Rectangle detailsBounds;
+    private Rectangle ordersBounds;
+    private Rectangle footerBounds;
+    private Rectangle confirmationBounds;
+    private WorkerMenuTab currentTab = WorkerMenuTab.Roster;
+    private string? selectedWorkerId;
+    private string? pendingDismissalId;
+    private string pendingDismissalName = string.Empty;
+    private string feedback = "Choose a worker and give them an order. Orders repeat each day.";
+    private string hoverText = string.Empty;
+    private bool feedbackIsError;
+    private int firstVisibleWorker;
+    private int visibleWorkerCount = 1;
+    private double refreshMilliseconds;
+    private ResizeEdges resizeEdges;
     private Point resizeStartMouse;
     private Rectangle resizeStartBounds;
-    private string? selectedWorkerId;
 
-    public WorkerControlMenu(WorkerShellManager workerShellManager)
-        : base(0, 0, GetDefaultMenuWidth(), GetDefaultMenuHeight(), showUpperRightCloseButton: true)
+    public WorkerControlMenu(
+        WorkerShellManager workerShellManager,
+        WorkerBehaviorManager workerBehaviorManager,
+        WorkerCustomizationManager workerCustomizationManager,
+        string? selectedWorkerId = null)
+        : base(0, 0, GetMenuWidth(1200), GetMenuHeight(840), showUpperRightCloseButton: true)
     {
         this.workerShellManager = workerShellManager;
+        this.workerBehaviorManager = workerBehaviorManager;
+        this.workerCustomizationManager = workerCustomizationManager;
+        this.selectedWorkerId = selectedWorkerId;
         this.closeSound = "bigDeSelect";
         this.CenterOnScreen();
-        this.RefreshWorkerSnapshots();
+        this.RefreshSnapshots();
         this.RebuildLayout();
+        this.ShowSelectedWorkerPage();
     }
 
     public override void update(GameTime time)
     {
         base.update(time);
-        this.RefreshWorkerSnapshots(rebuildLayoutIfRosterChanged: true);
-
-        if (this.currentlySnappedComponent is null)
+        this.refreshMilliseconds += time.ElapsedGameTime.TotalMilliseconds;
+        if (this.refreshMilliseconds >= 250)
         {
-            return;
+            this.refreshMilliseconds = 0;
+            this.RefreshSnapshots();
         }
 
-        int index = this.currentlySnappedComponent.myID - WorkerRowIdBase;
-        if (index >= 0 && index < this.workerSnapshots.Count)
+        if (this.pendingDismissalId is null && this.currentlySnappedComponent is { } component)
         {
-            this.selectedWorkerId = this.workerSnapshots[index].WorkerId;
+            int index = component.myID - WorkerRowIdBase;
+            if (index >= 0 && index < this.workerSnapshots.Count)
+            {
+                this.SelectWorker(this.workerSnapshots[index].WorkerId);
+            }
         }
     }
 
     public override void gameWindowSizeChanged(Rectangle oldBounds, Rectangle newBounds)
     {
-        _ = oldBounds;
-        _ = newBounds;
-
-        int? preferredSnapId = this.currentlySnappedComponent?.myID;
-        this.ClampSizeToViewport();
+        this.width = GetMenuWidth(this.width);
+        this.height = GetMenuHeight(this.height);
         this.CenterOnScreen();
-        this.RebuildLayout(preferredSnapId);
+        this.RebuildLayout(this.currentlySnappedComponent?.myID);
     }
 
     public override void snapToDefaultClickableComponent()
     {
-        int? selectedRowId = this.GetSelectedWorkerRowComponentId();
-        this.currentlySnappedComponent = selectedRowId is not null
-            ? this.getComponentWithID(selectedRowId.Value)
-            : this.upperRightCloseButton;
-
+        int id = this.pendingDismissalId is not null
+            ? CancelId
+            : this.workerRows.Count > 0 ? this.workerRows[0].myID : HireId;
+        this.currentlySnappedComponent = this.getComponentWithID(id);
         if (this.currentlySnappedComponent is not null)
         {
             this.snapCursorToCurrentSnappedComponent();
+        }
+    }
+
+    public void RequestClose()
+    {
+        if (this.pendingDismissalId is not null)
+        {
+            this.CancelDismissal();
+            return;
+        }
+
+        this.exitThisMenu();
+    }
+
+    public override void receiveKeyPress(Keys key)
+    {
+        if (key == Keys.Escape)
+        {
+            this.RequestClose();
+            return;
+        }
+
+        if (this.pendingDismissalId is null && (key == Keys.PageDown || key == Keys.PageUp))
+        {
+            this.ChangePage(key == Keys.PageDown ? 1 : -1);
+            return;
+        }
+
+        base.receiveKeyPress(key);
+    }
+
+    public override void receiveScrollWheelAction(int direction)
+    {
+        if (this.pendingDismissalId is null && this.rosterBounds.Contains(Game1.getMouseX(), Game1.getMouseY()))
+        {
+            this.ChangePage(direction < 0 ? 1 : -1);
         }
     }
 
@@ -99,534 +173,201 @@ internal sealed class WorkerControlMenu : IClickableMenu
     {
         if (this.upperRightCloseButton?.containsPoint(x, y) == true)
         {
-            base.receiveLeftClick(x, y, playSound);
+            this.RequestClose();
             return;
         }
 
-        ResizeEdges clickedEdges = this.GetResizeEdgesAtPoint(x, y);
-        if (clickedEdges != ResizeEdges.None)
+        if (this.pendingDismissalId is not null)
         {
-            this.isResizing = true;
-            this.activeResizeEdges = clickedEdges;
+            if (this.cancelButton.containsPoint(x, y))
+            {
+                this.CancelDismissal();
+            }
+            else if (this.confirmButton.containsPoint(x, y))
+            {
+                this.ConfirmDismissal();
+            }
+            return;
+        }
+
+        this.resizeEdges = this.GetResizeEdges(x, y);
+        if (this.resizeEdges != ResizeEdges.None)
+        {
             this.resizeStartMouse = new Point(x, y);
             this.resizeStartBounds = new Rectangle(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height);
             return;
         }
 
-        for (int i = 0; i < this.workerRowComponents.Count; i++)
+        if (this.previousButton.containsPoint(x, y))
         {
-            ClickableComponent row = this.workerRowComponents[i];
-            if (!row.containsPoint(x, y))
+            this.ChangePage(-1);
+            return;
+        }
+        if (this.nextButton.containsPoint(x, y))
+        {
+            this.ChangePage(1);
+            return;
+        }
+        if (this.rosterTabButton.containsPoint(x, y))
+        {
+            this.currentTab = WorkerMenuTab.Roster;
+            this.RefreshClickableComponents(RosterTabId);
+            Game1.playSound("smallSelect");
+            return;
+        }
+        if (this.farmerJobsTabButton.containsPoint(x, y))
+        {
+            this.currentTab = WorkerMenuTab.FarmerJobs;
+            this.RefreshClickableComponents(FarmerJobsTabId);
+            Game1.playSound("smallSelect");
+            return;
+        }
+        foreach (ClickableComponent row in this.workerRows)
+        {
+            if (row.containsPoint(x, y))
             {
-                continue;
-            }
-
-            string workerId = this.workerSnapshots[i].WorkerId;
-            if (this.selectedWorkerId != workerId)
-            {
-                this.selectedWorkerId = workerId;
+                this.SelectWorker(this.workerSnapshots[row.myID - WorkerRowIdBase].WorkerId);
+                this.currentlySnappedComponent = row;
                 Game1.playSound("smallSelect");
+                return;
             }
+        }
 
-            this.currentlySnappedComponent = row;
+        if (this.hireButton.containsPoint(x, y))
+        {
+            if (this.EnsureHost())
+            {
+                this.StartHiring();
+            }
             return;
         }
 
-        base.receiveLeftClick(x, y, playSound);
+        if (this.currentTab == WorkerMenuTab.FarmerJobs)
+        {
+            for (int index = 0; index < this.orderButtons.Count; index++)
+            {
+                if (!this.orderButtons[index].containsPoint(x, y))
+                    continue;
+                if (this.EnsureSelectedHostWorker())
+                {
+                    bool success = this.workerBehaviorManager.TryAssignTask(this.selectedWorkerId!, TaskKinds[index], out string message);
+                    this.SetFeedback(message, !success);
+                    this.RefreshSnapshots();
+                    this.currentlySnappedComponent = this.orderButtons[index];
+                }
+                return;
+            }
+        }
+
+        if (this.payButton.containsPoint(x, y) && this.EnsureSelectedHostWorker())
+        {
+            if (this.workerShellManager.CanWorkerWorkToday(this.selectedWorkerId!))
+            {
+                this.SetFeedback("This worker's wages are already paid for today.");
+                return;
+            }
+            bool success = this.workerShellManager.TryPayWorkerForToday(this.selectedWorkerId!, out string message);
+            this.SetFeedback(message, !success);
+            this.RefreshSnapshots();
+            return;
+        }
+
+        if (this.dismissButton.containsPoint(x, y) && this.EnsureSelectedHostWorker())
+        {
+            this.pendingDismissalId = this.selectedWorkerId;
+            this.pendingDismissalName = this.GetSelectedWorker()?.DisplayName ?? "this worker";
+            this.RefreshClickableComponents(CancelId);
+            Game1.playSound("smallSelect");
+        }
     }
 
     public override void leftClickHeld(int x, int y)
     {
-        if (!this.isResizing)
+        if (this.resizeEdges == ResizeEdges.None)
         {
-            base.leftClickHeld(x, y);
             return;
         }
-
-        Rectangle resizedBounds = this.GetResizedBounds(x, y);
-        if (resizedBounds.X != this.xPositionOnScreen
-            || resizedBounds.Y != this.yPositionOnScreen
-            || resizedBounds.Width != this.width
-            || resizedBounds.Height != this.height)
-        {
-            int? preferredSnapId = this.currentlySnappedComponent?.myID;
-            this.xPositionOnScreen = resizedBounds.X;
-            this.yPositionOnScreen = resizedBounds.Y;
-            this.width = resizedBounds.Width;
-            this.height = resizedBounds.Height;
-            this.RebuildLayout(preferredSnapId);
-        }
+        int dx = x - this.resizeStartMouse.X;
+        int dy = y - this.resizeStartMouse.Y;
+        int widthDelta = (this.resizeEdges & ResizeEdges.Left) != 0 ? -dx : dx;
+        int heightDelta = (this.resizeEdges & ResizeEdges.Top) != 0 ? -dy : dy;
+        this.width = GetMenuWidth(this.resizeStartBounds.Width + (((this.resizeEdges & (ResizeEdges.Left | ResizeEdges.Right)) != 0) ? widthDelta : 0));
+        this.height = GetMenuHeight(this.resizeStartBounds.Height + (((this.resizeEdges & (ResizeEdges.Top | ResizeEdges.Bottom)) != 0) ? heightDelta : 0));
+        this.xPositionOnScreen = (this.resizeEdges & ResizeEdges.Left) != 0 ? this.resizeStartBounds.Right - this.width : this.resizeStartBounds.X;
+        this.yPositionOnScreen = (this.resizeEdges & ResizeEdges.Top) != 0 ? this.resizeStartBounds.Bottom - this.height : this.resizeStartBounds.Y;
+        this.xPositionOnScreen = Math.Clamp(this.xPositionOnScreen, 0, Math.Max(0, Game1.uiViewport.Width - this.width));
+        this.yPositionOnScreen = Math.Clamp(this.yPositionOnScreen, 0, Math.Max(0, Game1.uiViewport.Height - this.height));
+        this.RebuildLayout(this.currentlySnappedComponent?.myID);
     }
 
     public override void releaseLeftClick(int x, int y)
     {
-        _ = x;
-        _ = y;
-        this.isResizing = false;
-        this.activeResizeEdges = ResizeEdges.None;
+        this.resizeEdges = ResizeEdges.None;
         base.releaseLeftClick(x, y);
+    }
+
+    public override void performHoverAction(int x, int y)
+    {
+        this.hoverText = string.Empty;
+        if (this.pendingDismissalId is not null)
+        {
+            return;
+        }
+        if (this.hireButton.containsPoint(x, y))
+        {
+            this.hoverText = Context.IsMainPlayer
+                ? $"Choose an appearance, then hire for {WorkerEmploymentTerms.HiringCost}g. Includes today's pay. Each following day costs {WorkerEmploymentTerms.DailyWage}g."
+                : "The host manages hiring, wages, and orders.";
+        }
+        if (this.currentTab != WorkerMenuTab.FarmerJobs)
+        {
+            return;
+        }
+        for (int index = 0; index < this.orderButtons.Count; index++)
+        {
+            if (this.orderButtons[index].containsPoint(x, y))
+            {
+                this.hoverText = GetTaskDescription(TaskKinds[index]);
+            }
+        }
+        base.performHoverAction(x, y);
     }
 
     public override void draw(SpriteBatch b)
     {
         if (!Game1.options.showClearBackgrounds)
         {
-            b.Draw(Game1.fadeToBlackRect, Game1.graphics.GraphicsDevice.Viewport.Bounds, Color.Black * 0.75f);
+            b.Draw(Game1.fadeToBlackRect, Game1.graphics.GraphicsDevice.Viewport.Bounds, Color.Black * 0.7f);
         }
-
         Game1.drawDialogueBox(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height, speaker: false, drawOnlyBox: true);
-        SpriteText.drawStringWithScrollCenteredAt(b, "Workers", this.xPositionOnScreen + (this.width / 2), this.yPositionOnScreen + 24);
-
-        IClickableMenu.drawTextureBox(b, this.headerBounds.X, this.headerBounds.Y, this.headerBounds.Width, this.headerBounds.Height, Color.White);
-        Utility.drawTextWithShadow(
-            b,
-            "Workers",
-            Game1.smallFont,
-            new Vector2(this.headerBounds.X + SectionPadding, this.headerBounds.Y + 30),
-            Game1.textColor);
-        string headerHint = "Press B to close";
-        Vector2 headerHintSize = Game1.smallFont.MeasureString(headerHint);
-        Utility.drawTextWithShadow(
-            b,
-            headerHint,
-            Game1.smallFont,
-            new Vector2(this.headerBounds.Right - SectionPadding - headerHintSize.X, this.headerBounds.Y + 30),
-            Game1.textColor * 0.75f);
-
-        this.DrawWorkerListPanel(b);
-        this.DrawWorkerDetailsPanel(b);
-        this.DrawWorkerOrdersPanel(b);
-
+        SpriteText.drawStringWithScrollCenteredAt(b, "Workers", this.xPositionOnScreen + this.width / 2, this.yPositionOnScreen + 18);
+        this.DrawHeader(b);
+        this.DrawRoster(b);
+        this.DrawDetails(b);
+        this.DrawOrders(b);
+        this.DrawFooter(b);
         base.draw(b);
+        if (this.pendingDismissalId is not null)
+        {
+            this.DrawDismissalConfirmation(b);
+        }
+        else if (this.hoverText.Length > 0)
+        {
+            IClickableMenu.drawHoverText(b, this.hoverText, Game1.smallFont);
+        }
         this.drawMouse(b);
     }
 
-    private static int GetDefaultMenuWidth()
+    private static int GetMenuWidth(int preferred)
     {
-        int maxWidth = GetMaxMenuWidth();
-        return Math.Clamp(Math.Min(DefaultMenuWidth, maxWidth), GetMinMenuWidth(maxWidth), maxWidth);
+        int maximum = Math.Max(320, Game1.uiViewport.Width - 24);
+        return Math.Clamp(preferred, Math.Min(800, maximum), maximum);
     }
 
-    private static int GetDefaultMenuHeight()
+    private static int GetMenuHeight(int preferred)
     {
-        int maxHeight = GetMaxMenuHeight();
-        return Math.Clamp(Math.Min(DefaultMenuHeight, maxHeight), GetMinMenuHeight(maxHeight), maxHeight);
-    }
-
-    private static int GetMaxMenuWidth()
-    {
-        return Math.Max(256, Game1.uiViewport.Width - EdgeMargin);
-    }
-
-    private static int GetMaxMenuHeight()
-    {
-        return Math.Max(256, Game1.uiViewport.Height - EdgeMargin);
-    }
-
-    private static int GetMinMenuWidth(int maxWidth)
-    {
-        return Math.Min(MinMenuWidth, maxWidth);
-    }
-
-    private static int GetMinMenuHeight(int maxHeight)
-    {
-        return Math.Min(MinMenuHeight, maxHeight);
-    }
-
-    private void RefreshWorkerSnapshots(bool rebuildLayoutIfRosterChanged = false)
-    {
-        IReadOnlyList<WorkerSummarySnapshot> latestSnapshots = this.workerShellManager.GetWorkerSummaries();
-        bool rosterChanged = latestSnapshots.Count != this.workerSnapshots.Count;
-
-        if (!rosterChanged)
-        {
-            for (int i = 0; i < latestSnapshots.Count; i++)
-            {
-                if (latestSnapshots[i].WorkerId != this.workerSnapshots[i].WorkerId)
-                {
-                    rosterChanged = true;
-                    break;
-                }
-            }
-        }
-
-        this.workerSnapshots.Clear();
-        this.workerSnapshots.AddRange(latestSnapshots);
-        this.EnsureValidSelection();
-
-        if (rebuildLayoutIfRosterChanged && rosterChanged)
-        {
-            this.RebuildLayout(this.currentlySnappedComponent?.myID);
-        }
-    }
-
-    private void EnsureValidSelection()
-    {
-        if (this.workerSnapshots.Count == 0)
-        {
-            this.selectedWorkerId = null;
-            return;
-        }
-
-        if (this.selectedWorkerId is not null)
-        {
-            foreach (WorkerSummarySnapshot snapshot in this.workerSnapshots)
-            {
-                if (snapshot.WorkerId == this.selectedWorkerId)
-                {
-                    return;
-                }
-            }
-        }
-
-        this.selectedWorkerId = this.workerSnapshots[0].WorkerId;
-    }
-
-    private void RebuildLayout(int? preferredSnapId = null)
-    {
-        int contentLeft = this.xPositionOnScreen + IClickableMenu.borderWidth + IClickableMenu.spaceToClearSideBorder;
-        int contentTop = this.yPositionOnScreen + IClickableMenu.borderWidth + 64;
-        int contentRight = this.xPositionOnScreen + this.width - IClickableMenu.borderWidth - IClickableMenu.spaceToClearSideBorder;
-        int contentBottom = this.yPositionOnScreen + this.height - IClickableMenu.borderWidth - 28;
-        int contentWidth = Math.Max(1, contentRight - contentLeft);
-
-        this.headerBounds = new Rectangle(contentLeft, contentTop, contentWidth, 88);
-
-        int bodyTop = this.headerBounds.Bottom + PanelGap;
-        int bodyHeight = Math.Max(1, contentBottom - bodyTop);
-        int workerListWidth = Math.Clamp(contentWidth / 3, 380, 560);
-        workerListWidth = Math.Min(workerListWidth, Math.Max(320, contentWidth - 560));
-
-        this.workerListPanelBounds = new Rectangle(contentLeft, bodyTop, workerListWidth, bodyHeight);
-
-        int detailLeft = this.workerListPanelBounds.Right + PanelGap;
-        int detailWidth = Math.Max(1, contentRight - detailLeft);
-        int detailHeight = Math.Clamp(bodyHeight / 3, 220, 320);
-        if (detailHeight + PanelGap >= bodyHeight)
-        {
-            detailHeight = Math.Max(160, bodyHeight / 2);
-        }
-
-        this.workerDetailsPanelBounds = new Rectangle(detailLeft, bodyTop, detailWidth, detailHeight);
-        this.workerOrdersPanelBounds = new Rectangle(
-            detailLeft,
-            this.workerDetailsPanelBounds.Bottom + PanelGap,
-            detailWidth,
-            Math.Max(1, contentBottom - (this.workerDetailsPanelBounds.Bottom + PanelGap)));
-
-        this.InitializeWorkerRowComponents();
-        this.InitializeOrderCardBounds();
-
-        this.initializeUpperRightCloseButton();
-        this.upperRightCloseButton.myID = IClickableMenu.upperRightCloseButton_ID;
-        this.upperRightCloseButton.leftNeighborID = this.workerRowComponents.Count > 0
-            ? this.workerRowComponents[0].myID
-            : -99998;
-        this.upperRightCloseButton.downNeighborID = -99998;
-        this.RefreshClickableComponents(preferredSnapId);
-    }
-
-    private void InitializeWorkerRowComponents()
-    {
-        this.workerRowComponents.Clear();
-
-        if (this.workerSnapshots.Count == 0)
-        {
-            return;
-        }
-
-        int listTop = this.workerListPanelBounds.Y + 72;
-        int rowWidth = this.workerListPanelBounds.Width - (SectionPadding * 2);
-
-        for (int i = 0; i < this.workerSnapshots.Count; i++)
-        {
-            ClickableComponent row = new(
-                new Rectangle(this.workerListPanelBounds.X + SectionPadding, listTop + (i * (WorkerRowHeight + 12)), rowWidth, WorkerRowHeight),
-                this.workerSnapshots[i].DisplayName)
-            {
-                myID = WorkerRowIdBase + i,
-                upNeighborID = i > 0 ? WorkerRowIdBase + i - 1 : -99998,
-                downNeighborID = i < this.workerSnapshots.Count - 1 ? WorkerRowIdBase + i + 1 : -99998,
-                rightNeighborID = IClickableMenu.upperRightCloseButton_ID,
-                leftNeighborID = -99998,
-            };
-
-            this.workerRowComponents.Add(row);
-        }
-    }
-
-    private void InitializeOrderCardBounds()
-    {
-        this.orderCardBounds.Clear();
-
-        int cardTop = this.workerOrdersPanelBounds.Y + 68;
-        int cardAreaHeight = Math.Max(48, this.workerOrdersPanelBounds.Bottom - SectionPadding - cardTop);
-        int cardHeight = Math.Max(88, (cardAreaHeight - PanelGap) / 2);
-        int fullWidth = this.workerOrdersPanelBounds.Width - (SectionPadding * 2);
-        int halfWidth = Math.Max(160, (fullWidth - PanelGap) / 2);
-        int secondColumnX = this.workerOrdersPanelBounds.X + SectionPadding + halfWidth + PanelGap;
-
-        this.orderCardBounds.Add(new Rectangle(
-            this.workerOrdersPanelBounds.X + SectionPadding,
-            cardTop,
-            halfWidth,
-            cardHeight));
-        this.orderCardBounds.Add(new Rectangle(
-            secondColumnX,
-            cardTop,
-            halfWidth,
-            cardHeight));
-        this.orderCardBounds.Add(new Rectangle(
-            this.workerOrdersPanelBounds.X + SectionPadding,
-            cardTop + cardHeight + PanelGap,
-            fullWidth,
-            cardHeight));
-    }
-
-    private void RefreshClickableComponents(int? preferredSnapId)
-    {
-        if (!Game1.options.SnappyMenus)
-        {
-            return;
-        }
-
-        this.populateClickableComponentList();
-
-        int? targetSnapId = preferredSnapId;
-        if (targetSnapId is null || this.getComponentWithID(targetSnapId.Value) is null)
-        {
-            targetSnapId = this.GetSelectedWorkerRowComponentId() ?? IClickableMenu.upperRightCloseButton_ID;
-        }
-
-        this.currentlySnappedComponent = this.getComponentWithID(targetSnapId.Value);
-        if (this.currentlySnappedComponent is null)
-        {
-            this.snapToDefaultClickableComponent();
-            return;
-        }
-
-        if (Game1.options.gamepadControls)
-        {
-            this.snapCursorToCurrentSnappedComponent();
-        }
-    }
-
-    private int? GetSelectedWorkerRowComponentId()
-    {
-        if (this.selectedWorkerId is null)
-        {
-            return null;
-        }
-
-        for (int i = 0; i < this.workerSnapshots.Count; i++)
-        {
-            if (this.workerSnapshots[i].WorkerId == this.selectedWorkerId)
-            {
-                return WorkerRowIdBase + i;
-            }
-        }
-
-        return null;
-    }
-
-    private void DrawWorkerListPanel(SpriteBatch b)
-    {
-        IClickableMenu.drawTextureBox(b, this.workerListPanelBounds.X, this.workerListPanelBounds.Y, this.workerListPanelBounds.Width, this.workerListPanelBounds.Height, Color.White);
-        Utility.drawTextWithShadow(
-            b,
-            "Roster",
-            Game1.smallFont,
-            new Vector2(this.workerListPanelBounds.X + SectionPadding, this.workerListPanelBounds.Y + 22),
-            Game1.textColor);
-
-        if (this.workerSnapshots.Count == 0)
-        {
-            Rectangle emptyRowBounds = new(
-                this.workerListPanelBounds.X + SectionPadding,
-                this.workerListPanelBounds.Y + 72,
-                this.workerListPanelBounds.Width - (SectionPadding * 2),
-                WorkerRowHeight);
-            IClickableMenu.drawTextureBox(b, emptyRowBounds.X, emptyRowBounds.Y, emptyRowBounds.Width, emptyRowBounds.Height, Color.White * 0.65f);
-
-            this.DrawWrappedText(
-                b,
-                "No workers configured yet.",
-                new Rectangle(emptyRowBounds.X + 16, emptyRowBounds.Y + 18, emptyRowBounds.Width - 32, emptyRowBounds.Height - 36),
-                Game1.textColor * 0.7f,
-                verticallyCentered: true);
-            return;
-        }
-
-        for (int i = 0; i < this.workerRowComponents.Count; i++)
-        {
-            ClickableComponent row = this.workerRowComponents[i];
-            WorkerSummarySnapshot snapshot = this.workerSnapshots[i];
-            bool isSelected = snapshot.WorkerId == this.selectedWorkerId;
-            bool isHovered = row.containsPoint(Game1.getMouseX(), Game1.getMouseY());
-            Color rowColor = isSelected
-                ? Color.LightGoldenrodYellow
-                : isHovered
-                    ? Color.White
-                    : Color.White * 0.92f;
-
-            IClickableMenu.drawTextureBox(b, row.bounds.X, row.bounds.Y, row.bounds.Width, row.bounds.Height, rowColor);
-            Rectangle iconBounds = new(row.bounds.X + 16, row.bounds.Y + 14, 56, 56);
-            this.DrawWorkerFace(b, snapshot.WorkerId, iconBounds);
-            Utility.drawTextWithShadow(
-                b,
-                snapshot.DisplayName,
-                Game1.smallFont,
-                new Vector2(iconBounds.Right + 14, row.bounds.Y + 16),
-                Game1.textColor);
-
-            this.DrawWrappedText(
-                b,
-                this.GetWorkerRowSubtitle(snapshot),
-                new Rectangle(iconBounds.Right + 14, row.bounds.Y + 48, row.bounds.Width - (iconBounds.Width + 46), row.bounds.Height - 56),
-                Game1.textColor * 0.75f);
-        }
-    }
-
-    private void DrawWorkerDetailsPanel(SpriteBatch b)
-    {
-        IClickableMenu.drawTextureBox(b, this.workerDetailsPanelBounds.X, this.workerDetailsPanelBounds.Y, this.workerDetailsPanelBounds.Width, this.workerDetailsPanelBounds.Height, Color.White);
-        Utility.drawTextWithShadow(
-            b,
-            "Selected Worker",
-            Game1.smallFont,
-            new Vector2(this.workerDetailsPanelBounds.X + SectionPadding, this.workerDetailsPanelBounds.Y + 22),
-            Game1.textColor);
-
-        WorkerSummarySnapshot? selectedSnapshot = this.GetSelectedWorkerSnapshot();
-        if (selectedSnapshot is null)
-        {
-            this.DrawWrappedText(
-                b,
-                "No worker is available yet. Configure and spawn one to populate this panel.",
-                new Rectangle(
-                    this.workerDetailsPanelBounds.X + SectionPadding,
-                    this.workerDetailsPanelBounds.Y + 64,
-                    this.workerDetailsPanelBounds.Width - (SectionPadding * 2),
-                    this.workerDetailsPanelBounds.Height - 88),
-                Game1.textColor * 0.75f);
-            return;
-        }
-
-        WorkerSummarySnapshot snapshot = selectedSnapshot.Value;
-        Rectangle faceBounds = new(
-            this.workerDetailsPanelBounds.X + SectionPadding,
-            this.workerDetailsPanelBounds.Y + 56,
-            64,
-            64);
-        this.DrawWorkerFace(b, snapshot.WorkerId, faceBounds);
-        Utility.drawTextWithShadow(
-            b,
-            snapshot.DisplayName,
-            Game1.smallFont,
-            new Vector2(faceBounds.Right + 18, faceBounds.Y + 12),
-            Game1.textColor);
-
-        string detailText =
-            $"Configured: {(snapshot.IsConfigured ? "Yes" : "No")}\n" +
-            $"Spawned: {(snapshot.IsSpawned ? "Yes" : "No")}\n" +
-            $"Location: {snapshot.CurrentLocationName ?? "Unavailable"}\n" +
-            $"Tile: {this.FormatTile(snapshot.CurrentTile)}";
-        this.DrawWrappedText(
-            b,
-            detailText,
-            new Rectangle(
-                this.workerDetailsPanelBounds.X + SectionPadding,
-                this.workerDetailsPanelBounds.Y + 130,
-                this.workerDetailsPanelBounds.Width - (SectionPadding * 2),
-                this.workerDetailsPanelBounds.Height - 150),
-            Game1.textColor * 0.82f);
-    }
-
-    private void DrawWorkerOrdersPanel(SpriteBatch b)
-    {
-        IClickableMenu.drawTextureBox(b, this.workerOrdersPanelBounds.X, this.workerOrdersPanelBounds.Y, this.workerOrdersPanelBounds.Width, this.workerOrdersPanelBounds.Height, Color.White);
-        Utility.drawTextWithShadow(
-            b,
-            "Orders",
-            Game1.smallFont,
-            new Vector2(this.workerOrdersPanelBounds.X + SectionPadding, this.workerOrdersPanelBounds.Y + 22),
-            Game1.textColor);
-
-        for (int i = 0; i < this.orderCardBounds.Count; i++)
-        {
-            Rectangle cardBounds = this.orderCardBounds[i];
-            IClickableMenu.drawTextureBox(b, cardBounds.X, cardBounds.Y, cardBounds.Width, cardBounds.Height, Color.White * 0.78f);
-
-            string slotLabel = $"Order Slot {i + 1}";
-            Utility.drawTextWithShadow(
-                b,
-                slotLabel,
-                Game1.smallFont,
-                new Vector2(cardBounds.X + 16, cardBounds.Y + 16),
-                Game1.textColor * 0.75f);
-
-            this.DrawWrappedCenteredText(
-                b,
-                "Coming Soon",
-                new Rectangle(cardBounds.X + 16, cardBounds.Y + 44, cardBounds.Width - 32, cardBounds.Height - 52),
-                Game1.textColor * 0.55f);
-        }
-    }
-
-    private WorkerSummarySnapshot? GetSelectedWorkerSnapshot()
-    {
-        if (this.selectedWorkerId is null)
-        {
-            return null;
-        }
-
-        foreach (WorkerSummarySnapshot snapshot in this.workerSnapshots)
-        {
-            if (snapshot.WorkerId == this.selectedWorkerId)
-            {
-                return snapshot;
-            }
-        }
-
-        return null;
-    }
-
-    private string GetWorkerRowSubtitle(WorkerSummarySnapshot snapshot)
-    {
-        if (snapshot.IsSpawned && snapshot.CurrentLocationName is not null)
-        {
-            return $"{snapshot.CurrentLocationName}  {this.FormatTile(snapshot.CurrentTile)}";
-        }
-
-        if (snapshot.IsConfigured)
-        {
-            return "Configured and waiting for orders";
-        }
-
-        return "Unavailable";
-    }
-
-    private string FormatTile(Point? tile)
-    {
-        return tile is Point point ? $"{point.X}, {point.Y}" : "--";
-    }
-
-    private void ClampSizeToViewport()
-    {
-        this.width = this.ClampWidth(this.width);
-        this.height = this.ClampHeight(this.height);
-    }
-
-    private int ClampWidth(int value)
-    {
-        int maxWidth = GetMaxMenuWidth();
-        return Math.Clamp(value, GetMinMenuWidth(maxWidth), maxWidth);
-    }
-
-    private int ClampHeight(int value)
-    {
-        int maxHeight = GetMaxMenuHeight();
-        return Math.Clamp(value, GetMinMenuHeight(maxHeight), maxHeight);
+        int maximum = Math.Max(320, Game1.uiViewport.Height - 24);
+        return Math.Clamp(preferred, Math.Min(560, maximum), maximum);
     }
 
     private void CenterOnScreen()
@@ -635,125 +376,455 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.yPositionOnScreen = (Game1.uiViewport.Height - this.height) / 2;
     }
 
-    private ResizeEdges GetResizeEdgesAtPoint(int x, int y)
+    private void RefreshSnapshots()
     {
-        if (this.upperRightCloseButton?.containsPoint(x, y) == true)
+        IReadOnlyList<WorkerSummarySnapshot> latest = this.workerShellManager.GetWorkerSummaries();
+        bool changed = latest.Count != this.workerSnapshots.Count;
+        if (!changed)
         {
-            return ResizeEdges.None;
+            for (int i = 0; i < latest.Count; i++)
+            {
+                changed |= latest[i].WorkerId != this.workerSnapshots[i].WorkerId;
+            }
         }
+        this.workerSnapshots.Clear();
+        this.workerSnapshots.AddRange(latest);
+        this.runtimeSnapshots.Clear();
+        foreach (WorkerSummarySnapshot snapshot in this.workerSnapshots)
+        {
+            this.runtimeSnapshots[snapshot.WorkerId] = this.workerBehaviorManager.GetRuntimeSnapshot(snapshot.WorkerId);
+        }
+        if (this.GetSelectedWorker() is null)
+        {
+            this.selectedWorkerId = this.workerSnapshots.Count > 0 ? this.workerSnapshots[0].WorkerId : null;
+        }
+        if (changed && this.hireButton is not null)
+        {
+            this.RebuildLayout();
+        }
+    }
 
+    private void RebuildLayout(int? preferredSnapId = null)
+    {
+        int inset = this.width < 800 ? 28 : 40;
+        int left = this.xPositionOnScreen + inset;
+        int right = this.xPositionOnScreen + this.width - inset;
+        this.headerBounds = new Rectangle(left, this.yPositionOnScreen + 76, right - left, 64);
+        this.footerBounds = new Rectangle(left, this.yPositionOnScreen + this.height - 90, right - left, 58);
+        int bodyTop = this.headerBounds.Bottom + Gap;
+        int bodyHeight = Math.Max(100, this.footerBounds.Top - Gap - bodyTop);
+        int rosterWidth = Math.Clamp(this.headerBounds.Width / 3, Math.Min(210, this.headerBounds.Width / 3), 350);
+        this.rosterBounds = new Rectangle(left, bodyTop, rosterWidth, bodyHeight);
+        int detailLeft = this.rosterBounds.Right + Gap;
+        int detailWidth = Math.Max(1, right - detailLeft);
+        int detailHeight = Math.Clamp((int)(bodyHeight * 0.46f), Math.Min(120, bodyHeight / 2), 190);
+        this.detailsBounds = new Rectangle(detailLeft, bodyTop, detailWidth, detailHeight);
+        this.ordersBounds = new Rectangle(detailLeft, this.detailsBounds.Bottom + Gap, detailWidth, Math.Max(1, bodyHeight - detailHeight - Gap));
+        int hireWidth = Math.Min(240, this.headerBounds.Width / 3);
+        this.hireButton = Button(HireId, new Rectangle(right - hireWidth, this.headerBounds.Y + 4, hireWidth, 56));
+        int tabWidth = Math.Min(190, Math.Max(120, (this.headerBounds.Width - hireWidth - Gap * 3) / 2));
+        this.rosterTabButton = Button(RosterTabId, new Rectangle(this.headerBounds.X + 4, this.headerBounds.Y + 4, tabWidth, 56));
+        this.farmerJobsTabButton = Button(FarmerJobsTabId, new Rectangle(this.rosterTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
+        int managementWidth = Math.Min(132, Math.Max(80, this.footerBounds.Width / 5));
+        this.dismissButton = Button(DismissId, new Rectangle(right - managementWidth, this.footerBounds.Y + 4, managementWidth, 50));
+        this.payButton = Button(PayId, new Rectangle(this.dismissButton.bounds.Left - managementWidth - Gap, this.footerBounds.Y + 4, managementWidth, 50));
+        int paginationTop = this.rosterBounds.Bottom - 50;
+        this.previousButton = Button(PreviousId, new Rectangle(this.rosterBounds.X + 14, paginationTop, 48, 36));
+        this.nextButton = Button(NextId, new Rectangle(this.rosterBounds.Right - 62, paginationTop, 48, 36));
+        int rowsTop = this.rosterBounds.Y + 48;
+        int rowsHeight = Math.Max(1, paginationTop - Gap - rowsTop);
+        this.visibleWorkerCount = Math.Max(1, rowsHeight / 82);
+        this.firstVisibleWorker = Math.Clamp(this.firstVisibleWorker, 0, this.GetLastPageStart());
+        this.firstVisibleWorker = (this.firstVisibleWorker / this.visibleWorkerCount) * this.visibleWorkerCount;
+        int rowHeight = Math.Min(100, Math.Max(48, rowsHeight / this.visibleWorkerCount - 6));
+        this.workerRows.Clear();
+        for (int i = this.firstVisibleWorker; i < Math.Min(this.workerSnapshots.Count, this.firstVisibleWorker + this.visibleWorkerCount); i++)
+        {
+            this.workerRows.Add(Button(WorkerRowIdBase + i, new Rectangle(this.rosterBounds.X + 14, rowsTop + (i - this.firstVisibleWorker) * (rowHeight + 6), this.rosterBounds.Width - 28, rowHeight)));
+        }
+        this.orderButtons.Clear();
+        int ordersTop = this.ordersBounds.Y + (this.ordersBounds.Height >= 130 ? 44 : 12);
+        int cardGap = 8;
+        int cardWidth = Math.Max(1, (this.ordersBounds.Width - 28 - cardGap) / 2);
+        int cardHeight = Math.Max(1, (this.ordersBounds.Bottom - 14 - ordersTop - cardGap) / 2);
+        for (int i = 0; i < TaskKinds.Length; i++)
+        {
+            this.orderButtons.Add(Button(OrderIdBase + i, new Rectangle(this.ordersBounds.X + 14 + (i % 2) * (cardWidth + cardGap), ordersTop + (i / 2) * (cardHeight + cardGap), cardWidth, cardHeight)));
+        }
+        int confirmationWidth = Math.Min(560, this.width - 48);
+        int confirmationHeight = Math.Min(270, this.height - 48);
+        this.confirmationBounds = new Rectangle(this.xPositionOnScreen + (this.width - confirmationWidth) / 2, this.yPositionOnScreen + (this.height - confirmationHeight) / 2, confirmationWidth, confirmationHeight);
+        int confirmWidth = Math.Max(80, (confirmationWidth - 68) / 2);
+        this.cancelButton = Button(CancelId, new Rectangle(this.confirmationBounds.X + 24, this.confirmationBounds.Bottom - 78, confirmWidth, 54));
+        this.confirmButton = Button(ConfirmId, new Rectangle(this.cancelButton.bounds.Right + 20, this.cancelButton.bounds.Y, confirmWidth, 54));
+        this.initializeUpperRightCloseButton();
+        this.upperRightCloseButton.myID = IClickableMenu.upperRightCloseButton_ID;
+        this.RefreshClickableComponents(preferredSnapId);
+    }
+
+    private static ClickableComponent Button(int id, Rectangle bounds)
+    {
+        return new ClickableComponent(bounds, id.ToString()) { myID = id };
+    }
+
+    private void RefreshClickableComponents(int? preferredSnapId)
+    {
+        this.allClickableComponents = new List<ClickableComponent>();
+        if (this.pendingDismissalId is not null)
+        {
+            this.allClickableComponents.Add(this.cancelButton);
+            this.allClickableComponents.Add(this.confirmButton);
+        }
+        else
+        {
+            this.allClickableComponents.Add(this.rosterTabButton);
+            this.allClickableComponents.Add(this.farmerJobsTabButton);
+            this.allClickableComponents.AddRange(this.workerRows);
+            this.allClickableComponents.Add(this.hireButton);
+            this.allClickableComponents.AddRange(this.orderButtons);
+            this.allClickableComponents.Add(this.payButton);
+            this.allClickableComponents.Add(this.dismissButton);
+            if (this.firstVisibleWorker > 0)
+            {
+                this.allClickableComponents.Add(this.previousButton);
+            }
+            if (this.firstVisibleWorker + this.visibleWorkerCount < this.workerSnapshots.Count)
+            {
+                this.allClickableComponents.Add(this.nextButton);
+            }
+        }
+        this.allClickableComponents.Add(this.upperRightCloseButton);
+        foreach (ClickableComponent component in this.allClickableComponents)
+        {
+            component.leftNeighborID = this.FindNeighbor(component, -1, 0);
+            component.rightNeighborID = this.FindNeighbor(component, 1, 0);
+            component.upNeighborID = this.FindNeighbor(component, 0, -1);
+            component.downNeighborID = this.FindNeighbor(component, 0, 1);
+        }
+        this.currentlySnappedComponent = preferredSnapId is int id ? this.getComponentWithID(id) : null;
+        this.currentlySnappedComponent ??= this.getComponentWithID(this.pendingDismissalId is not null ? CancelId : this.workerRows.Count > 0 ? this.workerRows[0].myID : HireId);
+        if (Game1.options.SnappyMenus && Game1.options.gamepadControls && this.currentlySnappedComponent is not null)
+        {
+            this.snapCursorToCurrentSnappedComponent();
+        }
+    }
+
+    private int FindNeighbor(ClickableComponent source, int directionX, int directionY)
+    {
+        int nearestId = -99998;
+        double nearestScore = double.MaxValue;
+        foreach (ClickableComponent candidate in this.allClickableComponents)
+        {
+            int dx = candidate.bounds.Center.X - source.bounds.Center.X;
+            int dy = candidate.bounds.Center.Y - source.bounds.Center.Y;
+            int forward = directionX != 0 ? dx * directionX : dy * directionY;
+            if (candidate == source || forward <= 0)
+            {
+                continue;
+            }
+            int lateral = directionX != 0 ? Math.Abs(dy) : Math.Abs(dx);
+            double score = forward + lateral * 3;
+            if (score < nearestScore)
+            {
+                nearestScore = score;
+                nearestId = candidate.myID;
+            }
+        }
+        return nearestId;
+    }
+
+    private void DrawHeader(SpriteBatch b)
+    {
+        this.DrawPanel(b, this.headerBounds);
+        this.DrawButton(b, this.rosterTabButton, "Roster", true, this.currentTab == WorkerMenuTab.Roster ? Color.LightGoldenrodYellow : Color.White);
+        this.DrawButton(b, this.farmerJobsTabButton, "Farmer jobs", true, this.currentTab == WorkerMenuTab.FarmerJobs ? Color.LightGoldenrodYellow : Color.White);
+        this.DrawButton(b, this.hireButton, $"Hire worker: {WorkerEmploymentTerms.HiringCost}g", Context.IsMainPlayer, Color.White);
+    }
+
+    private void DrawRoster(SpriteBatch b)
+    {
+        this.DrawPanel(b, this.rosterBounds);
+        this.DrawText(b, "Roster", new Rectangle(this.rosterBounds.X + Padding, this.rosterBounds.Y + 16, this.rosterBounds.Width - Padding * 2, 28), Game1.textColor);
+        if (this.workerRows.Count == 0)
+        {
+            this.DrawText(b, Context.IsMainPlayer ? "Hire your first worker above.\n\nChoose an appearance, then assign farm work." : "No workers are hired yet. The host can hire workers from this menu.", new Rectangle(this.rosterBounds.X + Padding, this.rosterBounds.Y + 64, this.rosterBounds.Width - Padding * 2, this.rosterBounds.Height - 124), Game1.textColor * 0.8f);
+        }
+        foreach (ClickableComponent row in this.workerRows)
+        {
+            WorkerSummarySnapshot snapshot = this.workerSnapshots[row.myID - WorkerRowIdBase];
+            bool selected = snapshot.WorkerId == this.selectedWorkerId;
+            this.DrawPanel(b, row.bounds, selected ? Color.LightGoldenrodYellow : Color.White * 0.9f);
+            int faceSize = Math.Min(52, row.bounds.Height - 16);
+            Rectangle face = new(row.bounds.X + 10, row.bounds.Y + 10, faceSize, faceSize);
+            this.DrawWorkerFace(b, snapshot.WorkerId, face);
+            int textX = face.Right + 10;
+            this.DrawText(b, snapshot.DisplayName, new Rectangle(textX, row.bounds.Y + 12, row.bounds.Right - textX - 10, 26), Game1.textColor);
+            WorkerRuntimeSnapshot runtime = this.runtimeSnapshots[snapshot.WorkerId];
+            this.DrawText(b, runtime.State, new Rectangle(textX, row.bounds.Y + 42, row.bounds.Right - textX - 10, Math.Max(1, row.bounds.Height - 52)), Game1.textColor * 0.76f);
+        }
+        bool previous = this.firstVisibleWorker > 0;
+        bool next = this.firstVisibleWorker + this.visibleWorkerCount < this.workerSnapshots.Count;
+        this.DrawButton(b, this.previousButton, "<", previous, Color.White);
+        this.DrawButton(b, this.nextButton, ">", next, Color.White);
+        string pages = $"{this.firstVisibleWorker / this.visibleWorkerCount + 1} / {Math.Max(1, (this.workerSnapshots.Count + this.visibleWorkerCount - 1) / this.visibleWorkerCount)}";
+        this.DrawText(b, pages, new Rectangle(this.previousButton.bounds.Right + 4, this.previousButton.bounds.Y + 6, this.nextButton.bounds.Left - this.previousButton.bounds.Right - 8, 26), Game1.textColor * 0.75f, centered: true);
+    }
+
+    private void DrawDetails(SpriteBatch b)
+    {
+        this.DrawPanel(b, this.detailsBounds);
+        WorkerSummarySnapshot? selected = this.GetSelectedWorker();
+        Rectangle content = new(this.detailsBounds.X + Padding, this.detailsBounds.Y + 16, this.detailsBounds.Width - Padding * 2, this.detailsBounds.Height - 32);
+        if (selected is not WorkerSummarySnapshot worker)
+        {
+            this.DrawText(b, "Give your workers daily orders. Close this menu to watch them walk to crops and work.", content, Game1.textColor * 0.8f);
+            return;
+        }
+        WorkerRuntimeSnapshot runtime = this.runtimeSnapshots[worker.WorkerId];
+        string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
+        string detail = $"{worker.DisplayName}  |  {GetTaskLabel(runtime.AssignedTask)}\n{runtime.Status}\n{location}  |  Completed today: {runtime.CompletedToday}";
+        this.DrawText(b, detail, content, Game1.textColor);
+    }
+
+    private void DrawOrders(SpriteBatch b)
+    {
+        this.DrawPanel(b, this.ordersBounds);
+        if (this.currentTab != WorkerMenuTab.FarmerJobs)
+        {
+            this.DrawText(b, "Select the Farmer jobs tab to assign crop work.", new Rectangle(this.ordersBounds.X + Padding, this.ordersBounds.Y + 24, this.ordersBounds.Width - Padding * 2, this.ordersBounds.Height - 48), Game1.textColor * 0.8f, centered: true);
+            return;
+        }
+        if (this.ordersBounds.Height >= 130)
+        {
+            this.DrawText(b, "Daily orders", new Rectangle(this.ordersBounds.X + Padding, this.ordersBounds.Y + 14, this.ordersBounds.Width - Padding * 2, 28), Game1.textColor);
+        }
+        bool enabled = Context.IsMainPlayer && this.selectedWorkerId is not null;
+        WorkerTaskKind? assigned = this.selectedWorkerId is not null && this.runtimeSnapshots.TryGetValue(this.selectedWorkerId, out WorkerRuntimeSnapshot runtime) ? runtime.AssignedTask : null;
+        for (int i = 0; i < this.orderButtons.Count; i++)
+        {
+            ClickableComponent button = this.orderButtons[i];
+            bool selected = assigned == TaskKinds[i];
+            string label = GetTaskLabel(TaskKinds[i]);
+            if (selected)
+            {
+                label = $"{label} (set)";
+            }
+            this.DrawButton(b, button, label, enabled, selected ? Color.LightGoldenrodYellow : Color.White);
+        }
+    }
+
+    private void DrawFooter(SpriteBatch b)
+    {
+        string text = Context.IsMainPlayer ? this.feedback : "The host assigns work and pays wages. Press B to close.";
+        this.DrawText(b, text, new Rectangle(this.footerBounds.X + 4, this.footerBounds.Y + 6, this.payButton.bounds.Left - this.footerBounds.X - Gap, this.footerBounds.Height - 12), this.feedbackIsError ? Color.DarkRed : Game1.textColor * 0.85f);
+        bool hasWorker = this.selectedWorkerId is not null;
+        bool paid = hasWorker && this.workerShellManager.CanWorkerWorkToday(this.selectedWorkerId!);
+        this.DrawButton(b, this.payButton, paid ? "Paid today" : $"Pay {WorkerEmploymentTerms.DailyWage}g", Context.IsMainPlayer && hasWorker && !paid, Color.White);
+        this.DrawButton(b, this.dismissButton, "Dismiss", Context.IsMainPlayer && hasWorker, Color.White);
+    }
+
+    private void DrawDismissalConfirmation(SpriteBatch b)
+    {
+        b.Draw(Game1.fadeToBlackRect, new Rectangle(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height), Color.Black * 0.5f);
+        this.DrawPanel(b, this.confirmationBounds);
+        this.DrawText(b, $"Dismiss {this.pendingDismissalName}?\n\nThey will leave your roster. Hiring fees and wages are not refunded.", new Rectangle(this.confirmationBounds.X + 26, this.confirmationBounds.Y + 26, this.confirmationBounds.Width - 52, this.confirmationBounds.Height - 122), Game1.textColor);
+        this.DrawButton(b, this.cancelButton, "Keep worker", true, Color.White);
+        this.DrawButton(b, this.confirmButton, "Dismiss worker", true, Color.LightPink);
+    }
+
+    private void DrawPanel(SpriteBatch b, Rectangle bounds, Color? color = null)
+    {
+        if (bounds.Width > 0 && bounds.Height > 0)
+        {
+            IClickableMenu.drawTextureBox(b, bounds.X, bounds.Y, bounds.Width, bounds.Height, color ?? Color.White);
+        }
+    }
+
+    private void DrawButton(SpriteBatch b, ClickableComponent button, string label, bool enabled, Color color)
+    {
+        bool hovered = this.pendingDismissalId is null && button.containsPoint(Game1.getMouseX(), Game1.getMouseY());
+        this.DrawPanel(b, button.bounds, enabled ? hovered ? Color.Wheat : color : Color.White * 0.6f);
+        this.DrawText(b, label, new Rectangle(button.bounds.X + 10, button.bounds.Y + 8, Math.Max(1, button.bounds.Width - 20), Math.Max(1, button.bounds.Height - 16)), Game1.textColor * (enabled ? 1f : 0.45f), centered: true);
+    }
+
+    /// <summary>Fit text to its own panel so large UI scales and long statuses can't overlap controls.</summary>
+    private void DrawText(SpriteBatch b, string text, Rectangle bounds, Color color, bool centered = false)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return;
+        }
+        string wrapped = Game1.parseText(text, Game1.smallFont, bounds.Width);
+        Vector2 size = Game1.smallFont.MeasureString(wrapped);
+        float scale = Math.Min(1f, Math.Min(bounds.Width / Math.Max(1f, size.X), bounds.Height / Math.Max(1f, size.Y)));
+        Vector2 position = new(bounds.X, bounds.Y);
+        if (centered)
+        {
+            position += new Vector2((bounds.Width - size.X * scale) / 2f, (bounds.Height - size.Y * scale) / 2f);
+        }
+        b.DrawString(Game1.smallFont, wrapped, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 1f);
+    }
+
+    private void DrawWorkerFace(SpriteBatch b, string workerId, Rectangle bounds)
+    {
+        if (this.workerShellManager.TryGetWorkerMenuFace(workerId, out Texture2D? texture, out Rectangle sourceRect) && texture is not null)
+        {
+            b.Draw(texture, bounds, sourceRect, Color.White);
+        }
+    }
+
+    private WorkerSummarySnapshot? GetSelectedWorker()
+    {
+        foreach (WorkerSummarySnapshot snapshot in this.workerSnapshots)
+        {
+            if (snapshot.WorkerId == this.selectedWorkerId)
+            {
+                return snapshot;
+            }
+        }
+        return null;
+    }
+
+    private void SelectWorker(string workerId)
+    {
+        if (this.selectedWorkerId != workerId)
+        {
+            this.selectedWorkerId = workerId;
+            this.feedback = "Choose a daily order below. Close the menu to watch work continue.";
+            this.feedbackIsError = false;
+        }
+    }
+
+    private int GetLastPageStart()
+    {
+        return this.workerSnapshots.Count == 0 ? 0 : ((this.workerSnapshots.Count - 1) / this.visibleWorkerCount) * this.visibleWorkerCount;
+    }
+
+    private void ChangePage(int direction)
+    {
+        int next = Math.Clamp(this.firstVisibleWorker + direction * this.visibleWorkerCount, 0, this.GetLastPageStart());
+        if (next == this.firstVisibleWorker)
+        {
+            return;
+        }
+        this.firstVisibleWorker = next;
+        this.SelectWorker(this.workerSnapshots[next].WorkerId);
+        this.RebuildLayout(WorkerRowIdBase + next);
+        Game1.playSound("shwip");
+    }
+
+    private void ShowSelectedWorkerPage()
+    {
+        for (int i = 0; i < this.workerSnapshots.Count; i++)
+        {
+            if (this.workerSnapshots[i].WorkerId == this.selectedWorkerId)
+            {
+                this.firstVisibleWorker = (i / this.visibleWorkerCount) * this.visibleWorkerCount;
+                this.RebuildLayout(WorkerRowIdBase + i);
+                return;
+            }
+        }
+    }
+
+    private bool EnsureHost()
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer)
+        {
+            this.SetFeedback("Only the host can hire workers, pay wages, and give orders.", true);
+            return false;
+        }
+        return true;
+    }
+
+    private bool EnsureSelectedHostWorker()
+    {
+        if (!this.EnsureHost())
+        {
+            return false;
+        }
+        if (this.GetSelectedWorker() is null)
+        {
+            this.SetFeedback("Hire and select a worker first.", true);
+            return false;
+        }
+        return true;
+    }
+
+    private void SetFeedback(string message, bool isError = false)
+    {
+        this.feedback = message;
+        this.feedbackIsError = isError;
+        Game1.playSound(isError ? "cancel" : "smallSelect");
+    }
+
+    private void StartHiring()
+    {
+        int previousCount = this.workerSnapshots.Count;
+        string? previousSelection = this.selectedWorkerId;
+        this.exitThisMenuNoSound();
+        this.workerCustomizationManager.StartHiringSession(() =>
+        {
+            if (!Context.IsWorldReady || Game1.activeClickableMenu is not null)
+            {
+                return;
+            }
+            IReadOnlyList<WorkerSummarySnapshot> workers = this.workerShellManager.GetWorkerSummaries();
+            string? selection = workers.Count > previousCount ? workers[workers.Count - 1].WorkerId : previousSelection;
+            Game1.activeClickableMenu = new WorkerControlMenu(this.workerShellManager, this.workerBehaviorManager, this.workerCustomizationManager, selection);
+        });
+    }
+
+    private void CancelDismissal()
+    {
+        this.pendingDismissalId = null;
+        this.RefreshClickableComponents(DismissId);
+        Game1.playSound("bigDeSelect");
+    }
+
+    private void ConfirmDismissal()
+    {
+        string? workerId = this.pendingDismissalId;
+        this.pendingDismissalId = null;
+        if (workerId is not null && this.EnsureHost())
+        {
+            this.workerBehaviorManager.StopWorker(workerId);
+            bool success = this.workerShellManager.TryDismissWorker(workerId, out string message);
+            this.SetFeedback(message, !success);
+            this.RefreshSnapshots();
+        }
+        this.RebuildLayout();
+    }
+
+    private ResizeEdges GetResizeEdges(int x, int y)
+    {
         Rectangle bounds = new(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height);
         if (!bounds.Contains(x, y))
         {
             return ResizeEdges.None;
         }
-
         ResizeEdges edges = ResizeEdges.None;
-        if (x - bounds.Left <= ResizeBorderThickness)
-        {
-            edges |= ResizeEdges.Left;
-        }
-        else if (bounds.Right - x <= ResizeBorderThickness)
-        {
-            edges |= ResizeEdges.Right;
-        }
-
-        if (y - bounds.Top <= ResizeBorderThickness)
-        {
-            edges |= ResizeEdges.Top;
-        }
-        else if (bounds.Bottom - y <= ResizeBorderThickness)
-        {
-            edges |= ResizeEdges.Bottom;
-        }
-
+        if (x - bounds.Left < 20) edges |= ResizeEdges.Left;
+        else if (bounds.Right - x < 20) edges |= ResizeEdges.Right;
+        if (y - bounds.Top < 20) edges |= ResizeEdges.Top;
+        else if (bounds.Bottom - y < 20) edges |= ResizeEdges.Bottom;
         return edges;
     }
 
-    private Rectangle GetResizedBounds(int mouseX, int mouseY)
+    private static string FormatTile(Point? tile) => tile is Point point ? $"{point.X}, {point.Y}" : "--";
+
+    private static string GetTaskLabel(WorkerTaskKind task) => task switch
     {
-        int deltaX = mouseX - this.resizeStartMouse.X;
-        int deltaY = mouseY - this.resizeStartMouse.Y;
+        WorkerTaskKind.WaterCrops => "Water crops",
+        WorkerTaskKind.HarvestCrops => "Harvest crops",
+        WorkerTaskKind.TendCrops => "Tend crops",
+        _ => "Idle / return home",
+    };
 
-        int nextX = this.resizeStartBounds.X;
-        int nextY = this.resizeStartBounds.Y;
-        int nextWidth = this.resizeStartBounds.Width;
-        int nextHeight = this.resizeStartBounds.Height;
-
-        int globalMaxWidth = GetMaxMenuWidth();
-        int globalMinWidth = GetMinMenuWidth(globalMaxWidth);
-        int globalMaxHeight = GetMaxMenuHeight();
-        int globalMinHeight = GetMinMenuHeight(globalMaxHeight);
-
-        if ((this.activeResizeEdges & ResizeEdges.Left) != 0)
-        {
-            int fixedRight = this.resizeStartBounds.Right;
-            int minX = Math.Max(0, fixedRight - globalMaxWidth);
-            int maxX = fixedRight - globalMinWidth;
-            nextX = Math.Clamp(this.resizeStartBounds.X + deltaX, minX, maxX);
-            nextWidth = fixedRight - nextX;
-        }
-        else if ((this.activeResizeEdges & ResizeEdges.Right) != 0)
-        {
-            int maxWidthForPosition = Math.Min(globalMaxWidth, Game1.uiViewport.Width - this.resizeStartBounds.X);
-            nextWidth = Math.Clamp(this.resizeStartBounds.Width + deltaX, globalMinWidth, maxWidthForPosition);
-        }
-
-        if ((this.activeResizeEdges & ResizeEdges.Top) != 0)
-        {
-            int fixedBottom = this.resizeStartBounds.Bottom;
-            int minY = Math.Max(0, fixedBottom - globalMaxHeight);
-            int maxY = fixedBottom - globalMinHeight;
-            nextY = Math.Clamp(this.resizeStartBounds.Y + deltaY, minY, maxY);
-            nextHeight = fixedBottom - nextY;
-        }
-        else if ((this.activeResizeEdges & ResizeEdges.Bottom) != 0)
-        {
-            int maxHeightForPosition = Math.Min(globalMaxHeight, Game1.uiViewport.Height - this.resizeStartBounds.Y);
-            nextHeight = Math.Clamp(this.resizeStartBounds.Height + deltaY, globalMinHeight, maxHeightForPosition);
-        }
-
-        return new Rectangle(nextX, nextY, nextWidth, nextHeight);
-    }
-
-    private void DrawWrappedText(SpriteBatch b, string text, Rectangle bounds, Color color, bool verticallyCentered = false)
+    private static string GetTaskDescription(WorkerTaskKind task) => task switch
     {
-        string wrappedText = Game1.parseText(text, Game1.smallFont, Math.Max(1, bounds.Width));
-        Vector2 textSize = Game1.smallFont.MeasureString(wrappedText);
-        float y = verticallyCentered
-            ? bounds.Y + ((bounds.Height - textSize.Y) / 2f)
-            : bounds.Y;
-
-        b.DrawString(Game1.smallFont, wrappedText, new Vector2(bounds.X, y), color);
-    }
-
-    private void DrawWrappedCenteredText(SpriteBatch b, string text, Rectangle bounds, Color color)
-    {
-        string wrappedText = Game1.parseText(text, Game1.smallFont, Math.Max(1, bounds.Width));
-        Vector2 textSize = Game1.smallFont.MeasureString(wrappedText);
-        Vector2 position = new(
-            bounds.X + ((bounds.Width - textSize.X) / 2f),
-            bounds.Y + ((bounds.Height - textSize.Y) / 2f));
-        b.DrawString(Game1.smallFont, wrappedText, position, color);
-    }
-
-    private void DrawWorkerFace(SpriteBatch b, string workerId, Rectangle bounds)
-    {
-        IClickableMenu.drawTextureBox(b, bounds.X, bounds.Y, bounds.Width, bounds.Height, Color.White * 0.75f);
-
-        if (!this.workerShellManager.TryGetWorkerMenuFace(workerId, out Texture2D? texture, out Rectangle sourceRect) || texture is null)
-        {
-            return;
-        }
-
-        int padding = Math.Max(8, bounds.Width / 7);
-        int innerSize = Math.Max(16, Math.Min(bounds.Width, bounds.Height) - (padding * 2));
-        Rectangle innerBounds = new(
-            bounds.X + ((bounds.Width - innerSize) / 2),
-            bounds.Y + ((bounds.Height - innerSize) / 2) - 4,
-            innerSize,
-            innerSize);
-
-        b.Draw(texture, innerBounds, sourceRect, Color.White);
-    }
+        WorkerTaskKind.WaterCrops => "Walk to dry, growing crops on the farm and water them. Rain and already-watered crops are skipped.",
+        WorkerTaskKind.HarvestCrops => "Walk to ripe crops on the farm and harvest them. The worker checks again when there is no work left.",
+        WorkerTaskKind.TendCrops => "Harvest ripe crops and water growing crops on the farm. Workers share available jobs.",
+        _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",
+    };
 }

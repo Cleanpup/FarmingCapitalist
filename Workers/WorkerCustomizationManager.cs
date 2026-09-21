@@ -1,3 +1,4 @@
+using System;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -18,46 +19,72 @@ internal sealed class WorkerCustomizationManager
 
     public void StartCustomizationSession()
     {
-        if (!Context.IsWorldReady)
+        this.StartHiringSession();
+    }
+
+    public void StartHiringSession(Action? onClosed = null)
+    {
+        if (!this.CanOpenHiring())
         {
-            this.monitor.Log("Load a save first before opening the worker customizer.", LogLevel.Info);
+            onClosed?.Invoke();
             return;
         }
 
         if (Game1.activeClickableMenu is not null)
         {
             this.monitor.Log("Close the current menu before opening the worker customizer.", LogLevel.Info);
+            onClosed?.Invoke();
             return;
         }
 
-        WorkerAppearanceData appearance = this.workerShellManager.GetSavedWorkerAppearance()?.Clone() ?? WorkerAppearanceData.CreateDefault();
-        Game1.activeClickableMenu = new WorkerAppearanceMenu(appearance, this.SaveCustomization);
-        this.monitor.Log("Opened the worker appearance menu. Save there to update and spawn the worker shell.", LogLevel.Info);
+        WorkerAppearanceData appearance = this.workerShellManager.GetSavedWorkerAppearance() ?? WorkerAppearanceData.CreateDefault();
+        Game1.activeClickableMenu = new WorkerAppearanceMenu(appearance, this.SaveCustomization, onClosed, "Hire Worker");
+        this.monitor.Log($"Hiring costs {WorkerEmploymentTerms.HiringCost}g including today's wages, then {WorkerEmploymentTerms.DailyWage}g per day. Cancel to leave without hiring.", LogLevel.Info);
     }
 
     public void SpawnWithDefaultAppearance()
     {
-        if (!Context.IsWorldReady)
+        if (this.CanOpenHiring())
         {
-            this.monitor.Log("Load a save first before spawning the worker.", LogLevel.Info);
-            return;
+            this.SaveCustomization(WorkerAppearanceData.CreateDefault());
         }
-
-        this.SaveCustomization(WorkerAppearanceData.CreateDefault());
-        this.monitor.Log("Spawned the test worker using the default appearance preset.", LogLevel.Info);
     }
 
     public void Reset()
     {
     }
 
+    private bool CanOpenHiring()
+    {
+        if (!Context.IsWorldReady)
+        {
+            this.monitor.Log("Load a save before hiring workers.", LogLevel.Info);
+            return false;
+        }
+
+        if (!Context.IsMainPlayer)
+        {
+            string message = "Only the farm host can hire workers.";
+            this.monitor.Log(message, LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage(message, HUDMessage.error_type));
+            return false;
+        }
+
+        return true;
+    }
+
     private void SaveCustomization(WorkerAppearanceData appearance)
     {
-        NPC? worker = this.workerShellManager.SpawnConfiguredWorker(appearance);
-        this.workerBehaviorManager.HandleWorkerInitialized(worker, "appearance update");
+        bool hired = this.workerShellManager.TryHireWorker(appearance, out NPC? worker, out string message);
+        if (hired)
+        {
+            this.workerBehaviorManager.HandleWorkerInitialized(worker, "hired");
+        }
 
-        this.monitor.Log(
-            $"Saved the worker appearance and spawned a worker shell. Total configured workers: {this.workerShellManager.GetConfiguredWorkerCount()}.",
-            LogLevel.Info);
+        this.monitor.Log(message, hired ? LogLevel.Info : LogLevel.Warn);
+        if (Context.IsWorldReady)
+        {
+            Game1.addHUDMessage(new HUDMessage(message, hired ? HUDMessage.newQuest_type : HUDMessage.error_type));
+        }
     }
 }

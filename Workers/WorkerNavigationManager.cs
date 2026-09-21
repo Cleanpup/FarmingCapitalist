@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
-using StardewValley.Buildings;
-using StardewValley.Locations;
 using StardewValley.Pathfinding;
 
 namespace FarmingCapitalist.Workers;
@@ -24,9 +22,14 @@ internal sealed class WorkerNavigationManager
         public int RouteStartTick { get; init; }
 
         public int StalledTicks { get; set; }
+
+        public int RetryCount { get; set; }
+
+        public PathFindController? Controller { get; set; }
     }
 
-    private const int MaxStalledTicks = 600;
+    private const int MaxStalledTicks = 180;
+    private const int MaxRouteRetries = 2;
     private readonly Dictionary<string, ActiveWorkerRoute> activeRoutes = new(StringComparer.OrdinalIgnoreCase);
     private readonly IMonitor monitor;
     private readonly WorkerShellManager workerShellManager;
@@ -39,18 +42,22 @@ internal sealed class WorkerNavigationManager
 
     public bool TryStartTravel(NPC worker, WorkerNavigationTarget target, string triggerReason)
     {
-        if (!this.workerShellManager.TryGetWorkerId(worker, out string workerId))
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.HasForeignController(worker))
         {
-            this.monitor.Log("Worker navigation couldn't start because the worker was missing a managed worker ID.", LogLevel.Warn);
             return false;
         }
 
-        this.StopWorkerNavigation(worker);
-        this.ClearActiveRoute(workerId);
+        if (!this.workerShellManager.TryGetWorkerId(worker, out string workerId))
+        {
+            this.monitor.Log("Worker navigation couldn't start because the worker was missing a managed worker ID.", LogLevel.Trace);
+            return false;
+        }
+
+        this.StopTravel(worker);
 
         if (worker.currentLocation is null)
         {
-            this.monitor.Log("Worker navigation couldn't start because the worker has no current location.", LogLevel.Warn);
+            this.monitor.Log("Worker navigation couldn't start because the worker has no current location.", LogLevel.Trace);
             return false;
         }
 
@@ -58,62 +65,55 @@ internal sealed class WorkerNavigationManager
         {
             this.monitor.Log(
                 $"{worker.displayName} is already at {target.LocationName} tile {target.Tile}; no navigation start was needed.",
-                LogLevel.Info);
+                LogLevel.Trace);
             return true;
         }
 
-        if (Game1.getLocationFromName(target.LocationName) is null)
+        GameLocation? destination = Game1.getLocationFromName(target.LocationName);
+        if (destination is null || !destination.isTileOnMap(target.Tile.ToVector2()))
         {
             this.monitor.Log(
                 $"Worker navigation couldn't start because destination location '{target.LocationName}' was not found.",
-                LogLevel.Warn);
+                LogLevel.Trace);
             return false;
         }
 
         SchedulePathDescription? routeDescription = null;
-        Exception? vanillaRouteException = null;
         try
         {
-            routeDescription = worker.pathfindToNextScheduleLocation(
-                "farmingcapitalist_runtime",
-                worker.currentLocation.NameOrUniqueName,
-                worker.TilePoint.X,
-                worker.TilePoint.Y,
-                target.LocationName,
-                target.Tile.X,
-                target.Tile.Y,
-                target.FacingDirection,
-                endBehavior: null,
-                endMessage: null);
+            if (worker.currentLocation == destination)
+            {
+                Stack<Point>? path = this.FindCollisionAwarePath(worker.TilePoint, target.Tile, destination, worker);
+                if (path is { Count: > 0 })
+                {
+                    routeDescription = new SchedulePathDescription(path, target.FacingDirection, null, null, target.LocationName, target.Tile);
+                }
+            }
+            else if (this.TryGetFallbackLocationRoute(worker.currentLocation.NameOrUniqueName, target.LocationName) is not null)
+            {
+                if (this.TryBuildFallbackRoute(worker, target, out SchedulePathDescription fallbackRoute, out _))
+                {
+                    routeDescription = fallbackRoute;
+                }
+            }
+            else
+            {
+                routeDescription = worker.pathfindToNextScheduleLocation(
+                    "farmingcapitalist_runtime", worker.currentLocation.NameOrUniqueName,
+                    worker.TilePoint.X, worker.TilePoint.Y, target.LocationName,
+                    target.Tile.X, target.Tile.Y, target.FacingDirection, endBehavior: null, endMessage: null);
+            }
         }
         catch (Exception ex)
         {
-            vanillaRouteException = ex;
-            this.monitor.Log(
-                $"{worker.displayName} navigation threw while building a route to {target.LocationName} tile {target.Tile}: {ex.Message}",
-                LogLevel.Warn);
-        }
-
-        if (!this.HasUsableRoute(routeDescription)
-            && this.TryBuildFallbackRoute(worker, target, out SchedulePathDescription fallbackRoute, out string fallbackDescription))
-        {
-            routeDescription = fallbackRoute;
-            this.monitor.Log(
-                $"{worker.displayName} navigation is using fallback routing for {fallbackDescription}.",
-                LogLevel.Info);
+            this.monitor.Log($"{worker.displayName} could not plan travel to {target.LocationName} {target.Tile}: {ex.Message}", LogLevel.Trace);
         }
 
         if (!this.HasUsableRoute(routeDescription))
         {
             this.monitor.Log(
                 $"{worker.displayName} navigation failed to build a route from {worker.currentLocation.NameOrUniqueName} tile {worker.TilePoint} to {target.LocationName} tile {target.Tile}.",
-                LogLevel.Warn);
-            if (vanillaRouteException is not null)
-            {
-                this.monitor.Log(
-                    $"Vanilla route builder exception for diagnostics: {vanillaRouteException.Message}",
-                    LogLevel.Warn);
-            }
+                LogLevel.Trace);
             this.LogRouteFailureDiagnostics(worker, target);
             return false;
         }
@@ -125,6 +125,7 @@ internal sealed class WorkerNavigationManager
         worker.controller = new PathFindController(finalRouteDescription.route, worker, worker.currentLocation)
         {
             finalFacingDirection = finalRouteDescription.facingDirection,
+            nonDestructivePathing = true,
         };
 
         this.activeRoutes[workerId] = new ActiveWorkerRoute
@@ -135,11 +136,12 @@ internal sealed class WorkerNavigationManager
             LastObservedPosition = worker.Position,
             RouteStartTick = Game1.ticks,
             StalledTicks = 0,
+            Controller = worker.controller,
         };
 
         this.monitor.Log(
             $"{worker.displayName} navigation started from {worker.currentLocation.NameOrUniqueName} tile {worker.TilePoint} to {target.LocationName} tile {target.Tile} ({finalRouteDescription.route.Count} queued steps, trigger: {triggerReason}).",
-            LogLevel.Info);
+            LogLevel.Trace);
         return true;
     }
 
@@ -150,9 +152,8 @@ internal sealed class WorkerNavigationManager
             return;
         }
 
-        if (!Context.IsWorldReady)
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || !Game1.shouldTimePass())
         {
-            this.activeRoutes.Clear();
             return;
         }
 
@@ -161,7 +162,14 @@ internal sealed class WorkerNavigationManager
             ActiveWorkerRoute route = this.activeRoutes[workerId];
             if (!this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
             {
-                this.monitor.Log($"Worker navigation was cleared because worker '{workerId}' could no longer be found.", LogLevel.Warn);
+                this.monitor.Log($"Worker navigation was cleared because worker '{workerId}' could no longer be found.", LogLevel.Trace);
+                this.ClearActiveRoute(workerId);
+                continue;
+            }
+
+            if (this.HasForeignController(worker))
+            {
+                // An event or another mod owns movement now; don't overwrite its controller.
                 this.ClearActiveRoute(workerId);
                 continue;
             }
@@ -169,10 +177,11 @@ internal sealed class WorkerNavigationManager
             if (this.IsAtTarget(worker, route.Target))
             {
                 int elapsedTicks = Math.Max(0, Game1.ticks - route.RouteStartTick);
+                this.StopWorkerNavigation(worker);
                 this.SnapWorkerToIdleFacing(worker, route.Target.FacingDirection);
                 this.monitor.Log(
                     $"{worker.displayName} navigation reached {route.Target.LocationName} tile {route.Target.Tile} after {elapsedTicks} ticks (trigger: {route.TriggerReason}).",
-                    LogLevel.Info);
+                    LogLevel.Trace);
                 this.ClearActiveRoute(workerId);
                 continue;
             }
@@ -181,17 +190,8 @@ internal sealed class WorkerNavigationManager
             {
                 this.monitor.Log(
                     $"{worker.displayName} navigation ended before reaching {route.Target.LocationName} tile {route.Target.Tile}. Current position is {worker.currentLocation?.NameOrUniqueName ?? "unknown"} tile {worker.TilePoint}.",
-                    LogLevel.Warn);
-                this.StopWorkerNavigation(worker);
-                this.ClearActiveRoute(workerId);
-                continue;
-            }
-
-            if (worker.currentLocation != Game1.currentLocation)
-            {
-                route.LastObservedLocationName = worker.currentLocation?.NameOrUniqueName;
-                route.LastObservedPosition = worker.Position;
-                route.StalledTicks = 0;
+                    LogLevel.Trace);
+                this.TryRecoverRoute(worker, workerId, route);
                 continue;
             }
 
@@ -207,26 +207,70 @@ internal sealed class WorkerNavigationManager
                 route.StalledTicks = 0;
             }
 
-            if (route.StalledTicks < MaxStalledTicks)
+            if (route.StalledTicks < MaxStalledTicks && Game1.ticks - route.RouteStartTick < 7200)
             {
                 continue;
             }
 
             this.monitor.Log(
                 $"{worker.displayName} navigation stalled at {currentLocationName} tile {worker.TilePoint} while travelling to {route.Target.LocationName} tile {route.Target.Tile}. Cancelling the current route.",
-                LogLevel.Warn);
-            this.StopWorkerNavigation(worker);
+                LogLevel.Trace);
+            this.TryRecoverRoute(worker, workerId, route);
+        }
+    }
+
+    public bool HasActiveRoute(string workerId) => this.activeRoutes.ContainsKey(workerId);
+
+    public bool HasForeignController(NPC worker)
+    {
+        if (worker.temporaryController is not null)
+        {
+            return true;
+        }
+
+        return worker.controller is not null
+            && (!this.workerShellManager.TryGetWorkerId(worker, out string workerId)
+                || !this.activeRoutes.TryGetValue(workerId, out ActiveWorkerRoute? route)
+                || !ReferenceEquals(worker.controller, route.Controller));
+    }
+
+    public void StopTravel(NPC worker)
+    {
+        if (!Context.IsMainPlayer || !this.workerShellManager.TryGetWorkerId(worker, out string workerId))
+        {
+            return;
+        }
+
+        if (this.activeRoutes.TryGetValue(workerId, out ActiveWorkerRoute? route))
+        {
+            if (ReferenceEquals(worker.controller, route.Controller))
+            {
+                this.StopWorkerNavigation(worker);
+            }
+
             this.ClearActiveRoute(workerId);
+        }
+    }
+
+    private void TryRecoverRoute(NPC worker, string workerId, ActiveWorkerRoute previous)
+    {
+        this.StopTravel(worker);
+        if (previous.RetryCount < MaxRouteRetries && this.TryStartTravel(worker, previous.Target, "replanning blocked route"))
+        {
+            if (this.activeRoutes.TryGetValue(workerId, out ActiveWorkerRoute? replacement))
+            {
+                replacement.RetryCount = previous.RetryCount + 1;
+            }
         }
     }
 
     public void Reset()
     {
-        if (Context.IsWorldReady)
+        if (Context.IsWorldReady && Context.IsMainPlayer)
         {
             foreach (NPC worker in this.workerShellManager.GetSpawnedWorkers())
             {
-                this.StopWorkerNavigation(worker);
+                this.StopTravel(worker);
             }
         }
 
@@ -236,7 +280,8 @@ internal sealed class WorkerNavigationManager
     private bool IsAtTarget(NPC worker, WorkerNavigationTarget target)
     {
         return worker.currentLocation?.NameOrUniqueName == target.LocationName
-            && worker.TilePoint == target.Tile;
+            && worker.TilePoint == target.Tile
+            && (worker.controller is null || worker.controller.pathToEndPoint is not { Count: > 0 });
     }
 
     private bool HasUsableRoute(SchedulePathDescription? routeDescription)
@@ -244,13 +289,14 @@ internal sealed class WorkerNavigationManager
         return routeDescription?.route is not null && routeDescription.route.Count > 0;
     }
 
-    private void StopWorkerNavigation(NPC worker)
+    public void StopWorker(NPC worker)
     {
         worker.Halt();
         worker.controller = null;
-        worker.temporaryController = null;
         worker.DirectionsToNewLocation = null;
     }
+
+    private void StopWorkerNavigation(NPC worker) => this.StopWorker(worker);
 
     private void ClearActiveRoute(string workerId)
     {
@@ -322,7 +368,7 @@ internal sealed class WorkerNavigationManager
                 {
                     this.monitor.Log(
                         $"Fallback routing failed because {currentLocation.NameOrUniqueName} has no warp point to {nextLocationName}.",
-                        LogLevel.Warn);
+                        LogLevel.Trace);
                     return null;
                 }
 
@@ -331,7 +377,7 @@ internal sealed class WorkerNavigationManager
                 {
                     this.monitor.Log(
                         $"Fallback routing couldn't build a collision-aware local path in {currentLocation.NameOrUniqueName} from {locationStartPoint} to warp {warpPoint}.",
-                        LogLevel.Warn);
+                        LogLevel.Trace);
                     return null;
                 }
 
@@ -340,7 +386,7 @@ internal sealed class WorkerNavigationManager
                 {
                     this.monitor.Log(
                         $"Fallback routing failed because warp {warpPoint} in {currentLocation.NameOrUniqueName} had no target tile for {nextLocationName}.",
-                        LogLevel.Warn);
+                        LogLevel.Trace);
                     return null;
                 }
 
@@ -353,7 +399,7 @@ internal sealed class WorkerNavigationManager
             {
                 this.monitor.Log(
                     $"Fallback routing couldn't build a collision-aware final local path in {currentLocation.NameOrUniqueName} from {locationStartPoint} to {target.Tile}.",
-                    LogLevel.Warn);
+                    LogLevel.Trace);
                 return null;
             }
 
@@ -388,7 +434,11 @@ internal sealed class WorkerNavigationManager
             return collisionAwarePath;
         }
 
-        return PathFindController.findPathForNPCSchedules(startTile, endTile, location, 30000);
+        // Only an off-map warp endpoint needs vanilla schedule pathfinding. Never use
+        // schedule routing to bypass crop trellises, fences, or placed farm objects.
+        return !location.isTileOnMap(endTile.ToVector2())
+            ? PathFindController.findPathForNPCSchedules(startTile, endTile, location, 30000)
+            : null;
     }
 
     private bool TryResolveWarpTarget(GameLocation currentLocation, string nextLocationName, Point warpPoint, NPC worker, out Point warpTarget)

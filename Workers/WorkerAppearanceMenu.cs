@@ -50,6 +50,10 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     }
 
     private readonly Action<WorkerAppearanceData> onSave;
+    private readonly Action? onClosed;
+    private readonly string title;
+    private WorkerAppearanceData? acceptedAppearance;
+    private bool sessionCompleted;
     private readonly Farmer previewFarmer;
     private readonly List<int> previewDirections = new() { 2, 1, 0, 3 };
     private readonly List<int> hairStyleIds;
@@ -74,7 +78,11 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     private int previewDirectionIndex;
     private int timesRandom;
 
-    public WorkerAppearanceMenu(WorkerAppearanceData initialAppearance, Action<WorkerAppearanceData> onSave)
+    public WorkerAppearanceMenu(
+        WorkerAppearanceData initialAppearance,
+        Action<WorkerAppearanceData> onSave,
+        Action? onClosed = null,
+        string title = "Worker Appearance")
         : base(
             Game1.uiViewport.Width / 2 - (632 + IClickableMenu.borderWidth * 2) / 2,
             Game1.uiViewport.Height / 2 - (648 + IClickableMenu.borderWidth * 2) / 2 - 64,
@@ -83,6 +91,9 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
             showUpperRightCloseButton: false)
     {
         this.onSave = onSave;
+        this.onClosed = onClosed;
+        this.title = title;
+        this.exitFunction = this.CompleteSession;
 
         this.previewFarmer = new Farmer
         {
@@ -114,7 +125,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         if (this.okButton.containsPoint(x, y))
         {
             Game1.playSound("smallSelect");
-            this.onSave(WorkerAppearanceData.FromFarmer(this.previewFarmer));
+            this.acceptedAppearance = WorkerAppearanceData.FromFarmer(this.previewFarmer);
             this.exitThisMenu();
             return;
         }
@@ -234,7 +245,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     public override void draw(SpriteBatch b)
     {
         Game1.drawDialogueBox(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height, speaker: false, drawOnlyBox: true);
-        SpriteText.drawStringWithScrollCenteredAt(b, "Worker Appearance", this.xPositionOnScreen + this.width / 2, this.yPositionOnScreen + 24);
+        SpriteText.drawStringWithScrollCenteredAt(b, this.title, this.xPositionOnScreen + this.width / 2, this.yPositionOnScreen + 24);
 
         b.Draw(Game1.daybg, new Vector2(this.portraitBox.X, this.portraitBox.Y), Color.White);
 
@@ -364,6 +375,27 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.hairColorLabelPosition = new Vector2(labelX, pickerY + 84);
         this.pantsColorLabelPosition = new Vector2(labelX, pickerY + 152);
         this.SyncColorPickersFromPreview();
+    }
+
+    private void CompleteSession()
+    {
+        if (this.sessionCompleted)
+        {
+            return;
+        }
+
+        this.sessionCompleted = true;
+        try
+        {
+            if (this.acceptedAppearance is not null)
+            {
+                this.onSave(this.acceptedAppearance);
+            }
+        }
+        finally
+        {
+            this.onClosed?.Invoke();
+        }
     }
 
     private void AddSelectionField(string label, int rowY, Func<string> getSubLabel, Action<int> change)

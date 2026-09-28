@@ -34,3 +34,44 @@
 - Compile against installed game assemblies; verify uncertain APIs against the local game/SMAPI sources.
 - Use focused tests for gameplay/data-loss/authority rules. A successful build is not an in-game playtest.
 - Finish with a brief change summary, actual verification results, and a concrete list of features to test in game.
+
+
+# User preferences
+
+- If an action requires the user's sudo password, provide the exact commands for the user to run themselves. Do not switch to an alternative installation method to avoid the password requirement.
+
+# Stardew Valley debug commands
+
+Reference: [Stardew Valley Wiki — Debug commands](https://stardewvalleywiki.com/Modding:Console_commands#Debug_commands).
+
+- Enter commands in the SMAPI console with the Console Commands mod installed.
+- Use `debug <command> [arguments]` for game debug commands. Wiki table entries usually omit the required `debug` prefix.
+- Wiki notation: `<...>` is required, `[...]` is optional; `S`, `I`, and `F` indicate string, integer, and float parameters. Replace placeholders with values; do not type brackets or type labels.
+- Preserve parameter capitalization. Use partial names only when the command explicitly supports fuzzy matching. Quote multiword arguments where supported.
+- Check the linked command entry for argument order, defaults, and effects before suggesting a command. Use `debug search <term>` to discover debug commands; use `help` or `help <command>` for SMAPI command documentation.
+- A no-output response does not necessarily mean failure; verify the resulting game state.
+- Use a test save for commands that alter state; debug commands can damage saves.
+
+Examples:
+
+```text
+debug search backpack
+debug where Robin
+debug fin "galaxy sword"
+```
+
+## FarmingCapitalist commands
+
+These are registered by this mod in `ModEntry.cs`, so enter them directly without `debug`:
+
+```text
+workerstatus
+spawn
+spawn d
+delete
+```
+
+- `workerstatus` reports the primary worker and configured worker count.
+- `spawn` opens appearance customization; saving adds a worker. `spawn d` adds one with the default appearance.
+- `delete` removes all worker shells and clears the saved roster.
+- Recheck `ModEntry.cs` and the worker managers when documenting these commands; their console help text may lag behind implementation.

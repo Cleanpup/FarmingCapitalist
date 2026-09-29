@@ -12,5 +12,7 @@ internal sealed class WorkerRosterSaveData
 
     public int NextWorkerNumber { get; set; } = 1;
 
+    public WorkerHarvestDestination? HarvestDestination { get; set; }
+
     public List<WorkerRosterEntry> Workers { get; set; } = new();
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
@@ -38,6 +39,27 @@ internal sealed class WorkerNavigationManager
     {
         this.workerShellManager = workerShellManager;
         this.monitor = monitor;
+    }
+
+    public bool TryGetLocalRouteLength(NPC worker, Point target, out int routeLength)
+    {
+        routeLength = 0;
+        if (!Context.IsWorldReady
+            || !Context.IsMainPlayer
+            || worker.currentLocation is null
+            || worker.currentLocation != Game1.getLocationFromName(TestWorkerDefinition.LocationName))
+        {
+            return false;
+        }
+
+        Stack<Point>? path = this.FindCollisionAwarePath(worker.TilePoint, target, worker.currentLocation, worker);
+        if (path is null || path.Count == 0)
+        {
+            return false;
+        }
+
+        routeLength = path.Count;
+        return true;
     }
 
     public bool TryStartTravel(NPC worker, WorkerNavigationTarget target, string triggerReason)
@@ -120,6 +142,14 @@ internal sealed class WorkerNavigationManager
 
         SchedulePathDescription finalRouteDescription = routeDescription!;
 
+        Point firstStep = finalRouteDescription.route.Peek();
+        Point lastStep = finalRouteDescription.route.Last();
+        this.monitor.Log(
+            $"{worker.displayName} route built: from {worker.TilePoint} to {target.LocationName} {target.Tile}; "
+            + $"steps={finalRouteDescription.route.Count}, firstStep={firstStep}, lastStep={lastStep}, "
+            + $"sameLocation={worker.currentLocation == destination}, trigger={triggerReason}.",
+            LogLevel.Trace);
+
         worker.nextEndOfRouteMessage = null;
         worker.DirectionsToNewLocation = finalRouteDescription;
         worker.controller = new PathFindController(finalRouteDescription.route, worker, worker.currentLocation)
@@ -170,6 +200,10 @@ internal sealed class WorkerNavigationManager
             if (this.HasForeignController(worker))
             {
                 // An event or another mod owns movement now; don't overwrite its controller.
+                this.monitor.Log(
+                    $"{worker.displayName} navigation lost control at {worker.currentLocation?.NameOrUniqueName ?? "unknown"} tile {worker.TilePoint}; "
+                    + $"controller={worker.controller?.GetType().Name ?? "none"}, temporaryController={worker.temporaryController?.GetType().Name ?? "none"}.",
+                    LogLevel.Trace);
                 this.ClearActiveRoute(workerId);
                 continue;
             }
@@ -189,7 +223,9 @@ internal sealed class WorkerNavigationManager
             if (worker.controller is null)
             {
                 this.monitor.Log(
-                    $"{worker.displayName} navigation ended before reaching {route.Target.LocationName} tile {route.Target.Tile}. Current position is {worker.currentLocation?.NameOrUniqueName ?? "unknown"} tile {worker.TilePoint}.",
+                    $"{worker.displayName} navigation ended before reaching {route.Target.LocationName} tile {route.Target.Tile}. "
+                    + $"Current position is {worker.currentLocation?.NameOrUniqueName ?? "unknown"} tile {worker.TilePoint}; "
+                    + $"route age={Game1.ticks - route.RouteStartTick} ticks, stalled={route.StalledTicks}, retry={route.RetryCount}.",
                     LogLevel.Trace);
                 this.TryRecoverRoute(worker, workerId, route);
                 continue;
@@ -205,6 +241,19 @@ internal sealed class WorkerNavigationManager
                 route.LastObservedLocationName = currentLocationName;
                 route.LastObservedPosition = worker.Position;
                 route.StalledTicks = 0;
+            }
+
+            if (Game1.ticks % 60 == 0)
+            {
+                string queuedPath = worker.controller.pathToEndPoint is { Count: > 0 } path
+                    ? string.Join(" -> ", path.Take(8))
+                    : "none";
+                this.monitor.Log(
+                    $"{worker.displayName} navigation progress: location={currentLocationName}, tile={worker.TilePoint}, "
+                    + $"target={route.Target.LocationName} {route.Target.Tile}, controller={worker.controller.GetType().Name}, "
+                    + $"remaining={worker.controller.pathToEndPoint?.Count ?? 0}, stalled={route.StalledTicks}, "
+                    + $"elapsed={Game1.ticks - route.RouteStartTick} ticks, nextSteps={queuedPath}.",
+                    LogLevel.Trace);
             }
 
             if (route.StalledTicks < MaxStalledTicks && Game1.ticks - route.RouteStartTick < 7200)

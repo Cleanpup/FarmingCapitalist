@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Characters;
+using StardewValley.Objects;
 using StardewValley.TerrainFeatures;
 
 namespace FarmingCapitalist.Workers;
@@ -24,6 +25,8 @@ internal sealed class WorkerBehaviorManager
     private readonly Dictionary<string, WorkerRuntimeSnapshot> snapshots = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Point> activeTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> lastDebugStates = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<Point, string> lastHarvestReadinessStates = new();
+    private readonly HashSet<Point> blockedHarvestTiles = new();
 
     public WorkerBehaviorManager(WorkerNavigationManager navigationManager, WorkerShellManager workerShellManager, IMonitor monitor)
     {
@@ -108,6 +111,8 @@ internal sealed class WorkerBehaviorManager
         this.snapshots.Clear();
         this.activeTargets.Clear();
         this.lastDebugStates.Clear();
+        this.lastHarvestReadinessStates.Clear();
+        this.blockedHarvestTiles.Clear();
         this.navigationManager.Reset();
     }
 
@@ -170,7 +175,23 @@ internal sealed class WorkerBehaviorManager
 
         if (this.activeTargets.TryGetValue(workerId, out Point target) && worker.TilePoint == target && worker.controller is null)
         {
-            this.PerformJobAt(farm, target, assignment);
+            WorkerTaskKind action = WorkerTaskKind.Idle;
+            if (farm.terrainFeatures.TryGetValue(target.ToVector2(), out TerrainFeature? feature)
+                && feature is HoeDirt dirt
+                && dirt.crop is not null
+                && !dirt.crop.dead.Value)
+            {
+                action = WorkerTaskPolicy.SelectCropAction(
+                    assignment,
+                    alive: true,
+                    harvestable: IsHarvestable(dirt.crop),
+                    needsWater: !dirt.isWatered());
+            }
+
+            this.monitor.Log(
+                $"{worker.displayName} arrived at crop tile {target}; assignment={assignment}, resolved action={action}.",
+                LogLevel.Trace);
+            this.PerformJobAt(farm, target, action);
             this.activeTargets.Remove(workerId);
             this.LogState(workerId, worker, $"finished action at target tile {target}; rescanning farm");
         }
@@ -178,20 +199,81 @@ internal sealed class WorkerBehaviorManager
         if (this.activeTargets.ContainsKey(workerId))
             return;
 
+        if (assignment is WorkerTaskKind.HarvestCrops or WorkerTaskKind.TendCrops)
+        {
+            if (this.TryFindCropTarget(worker, farm, assignment, WorkerTaskKind.HarvestCrops, out Point harvestTarget))
+            {
+                this.StartJobTravel(worker, workerId, harvestTarget, WorkerTaskKind.HarvestCrops, "travel to harvest target");
+                return;
+            }
+
+            this.LogHarvestReadinessSamples(farm);
+        }
+
+        if (assignment is WorkerTaskKind.WaterCrops or WorkerTaskKind.TendCrops
+            && this.TryFindCropTarget(worker, farm, assignment, WorkerTaskKind.WaterCrops, out Point waterTarget))
+        {
+            this.StartJobTravel(worker, workerId, waterTarget, WorkerTaskKind.WaterCrops, "travel to watering target");
+            return;
+        }
+
+        this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Idle", "No matching crops available", 0, null);
+        this.LogState(workerId, worker, $"no matching crop found for {assignment}; worker is idle at {worker.currentLocation?.NameOrUniqueName ?? "unknown"} tile {worker.TilePoint}");
+    }
+
+    private bool TryFindCropTarget(NPC worker, Farm farm, WorkerTaskKind assignment, WorkerTaskKind desiredAction, out Point target)
+    {
+        target = Point.Zero;
+        int shortestRoute = int.MaxValue;
+        bool foundTarget = false;
+        Point fallbackTarget = Point.Zero;
+        int shortestFallbackDistance = int.MaxValue;
         foreach (KeyValuePair<Vector2, TerrainFeature> pair in farm.terrainFeatures.Pairs.OrderBy(p => p.Key.X + p.Key.Y))
         {
+            Point candidate = pair.Key.ToPoint();
             if (pair.Value is not HoeDirt dirt || dirt.crop is null || dirt.crop.dead.Value)
                 continue;
+
+            if (desiredAction == WorkerTaskKind.HarvestCrops && this.blockedHarvestTiles.Contains(candidate))
+                continue;
+
             bool harvestable = IsHarvestable(dirt.crop);
             bool needsWater = !dirt.isWatered();
             WorkerTaskKind action = WorkerTaskPolicy.SelectCropAction(assignment, true, harvestable, needsWater);
-            if (action == WorkerTaskKind.Idle)
+            if (action != desiredAction)
                 continue;
-            this.StartJobTravel(worker, workerId, pair.Key.ToPoint(), action, "travel to crop");
-            return;
+
+            int fallbackDistance = Math.Abs(worker.TilePoint.X - candidate.X) + Math.Abs(worker.TilePoint.Y - candidate.Y);
+            if (fallbackDistance < shortestFallbackDistance)
+            {
+                shortestFallbackDistance = fallbackDistance;
+                fallbackTarget = candidate;
+            }
+
+            if (!this.navigationManager.TryGetLocalRouteLength(worker, candidate, out int routeLength))
+                continue;
+
+            if (routeLength >= shortestRoute)
+                continue;
+
+            shortestRoute = routeLength;
+            target = candidate;
+            foundTarget = true;
         }
-        this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Idle", "No matching crops available", 0, null);
-        this.LogState(workerId, worker, $"no matching crop found for {assignment}; worker is idle at {worker.currentLocation?.NameOrUniqueName ?? "unknown"} tile {worker.TilePoint}");
+
+        if (foundTarget)
+            return true;
+
+        if (shortestFallbackDistance < int.MaxValue)
+        {
+            target = fallbackTarget;
+            this.monitor.Log(
+                $"No collision-aware route length was available for {desiredAction}; falling back to nearest eligible tile {target}.",
+                LogLevel.Trace);
+            return true;
+        }
+
+        return false;
     }
 
     private void StartJobTravel(NPC worker, string workerId, Point target, WorkerTaskKind task, string reason)
@@ -224,9 +306,31 @@ internal sealed class WorkerBehaviorManager
         {
             Crop crop = dirt.crop;
             this.monitor.Log($"Worker reached crop tile {tile}; harvesting crop {crop.indexOfHarvest.Value} (regrows={crop.RegrowsAfterHarvest()}).", LogLevel.Trace);
-            ShippingBinHarvester collector = new(farm, tile);
+            WorkerHarvestCollector collector = new(farm, tile, this.workerShellManager.GetHarvestDestination(), this.monitor);
+            int shippingBinCountBefore = farm.getShippingBin(Game1.MasterPlayer).Count;
             bool harvested = crop.harvest(tile.X, tile.Y, dirt, collector);
-            this.monitor.Log($"Worker harvest at tile {tile} completed={harvested}; crop remains={dirt.crop is not null}; shipping bin count={farm.getShippingBin(Game1.MasterPlayer).Count}.", LogLevel.Trace);
+            int shippingBinCountAfter = farm.getShippingBin(Game1.MasterPlayer).Count;
+            bool cropUnchanged = ReferenceEquals(dirt.crop, crop);
+
+            if (harvested)
+            {
+                dirt.crop = null;
+                this.monitor.Log($"Worker removed harvested crop at tile {tile}; crop was unchanged before removal={cropUnchanged}.", LogLevel.Trace);
+            }
+            else if (collector.ItemsCollected > 0 && cropUnchanged && !crop.RegrowsAfterHarvest())
+            {
+                this.blockedHarvestTiles.Add(tile);
+                this.monitor.Log(
+                    $"Worker harvest at tile {tile} produced an item but left the non-regrowing crop unchanged; "
+                    + "blocking further harvest retries for this tile until reset.",
+                    LogLevel.Warn);
+            }
+
+            this.monitor.Log(
+                $"Worker harvest at tile {tile} completed={harvested}; crop remains={dirt.crop is not null}; "
+                + $"items collected={collector.ItemsCollected}, chest deposits={collector.ChestDeposits}, "
+                + $"shipping bin count={shippingBinCountBefore}->{shippingBinCountAfter}.",
+                LogLevel.Trace);
         }
     }
 
@@ -238,31 +342,107 @@ internal sealed class WorkerBehaviorManager
         this.monitor.Log($"{worker.displayName} [{workerId}] runtime: {state}; assignment={this.workerShellManager.GetAssignedTask(workerId)}; location={worker.currentLocation?.NameOrUniqueName ?? "unknown"}; tile={worker.TilePoint}; controller={worker.controller?.GetType().Name ?? "none"}.", LogLevel.Trace);
     }
 
-    private static bool IsHarvestable(Crop crop)
+    private void LogHarvestReadinessSamples(Farm farm)
     {
-        // A regrowing crop stays fully grown after harvest. Its day-of-current-phase
-        // must be zero before it is available again.
-        return crop.fullyGrown.Value
-            && crop.indexOfHarvest is not null
-            && (!crop.RegrowsAfterHarvest() || crop.dayOfCurrentPhase.Value <= 0);
+        int sampleCount = 0;
+        foreach (KeyValuePair<Vector2, TerrainFeature> pair in farm.terrainFeatures.Pairs.OrderBy(p => p.Key.X + p.Key.Y))
+        {
+            if (sampleCount >= 3)
+                break;
+            if (pair.Value is not HoeDirt dirt || dirt.crop is null)
+                continue;
+
+            Point tile = pair.Key.ToPoint();
+            Crop crop = dirt.crop;
+            bool watered = dirt.isWatered();
+            string state = $"seed={crop.netSeedIndex.Value};phase={crop.currentPhase.Value}/{crop.phaseDays.Count};show={crop.phaseToShow};"
+                + $"fullyGrown={crop.fullyGrown.Value};day={crop.dayOfCurrentPhase.Value};regrows={crop.RegrowsAfterHarvest()};"
+                + $"dead={crop.dead.Value};watered={watered};harvest={crop.indexOfHarvest.Value?.ToString() ?? "none"};"
+                + $"isHarvestable={IsHarvestable(crop)}";
+            if (this.lastHarvestReadinessStates.TryGetValue(tile, out string? previousState)
+                && string.Equals(previousState, state, System.StringComparison.Ordinal))
+            {
+                sampleCount++;
+                continue;
+            }
+
+            this.lastHarvestReadinessStates[tile] = state;
+            this.monitor.Log(
+                $"Harvest readiness sample at tile {tile}: {state}.",
+                LogLevel.Trace);
+            sampleCount++;
+        }
     }
 
-    private sealed class ShippingBinHarvester : JunimoHarvester
+    private static bool IsHarvestable(Crop crop)
+    {
+        if (crop.indexOfHarvest is null)
+            return false;
+
+        if (crop.RegrowsAfterHarvest())
+        {
+            // A regrowing crop stays fully grown after harvest. Its day-of-current-phase
+            // must be zero before it is available again.
+            return crop.fullyGrown.Value && crop.dayOfCurrentPhase.Value <= 0;
+        }
+
+        // Non-regrowing crops can be harvestable at their final phase before the
+        // fullyGrown flag is set by the vanilla crop update.
+        return crop.phaseDays.Count > 0 && crop.currentPhase.Value >= crop.phaseDays.Count - 1;
+    }
+
+    private sealed class WorkerHarvestCollector : JunimoHarvester
     {
         private readonly Farm farm;
-        private readonly Point tile;
+        private readonly Chest? destinationChest;
+        private readonly bool destinationSelected;
+        private readonly IMonitor monitor;
+        private bool fallbackLogged;
 
-        public ShippingBinHarvester(Farm farm, Point tile)
+        public int ItemsCollected { get; private set; }
+
+        public int ChestDeposits { get; private set; }
+
+        public WorkerHarvestCollector(Farm farm, Point tile, WorkerHarvestDestination? destination, IMonitor monitor)
         {
             this.farm = farm;
-            this.tile = tile;
+            this.monitor = monitor;
+            this.destinationSelected = destination is not null;
+            if (destination is not null && WorkerChestCatalog.TryGetChest(destination, out Chest? chest))
+                this.destinationChest = chest;
             this.currentLocation = farm;
             this.Position = tile.ToVector2() * Game1.tileSize;
         }
 
         public override void tryToAddItemToHut(Item item)
         {
-            this.farm.getShippingBin(Game1.MasterPlayer).Add(item);
+            this.ItemsCollected++;
+            Item? remainder = item;
+            if (this.destinationChest is not null && !this.destinationChest.GetMutex().IsLocked())
+            {
+                try
+                {
+                    int originalStack = item.Stack;
+                    remainder = this.destinationChest.addItem(item);
+                    if (remainder is null || remainder.Stack < originalStack)
+                        this.ChestDeposits++;
+                }
+                catch (System.Exception ex)
+                {
+                    this.monitor.Log($"Worker could not add harvested items to the selected chest: {ex.Message}", LogLevel.Warn);
+                    remainder = item;
+                }
+            }
+
+            if (remainder is not null)
+            {
+                this.farm.getShippingBin(Game1.MasterPlayer).Add(remainder);
+                if (this.destinationSelected && !this.fallbackLogged)
+                {
+                    this.monitor.Log("Worker's selected chest was unavailable, locked, or full; remaining produce went to the shipping bin.", LogLevel.Warn);
+                    this.fallbackLogged = true;
+                }
+            }
             this.farm.playSound("harvest");
         }
     }

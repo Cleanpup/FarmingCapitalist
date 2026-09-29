@@ -111,7 +111,7 @@ internal sealed class ModEntry : Mod
                 + "workers assign <id> <water|harvest|tend|idle> — assign farm work or return home\n"
                 + "workers dismiss <id> — dismiss one worker\n"
                 + "workers pay — retry unpaid wages without charging paid workers again\n"
-                + "Harvested crops go to the farm shipping bin. Only the host can manage workers.", LogLevel.Info);
+                + "Choose a shared harvest destination in the Storage tab; the shipping bin is the default and overflow fallback. Only the host can manage workers.", LogLevel.Info);
             return;
         }
         if (!this.RequireWorld())

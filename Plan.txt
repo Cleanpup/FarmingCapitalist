@@ -131,6 +131,6 @@ G. Specific vanilla / SMAPI systems and decompiled files to inspect
 - ModEntry.cs
 
 H. Implemented milestone
-The first playable worker milestone is now implemented: workers can be hired with custom appearances, saved in a host-owned roster, assigned Idle/Water crops/Harvest crops/Tend crops orders, routed through the world with blocked-route recovery, and observed through the B-key management menu or console commands. Crop work is revalidated against the live farm before watering or harvesting; harvested items are sent to the farm shipping bin. See TESTING.md for manual validation.
+The first playable worker milestone is now implemented: workers can be hired with custom appearances, saved in a host-owned roster, assigned Idle/Water crops/Harvest crops/Tend crops orders, routed through the world with blocked-route recovery, and observed through the B-key management menu or console commands. Crop work is revalidated against the live farm before watering or harvesting; harvested items go to the farm shipping bin by default or to a shared chest chosen in the Storage tab, with shipping bin fallback for overflow. See TESTING.md for manual validation.
 - ModEntry.cs
 - ModEntry.cs

@@ -24,6 +24,7 @@ internal sealed class WorkerShellManager
     private readonly List<(NPC Worker, GameLocation Location)> detachedWorkers = new();
     private readonly Dictionary<string, NPC> clientAppearanceWorkers = new(StringComparer.OrdinalIgnoreCase);
     private string? lastMirrorPayload;
+    private WorkerHarvestDestination? harvestDestination;
     private int nextWorkerNumber = 1;
 
     public WorkerShellManager(IModHelper helper, IManifest manifest, IMonitor monitor)
@@ -57,6 +58,29 @@ internal sealed class WorkerShellManager
     public int GetConfiguredWorkerCount()
     {
         return this.savedWorkers.Count;
+    }
+
+    public WorkerHarvestDestination? GetHarvestDestination() => this.harvestDestination?.Clone();
+
+    public bool TrySetHarvestDestination(WorkerHarvestDestination? destination, out string message)
+    {
+        if (!this.CanManageWorkers(out message))
+            return false;
+
+        if (destination is not null && !WorkerChestCatalog.TryGetChest(destination, out _))
+        {
+            message = "That chest is no longer available. Choose another chest or the shipping bin.";
+            return false;
+        }
+
+        this.harvestDestination = destination?.Clone();
+        this.PersistRoster();
+        WorkerChestOption? selected = destination is null
+            ? null
+            : WorkerChestCatalog.GetAvailableChests().FirstOrDefault(option => option.LocationName == destination.LocationName && option.Tile == destination.Tile);
+        message = selected is null ? "Workers will place harvested items in the shipping bin."
+            : $"Workers will place harvested items in the chest at {selected.Label}.";
+        return true;
     }
 
     public void ReloadWorkerAppearance()
@@ -363,6 +387,7 @@ internal sealed class WorkerShellManager
         {
             SchemaVersion = WorkerEmploymentTerms.RosterSchemaVersion,
             NextWorkerNumber = this.nextWorkerNumber,
+            HarvestDestination = this.harvestDestination?.Clone(),
             Workers = this.savedWorkers.Select(entry => entry.Clone()).ToList(),
         };
     }
@@ -376,6 +401,7 @@ internal sealed class WorkerShellManager
 
         this.savedWorkers.Clear();
         this.savedWorkers.AddRange(this.NormalizeRosterEntries(snapshot.Workers ?? new List<WorkerRosterEntry>(), migrateEmployment: false));
+        this.harvestDestination = snapshot.HarvestDestination?.Clone();
         this.clientAppearanceWorkers.Clear();
         this.RebuildAllGeneratedSpriteSheets();
         this.RefreshClientAppearances();
@@ -582,6 +608,7 @@ internal sealed class WorkerShellManager
         this.detachedWorkers.Clear();
         this.clientAppearanceWorkers.Clear();
         this.lastMirrorPayload = null;
+        this.harvestDestination = null;
         this.nextWorkerNumber = 1;
         this.DisposeAllGeneratedSpriteSheets();
     }
@@ -592,6 +619,7 @@ internal sealed class WorkerShellManager
         // An explicitly empty roster wins over any stale legacy appearance so dismissed workers stay dismissed.
         if (rosterData is not null)
         {
+            this.harvestDestination = rosterData.HarvestDestination?.Clone();
             List<WorkerRosterEntry> entries = this.NormalizeRosterEntries(rosterData.Workers ?? new List<WorkerRosterEntry>(),
                 migrateEmployment: rosterData.SchemaVersion < WorkerEmploymentTerms.RosterSchemaVersion);
             this.nextWorkerNumber = Math.Max(Math.Max(1, rosterData.NextWorkerNumber), this.GetNextWorkerNumber(entries));
@@ -600,6 +628,7 @@ internal sealed class WorkerShellManager
         }
 
         WorkerAppearanceData? legacyAppearance = this.helper.Data.ReadSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey);
+        this.harvestDestination = null;
         if (legacyAppearance is null)
         {
             return new List<WorkerRosterEntry>();
@@ -697,7 +726,7 @@ internal sealed class WorkerShellManager
 
         if (!Context.IsMainPlayer)
         {
-            message = "Only the farm host can hire, pay, dismiss, or assign workers.";
+            message = "Only the farm host can hire, pay, dismiss, assign, or choose worker storage.";
             return false;
         }
 

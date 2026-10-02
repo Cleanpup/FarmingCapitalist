@@ -1,0 +1,22 @@
+{
+  "Idle.1": "I'm taking it easy for now. Let me know when there's work to do.",
+  "Idle.2": "Everything's quiet today. That's not a bad thing.",
+  "Idle.3": "I'll be here if you need an extra pair of hands.",
+  "WaterCrops.1": "I'll keep an eye on the soil and make sure the crops get watered.",
+  "WaterCrops.2": "Watering is straightforward work, but it makes all the difference.",
+  "WaterCrops.3": "I'll handle the dry crops. You can focus on the rest of the farm.",
+  "HarvestCrops.1": "I'll gather anything that's ready and make sure the produce gets stored safely.",
+  "HarvestCrops.2": "A ripe field doesn't stay ripe forever. I'll keep up with the harvest.",
+  "HarvestCrops.3": "I'll bring in the crops as soon as they're ready.",
+  "TendCrops.1": "I'll tend the fields and take care of whatever the crops need.",
+  "TendCrops.2": "Watering or harvesting, I'll keep the field moving along.",
+  "TendCrops.3": "The crops are in good hands. I'll handle the daily work.",
+  "CollectForage.1": "I'll gather the wild forage I can reach and bring it back safely.",
+  "CollectForage.2": "I'll keep an eye out for anything useful growing in the area.",
+  "ChopTrees.1": "I'll take care of the ordinary trees and collect what they drop.",
+  "ChopTrees.2": "I'll start with the nearest tree I can safely reach.",
+  "ChopHardwood.1": "I'll look for mahogany trees, stumps, and logs that yield hardwood.",
+  "ChopHardwood.2": "Hardwood takes more effort, but I'll bring back everything I can.",
+  "Default.1": "I'm ready when you need me.",
+  "Default.2": "What needs doing today?"
+}

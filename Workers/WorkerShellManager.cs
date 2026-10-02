@@ -112,6 +112,9 @@ internal sealed class WorkerShellManager
     }
 
     public bool TryHireWorker(WorkerAppearanceData appearance, out NPC? worker, out string message)
+        => this.TryHireWorker(appearance, WorkerProfession.Farmer, out worker, out message);
+
+    public bool TryHireWorker(WorkerAppearanceData appearance, WorkerProfession profession, out NPC? worker, out string message)
     {
         worker = null;
         if (!this.CanManageWorkers(out message))
@@ -146,6 +149,8 @@ internal sealed class WorkerShellManager
             SpawnTileX = spawnTile.X,
             SpawnTileY = spawnTile.Y,
             Appearance = appearance.Clone(),
+            Profession = Enum.IsDefined(typeof(WorkerProfession), profession) ? profession : WorkerProfession.Farmer,
+            ForageLocationName = WorkerForageAreaCatalog.DefaultLocationName,
             LastPaidDay = Game1.Date.TotalDays,
             LastWageAttemptDay = Game1.Date.TotalDays,
         };
@@ -225,6 +230,47 @@ internal sealed class WorkerShellManager
         return this.GetWorkerEntry(workerId)?.AssignedTask ?? WorkerTaskKind.Idle;
     }
 
+    public WorkerProfession GetWorkerProfession(string workerId)
+    {
+        return this.GetWorkerEntry(workerId)?.Profession ?? WorkerProfession.Farmer;
+    }
+
+    public string GetForageLocationName(string workerId)
+    {
+        return this.GetWorkerEntry(workerId)?.ForageLocationName ?? WorkerForageAreaCatalog.DefaultLocationName;
+    }
+
+    public bool TrySetForageLocation(string workerId, string locationName, out string message)
+    {
+        if (!this.CanManageWorkers(out message))
+            return false;
+
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null)
+        {
+            message = "That worker is no longer employed.";
+            return false;
+        }
+
+        if (entry.Profession != WorkerProfession.Forager)
+        {
+            message = "Only foragers have a forage area.";
+            return false;
+        }
+
+        if (!WorkerForageAreaCatalog.IsValidLocation(locationName))
+        {
+            message = "That area isn't available for foraging.";
+            return false;
+        }
+
+        entry.ForageLocationName = locationName;
+        entry.AssignedTask = WorkerTaskKind.Idle;
+        this.PersistRoster();
+        message = $"{entry.DisplayName} will now work in {WorkerForageAreaCatalog.GetDisplayName(locationName)}. Choose a new order to begin.";
+        return true;
+    }
+
     public bool TrySetAssignedTask(string workerId, WorkerTaskKind task)
     {
         if (!this.CanManageWorkers(out _) || !Enum.IsDefined(typeof(WorkerTaskKind), task))
@@ -237,6 +283,9 @@ internal sealed class WorkerShellManager
         {
             return false;
         }
+
+        if (!WorkerTaskPolicy.IsTaskAllowed(entry.Profession, task))
+            return false;
 
         entry.AssignedTask = task;
         this.PersistRoster();
@@ -529,24 +578,65 @@ internal sealed class WorkerShellManager
 
     public bool TryGetWorkerReturnTarget(NPC worker, out WorkerNavigationTarget target)
     {
-        target = new WorkerNavigationTarget(TestWorkerDefinition.LocationName, TestWorkerDefinition.SpawnTile, TestWorkerDefinition.FacingDirection);
+        WorkerNavigationTarget? firstTarget = this.GetWorkerReturnTargets(worker).FirstOrDefault();
+        if (firstTarget is null)
+        {
+            target = new WorkerNavigationTarget(TestWorkerDefinition.LocationName, TestWorkerDefinition.SpawnTile, TestWorkerDefinition.FacingDirection);
+            return false;
+        }
 
+        target = firstTarget;
+        return true;
+    }
+
+    /// <summary>Get safe, ordered farmhouse targets without changing the saved roster.</summary>
+    public IReadOnlyList<WorkerNavigationTarget> GetWorkerReturnTargets(NPC worker, IEnumerable<Point>? reservedIdleTargets = null)
+    {
         if (!this.TryGetWorkerId(worker, out string workerId))
         {
-            return false;
+            return Array.Empty<WorkerNavigationTarget>();
         }
 
         WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
-        if (entry is null)
+        GameLocation? farmhouse = Game1.getLocationFromName(TestWorkerDefinition.LocationName);
+        if (entry is null || farmhouse is null)
         {
-            return false;
+            return Array.Empty<WorkerNavigationTarget>();
         }
 
-        target = new WorkerNavigationTarget(
-            TestWorkerDefinition.LocationName,
-            new Point(entry.SpawnTileX, entry.SpawnTileY),
-            TestWorkerDefinition.FacingDirection);
-        return true;
+        HashSet<Point> reservedTiles = new();
+        foreach (WorkerRosterEntry otherEntry in this.savedWorkers)
+        {
+            if (!string.Equals(otherEntry.WorkerId, workerId, StringComparison.OrdinalIgnoreCase))
+            {
+                reservedTiles.Add(new Point(otherEntry.SpawnTileX, otherEntry.SpawnTileY));
+            }
+        }
+
+        if (reservedIdleTargets is not null)
+        {
+            reservedTiles.UnionWith(reservedIdleTargets);
+        }
+
+        HashSet<Point> entranceTiles = this.GetFarmhouseEntranceTiles(farmhouse, worker);
+        List<WorkerNavigationTarget> targets = new();
+        Point savedTile = new(entry.SpawnTileX, entry.SpawnTileY);
+        foreach (Point candidate in this.GetPreferredSpawnCandidates(savedTile, maxRadius: 8))
+        {
+            if (reservedTiles.Contains(candidate)
+                || entranceTiles.Contains(candidate)
+                || !this.IsSpawnTileAvailable(farmhouse, candidate.ToVector2(), worker))
+            {
+                continue;
+            }
+
+            targets.Add(new WorkerNavigationTarget(
+                TestWorkerDefinition.LocationName,
+                candidate,
+                TestWorkerDefinition.FacingDirection));
+        }
+
+        return targets;
     }
 
     public IReadOnlyList<WorkerSummarySnapshot> GetWorkerSummaries()
@@ -563,6 +653,8 @@ internal sealed class WorkerShellManager
             summaries.Add(new WorkerSummarySnapshot(
                 entry.WorkerId,
                 entry.DisplayName,
+                entry.Profession,
+                entry.ForageLocationName,
                 IsConfigured: true,
                 IsSpawned: worker is not null,
                 CurrentLocationName: worker?.currentLocation?.NameOrUniqueName,
@@ -621,7 +713,7 @@ internal sealed class WorkerShellManager
         {
             this.harvestDestination = rosterData.HarvestDestination?.Clone();
             List<WorkerRosterEntry> entries = this.NormalizeRosterEntries(rosterData.Workers ?? new List<WorkerRosterEntry>(),
-                migrateEmployment: rosterData.SchemaVersion < WorkerEmploymentTerms.RosterSchemaVersion);
+                migrateEmployment: rosterData.SchemaVersion <= 0);
             this.nextWorkerNumber = Math.Max(Math.Max(1, rosterData.NextWorkerNumber), this.GetNextWorkerNumber(entries));
             this.helper.Data.WriteSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey, null);
             return entries;
@@ -682,6 +774,18 @@ internal sealed class WorkerShellManager
             if (!Enum.IsDefined(typeof(WorkerTaskKind), normalized.AssignedTask))
             {
                 normalized.AssignedTask = WorkerTaskKind.Idle;
+            }
+            if (!Enum.IsDefined(typeof(WorkerProfession), normalized.Profession))
+            {
+                normalized.Profession = WorkerProfession.Farmer;
+            }
+            if (!WorkerTaskPolicy.IsTaskAllowed(normalized.Profession, normalized.AssignedTask))
+            {
+                normalized.AssignedTask = WorkerTaskKind.Idle;
+            }
+            if (!WorkerForageAreaCatalog.IsValidLocation(normalized.ForageLocationName))
+            {
+                normalized.ForageLocationName = WorkerForageAreaCatalog.DefaultLocationName;
             }
 
             // Employment prices aren't save-editable contracts yet; normalize corrupt/older values.
@@ -1213,6 +1317,61 @@ internal sealed class WorkerShellManager
                 yield return -offset;
                 yield return offset;
             }
+        }
+    }
+
+    private HashSet<Point> GetFarmhouseEntranceTiles(GameLocation farmhouse, NPC worker)
+    {
+        HashSet<Point> entranceTiles = new();
+
+        foreach (Warp warp in farmhouse.warps)
+        {
+            this.AddEntranceArea(entranceTiles, new Point(warp.X, warp.Y));
+        }
+
+        try
+        {
+            Point farmExit = farmhouse.getWarpPointTo("Farm", worker);
+            if (farmExit != Point.Zero)
+            {
+                this.AddEntranceArea(entranceTiles, farmExit);
+            }
+
+            if (farmhouse.map is not null && farmhouse.map.Layers.Count > 0)
+            {
+                xTile.Layers.Layer mapLayer = farmhouse.map.Layers[0];
+                for (int x = 0; x < mapLayer.LayerWidth; x++)
+                {
+                    for (int y = 0; y < mapLayer.LayerHeight; y++)
+                    {
+                        if (farmhouse.getWarpFromDoor(new Point(x, y), worker) is not null)
+                        {
+                            this.AddEntranceArea(entranceTiles, new Point(x, y));
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            this.monitor.Log($"Could not inspect the farmhouse exit while selecting a worker idle tile: {ex.Message}", LogLevel.Trace);
+        }
+
+        return entranceTiles;
+    }
+
+    private void AddEntranceArea(HashSet<Point> entranceTiles, Point entrance)
+    {
+        entranceTiles.Add(entrance);
+        foreach (Point offset in new[]
+        {
+            new Point(0, -1),
+            new Point(0, 1),
+            new Point(-1, 0),
+            new Point(1, 0),
+        })
+        {
+            entranceTiles.Add(new Point(entrance.X + offset.X, entrance.Y + offset.Y));
         }
     }
 

@@ -7,4 +7,7 @@ internal enum WorkerTaskKind
     WaterCrops = 1,
     HarvestCrops = 2,
     TendCrops = 3,
+    CollectForage = 4,
+    ChopTrees = 5,
+    ChopHardwood = 6,
 }

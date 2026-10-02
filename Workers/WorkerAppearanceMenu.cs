@@ -49,7 +49,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         public ClickableTextureComponent RightButton { get; }
     }
 
-    private readonly Action<WorkerAppearanceData> onSave;
+    private readonly Action<WorkerAppearanceData, WorkerProfession> onSave;
     private readonly Action? onClosed;
     private readonly string title;
     private WorkerAppearanceData? acceptedAppearance;
@@ -77,10 +77,16 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     private Action<Color>? heldColorApply;
     private int previewDirectionIndex;
     private int timesRandom;
+    private WorkerProfession selectedProfession;
+    private bool professionDropdownOpen;
+    private Rectangle professionDropdownBounds;
+    private Rectangle farmerProfessionBounds;
+    private Rectangle foragerProfessionBounds;
 
     public WorkerAppearanceMenu(
         WorkerAppearanceData initialAppearance,
-        Action<WorkerAppearanceData> onSave,
+        WorkerProfession initialProfession,
+        Action<WorkerAppearanceData, WorkerProfession> onSave,
         Action? onClosed = null,
         string title = "Worker Appearance")
         : base(
@@ -93,6 +99,9 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.onSave = onSave;
         this.onClosed = onClosed;
         this.title = title;
+        this.selectedProfession = Enum.IsDefined(typeof(WorkerProfession), initialProfession)
+            ? initialProfession
+            : WorkerProfession.Farmer;
         this.exitFunction = this.CompleteSession;
 
         this.previewFarmer = new Farmer
@@ -122,6 +131,32 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
 
     public override void receiveLeftClick(int x, int y, bool playSound = true)
     {
+        if (this.professionDropdownBounds.Contains(x, y))
+        {
+            this.professionDropdownOpen = !this.professionDropdownOpen;
+            Game1.playSound("smallSelect");
+            return;
+        }
+
+        if (this.professionDropdownOpen)
+        {
+            if (this.farmerProfessionBounds.Contains(x, y))
+            {
+                this.selectedProfession = WorkerProfession.Farmer;
+                this.professionDropdownOpen = false;
+                Game1.playSound("smallSelect");
+                return;
+            }
+            if (this.foragerProfessionBounds.Contains(x, y))
+            {
+                this.selectedProfession = WorkerProfession.Forager;
+                this.professionDropdownOpen = false;
+                Game1.playSound("smallSelect");
+                return;
+            }
+            this.professionDropdownOpen = false;
+        }
+
         if (this.okButton.containsPoint(x, y))
         {
             Game1.playSound("smallSelect");
@@ -256,6 +291,8 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.femaleButton.draw(b);
         this.randomButton.draw(b);
 
+        this.DrawProfessionSelector(b);
+
         ClickableTextureComponent selectedGenderButton = this.previewFarmer.IsMale ? this.maleButton : this.femaleButton;
         b.Draw(Game1.mouseCursors, selectedGenderButton.bounds, Game1.getSourceRectForStandardTileSheet(Game1.mouseCursors, 34), Color.White);
 
@@ -374,6 +411,11 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.eyeColorLabelPosition = new Vector2(labelX, pickerY + 16);
         this.hairColorLabelPosition = new Vector2(labelX, pickerY + 84);
         this.pantsColorLabelPosition = new Vector2(labelX, pickerY + 152);
+        int professionX = this.portraitBox.Right + 76;
+        int professionWidth = Math.Max(190, this.xPositionOnScreen + this.width - professionX - 74);
+        this.professionDropdownBounds = new Rectangle(professionX, this.portraitBox.Y + 36, professionWidth, 54);
+        this.farmerProfessionBounds = new Rectangle(professionX, this.professionDropdownBounds.Bottom + 2, professionWidth, 48);
+        this.foragerProfessionBounds = new Rectangle(professionX, this.farmerProfessionBounds.Bottom + 2, professionWidth, 48);
         this.SyncColorPickersFromPreview();
     }
 
@@ -389,13 +431,35 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         {
             if (this.acceptedAppearance is not null)
             {
-                this.onSave(this.acceptedAppearance);
+                this.onSave(this.acceptedAppearance, this.selectedProfession);
             }
         }
         finally
         {
             this.onClosed?.Invoke();
         }
+    }
+
+    private void DrawProfessionSelector(SpriteBatch b)
+    {
+        Utility.drawTextWithShadow(b, "Worker job", Game1.smallFont,
+            new Vector2(this.professionDropdownBounds.X, this.professionDropdownBounds.Y - 31), Game1.textColor);
+        this.DrawProfessionRow(b, this.professionDropdownBounds,
+            $"{WorkerTaskPolicy.GetProfessionLabel(this.selectedProfession)}  {(this.professionDropdownOpen ? "^" : "v")}", selected: true);
+        if (!this.professionDropdownOpen)
+            return;
+
+        this.DrawProfessionRow(b, this.farmerProfessionBounds, "Farmer", this.selectedProfession == WorkerProfession.Farmer);
+        this.DrawProfessionRow(b, this.foragerProfessionBounds, "Forager", this.selectedProfession == WorkerProfession.Forager);
+    }
+
+    private void DrawProfessionRow(SpriteBatch b, Rectangle bounds, string text, bool selected)
+    {
+        IClickableMenu.drawTextureBox(b, bounds.X, bounds.Y, bounds.Width, bounds.Height,
+            selected ? new Color(255, 232, 174) : Color.White);
+        Vector2 size = Game1.smallFont.MeasureString(text);
+        b.DrawString(Game1.smallFont, text,
+            new Vector2(bounds.X + 14, bounds.Y + (bounds.Height - size.Y) / 2f), Game1.textColor);
     }
 
     private void AddSelectionField(string label, int rowY, Func<string> getSubLabel, Action<int> change)

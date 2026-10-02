@@ -17,7 +17,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private enum WorkerMenuTab
     {
         Roster,
-        FarmerJobs,
+        Jobs,
         Storage,
     }
 
@@ -30,13 +30,14 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private const int ConfirmId = 90005;
     private const int CancelId = 90006;
     private const int RosterTabId = 90007;
-    private const int FarmerJobsTabId = 90008;
+    private const int JobsTabId = 90008;
     private const int StorageTabId = 90009;
     private const int OrderIdBase = 90010;
     private const int DestinationDropdownId = 90020;
     private const int DestinationPreviousId = 90021;
     private const int DestinationNextId = 90022;
     private const int DestinationRowIdBase = 92000;
+    private const int ForageAreaId = 90023;
     private const int Padding = 20;
     private const int Gap = 12;
     private static readonly Color Ink = new(91, 48, 30);
@@ -45,11 +46,6 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private static readonly Color PaperShade = new(244, 207, 148);
     private static readonly Color Wood = new(139, 77, 39);
     private static readonly Color Leaf = new(85, 128, 61);
-    private static readonly WorkerTaskKind[] TaskKinds =
-    {
-        WorkerTaskKind.WaterCrops, WorkerTaskKind.HarvestCrops, WorkerTaskKind.TendCrops, WorkerTaskKind.Idle,
-    };
-
     private readonly WorkerShellManager workerShellManager;
     private readonly WorkerBehaviorManager workerBehaviorManager;
     private readonly WorkerCustomizationManager workerCustomizationManager;
@@ -67,11 +63,12 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private ClickableComponent confirmButton = null!;
     private ClickableComponent cancelButton = null!;
     private ClickableComponent rosterTabButton = null!;
-    private ClickableComponent farmerJobsTabButton = null!;
+    private ClickableComponent jobsTabButton = null!;
     private ClickableComponent storageTabButton = null!;
     private ClickableComponent destinationDropdownButton = null!;
     private ClickableComponent destinationPreviousButton = null!;
     private ClickableComponent destinationNextButton = null!;
+    private ClickableComponent forageAreaButton = null!;
     private Rectangle headerBounds;
     private Rectangle rosterBounds;
     private Rectangle detailsBounds;
@@ -246,11 +243,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
             Game1.playSound("smallSelect");
             return;
         }
-        if (this.farmerJobsTabButton.containsPoint(x, y))
+        if (this.jobsTabButton.containsPoint(x, y))
         {
-            this.currentTab = WorkerMenuTab.FarmerJobs;
+            this.currentTab = WorkerMenuTab.Jobs;
             this.destinationDropdownOpen = false;
-            this.RefreshClickableComponents(FarmerJobsTabId);
+            this.RefreshClickableComponents(JobsTabId);
             Game1.playSound("smallSelect");
             return;
         }
@@ -324,15 +321,40 @@ internal sealed class WorkerControlMenu : IClickableMenu
             }
         }
 
-        if (this.currentTab == WorkerMenuTab.FarmerJobs)
+        if (this.currentTab == WorkerMenuTab.Jobs)
         {
+            WorkerSummarySnapshot? selectedWorker = this.GetSelectedWorker();
+            if (selectedWorker is { Profession: WorkerProfession.Forager } forager && this.forageAreaButton.containsPoint(x, y))
+            {
+                if (this.EnsureSelectedHostWorker())
+                {
+                    IReadOnlyList<WorkerForageArea> areas = WorkerForageAreaCatalog.GetAvailableAreas();
+                    int current = -1;
+                    for (int i = 0; i < areas.Count; i++)
+                    {
+                        if (areas[i].LocationName == forager.ForageLocationName)
+                            current = i;
+                    }
+                    if (areas.Count > 0)
+                    {
+                        WorkerForageArea next = areas[(current + 1 + areas.Count) % areas.Count];
+                        bool success = this.workerBehaviorManager.TrySetForageLocation(forager.WorkerId, next.LocationName, out string message);
+                        this.SetFeedback(message, !success);
+                        this.RefreshSnapshots();
+                        this.RebuildLayout(ForageAreaId);
+                    }
+                }
+                return;
+            }
+
+            IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
             for (int index = 0; index < this.orderButtons.Count; index++)
             {
                 if (!this.orderButtons[index].containsPoint(x, y))
                     continue;
                 if (this.EnsureSelectedHostWorker())
                 {
-                    bool success = this.workerBehaviorManager.TryAssignTask(this.selectedWorkerId!, TaskKinds[index], out string message);
+                    bool success = this.workerBehaviorManager.TryAssignTask(this.selectedWorkerId!, tasks[index], out string message);
                     this.SetFeedback(message, !success);
                     this.RefreshSnapshots();
                     this.currentlySnappedComponent = this.orderButtons[index];
@@ -403,7 +425,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         if (this.currentTab == WorkerMenuTab.Storage && this.destinationDropdownButton.containsPoint(x, y))
             this.hoverText = "Choose the shared destination for every worker's harvested items.";
-        if (this.currentTab != WorkerMenuTab.FarmerJobs)
+        if (this.currentTab != WorkerMenuTab.Jobs)
         {
             return;
         }
@@ -411,7 +433,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         {
             if (this.orderButtons[index].containsPoint(x, y))
             {
-                this.hoverText = GetTaskDescription(TaskKinds[index]);
+                this.hoverText = GetTaskDescription(this.GetSelectedTasks()[index]);
             }
         }
         base.performHoverAction(x, y);
@@ -513,8 +535,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.hireButton = Button(HireId, new Rectangle(right - hireWidth, this.headerBounds.Y + 4, hireWidth, 56));
         int tabWidth = Math.Min(160, Math.Max(106, (this.headerBounds.Width - hireWidth - Gap * 4 - 8) / 3));
         this.rosterTabButton = Button(RosterTabId, new Rectangle(this.headerBounds.X + 4, this.headerBounds.Y + 4, tabWidth, 56));
-        this.farmerJobsTabButton = Button(FarmerJobsTabId, new Rectangle(this.rosterTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
-        this.storageTabButton = Button(StorageTabId, new Rectangle(this.farmerJobsTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
+        this.jobsTabButton = Button(JobsTabId, new Rectangle(this.rosterTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
+        this.storageTabButton = Button(StorageTabId, new Rectangle(this.jobsTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
         int managementWidth = Math.Min(132, Math.Max(80, this.footerBounds.Width / 5));
         this.dismissButton = Button(DismissId, new Rectangle(right - managementWidth, this.footerBounds.Y + 4, managementWidth, 50));
         this.payButton = Button(PayId, new Rectangle(this.dismissButton.bounds.Left - managementWidth - Gap, this.footerBounds.Y + 4, managementWidth, 50));
@@ -533,14 +555,18 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.workerRows.Add(Button(WorkerRowIdBase + i, new Rectangle(this.rosterBounds.X + 14, rowsTop + (i - this.firstVisibleWorker) * (rowHeight + 6), this.rosterBounds.Width - 28, rowHeight)));
         }
         this.orderButtons.Clear();
-        int ordersTop = this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 56 : 12);
+        bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager };
+        int ordersTop = this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 56 : 12) + (showForageArea ? 58 : 0);
         int cardGap = 8;
         int cardWidth = Math.Max(1, (this.ordersBounds.Width - 28 - cardGap) / 2);
         int cardHeight = Math.Max(1, (this.ordersBounds.Bottom - 14 - ordersTop - cardGap) / 2);
-        for (int i = 0; i < TaskKinds.Length; i++)
+        IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
+        for (int i = 0; i < tasks.Count; i++)
         {
             this.orderButtons.Add(Button(OrderIdBase + i, new Rectangle(this.ordersBounds.X + 14 + (i % 2) * (cardWidth + cardGap), ordersTop + (i / 2) * (cardHeight + cardGap), cardWidth, cardHeight)));
         }
+        this.forageAreaButton = Button(ForageAreaId, new Rectangle(this.ordersBounds.X + 18,
+            this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 60 : 8), this.ordersBounds.Width - 36, 48));
         bool tallStoragePanel = this.ordersBounds.Height >= 220;
         this.destinationDropdownButton = Button(DestinationDropdownId, new Rectangle(
             this.ordersBounds.X + 18, this.ordersBounds.Y + (tallStoragePanel ? 70 : 14),
@@ -584,12 +610,16 @@ internal sealed class WorkerControlMenu : IClickableMenu
         else
         {
             this.allClickableComponents.Add(this.rosterTabButton);
-            this.allClickableComponents.Add(this.farmerJobsTabButton);
+            this.allClickableComponents.Add(this.jobsTabButton);
             this.allClickableComponents.Add(this.storageTabButton);
             this.allClickableComponents.AddRange(this.workerRows);
             this.allClickableComponents.Add(this.hireButton);
-            if (this.currentTab == WorkerMenuTab.FarmerJobs)
+            if (this.currentTab == WorkerMenuTab.Jobs)
+            {
                 this.allClickableComponents.AddRange(this.orderButtons);
+                if (this.GetSelectedWorker() is { Profession: WorkerProfession.Forager })
+                    this.allClickableComponents.Add(this.forageAreaButton);
+            }
             if (this.currentTab == WorkerMenuTab.Storage)
             {
                 this.allClickableComponents.Add(this.destinationDropdownButton);
@@ -657,7 +687,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     {
         this.DrawPanel(b, this.headerBounds);
         this.DrawButton(b, this.rosterTabButton, "Roster", true, Color.White, WorkerMenuArt.Icon.Ledger, this.currentTab == WorkerMenuTab.Roster);
-        this.DrawButton(b, this.farmerJobsTabButton, "Farmer jobs", true, Color.White, WorkerMenuArt.Icon.Sprout, this.currentTab == WorkerMenuTab.FarmerJobs);
+        this.DrawButton(b, this.jobsTabButton, "Jobs", true, Color.White, WorkerMenuArt.Icon.Sprout, this.currentTab == WorkerMenuTab.Jobs);
         this.DrawButton(b, this.storageTabButton, "Storage", true, Color.White, WorkerMenuArt.Icon.Chest, this.currentTab == WorkerMenuTab.Storage);
         this.DrawButton(b, this.hireButton, $"Hire worker  {WorkerEmploymentTerms.HiringCost}g", Context.IsMainPlayer, Color.White, WorkerMenuArt.Icon.Coin);
         Rectangle title = new(this.storageTabButton.bounds.Right + 12, this.headerBounds.Y + 14, this.hireButton.bounds.Left - this.storageTabButton.bounds.Right - 24, 34);
@@ -721,9 +751,12 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawWorkerFace(b, worker.WorkerId, new Rectangle(portraitFrame.X + 11, portraitFrame.Y + 11, 52, 52));
         int infoX = portraitFrame.Right + 16;
         int infoWidth = Math.Max(1, content.Right - infoX);
-        this.DrawText(b, worker.DisplayName, new Rectangle(infoX, content.Y, infoWidth, 30), Ink);
+        this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}", new Rectangle(infoX, content.Y, infoWidth, 30), Ink);
         this.DrawText(b, GetTaskLabel(runtime.AssignedTask), new Rectangle(infoX, content.Y + 34, infoWidth, 28), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
-        this.DrawText(b, runtime.Status, new Rectangle(infoX, content.Y + 56, infoWidth, 24), MutedInk);
+        string status = worker.Profession == WorkerProfession.Forager
+            ? $"{runtime.Status} • {WorkerForageAreaCatalog.GetDisplayName(worker.ForageLocationName)}"
+            : runtime.Status;
+        this.DrawText(b, status, new Rectangle(infoX, content.Y + 56, infoWidth, 24), MutedInk);
         int metricsY = this.detailsBounds.Bottom - 44;
         DrawRect(b, new Rectangle(this.detailsBounds.X + 20, metricsY - 8, this.detailsBounds.Width - 40, 2), PaperShade);
         this.DrawText(b, location, new Rectangle(this.detailsBounds.X + 22, metricsY, Math.Max(1, this.detailsBounds.Width - 215), 30), MutedInk);
@@ -738,13 +771,13 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.DrawStoragePanel(b);
             return;
         }
-        if (this.currentTab != WorkerMenuTab.FarmerJobs)
+        if (this.currentTab != WorkerMenuTab.Jobs)
         {
             this.DrawSectionHeading(b, this.ordersBounds, "A DAY ON THE FARM", string.Empty);
             if (this.ordersBounds.Height < 240)
             {
                 WorkerMenuArt.Draw(b, WorkerMenuArt.Icon.Sprout, this.ordersBounds.Center.X - 18, this.ordersBounds.Y + 55);
-                this.DrawText(b, "Choose Farmer jobs to set a daily order.", new Rectangle(this.ordersBounds.X + Padding, this.ordersBounds.Y + 105, this.ordersBounds.Width - Padding * 2, 45), Ink, centered: true);
+                this.DrawText(b, "Choose Jobs to set a daily order.", new Rectangle(this.ordersBounds.X + Padding, this.ordersBounds.Y + 105, this.ordersBounds.Width - Padding * 2, 45), Ink, centered: true);
                 return;
             }
             int iconY = this.ordersBounds.Y + Math.Max(72, this.ordersBounds.Height / 3);
@@ -755,14 +788,14 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.DrawText(b, "HARVEST", new Rectangle(centerX - 143, iconY + 48, 96, 28), MutedInk, centered: true);
             this.DrawText(b, "GROW", new Rectangle(centerX - 48, iconY + 48, 96, 28), MutedInk, centered: true);
             this.DrawText(b, "WATER", new Rectangle(centerX + 48, iconY + 48, 96, 28), MutedInk, centered: true);
-            this.DrawText(b, "Choose Farmer jobs to set a daily order.", new Rectangle(this.ordersBounds.X + Padding, iconY + 105, this.ordersBounds.Width - Padding * 2, 54), Ink, centered: true);
+            this.DrawText(b, "Choose Jobs to set a daily order.", new Rectangle(this.ordersBounds.X + Padding, iconY + 105, this.ordersBounds.Width - Padding * 2, 54), Ink, centered: true);
             if (this.ordersBounds.Height >= 330)
             {
                 Rectangle orderSummary = new(this.ordersBounds.X + 38, this.ordersBounds.Bottom - 90, this.ordersBounds.Width - 76, 63);
                 this.DrawCard(b, orderSummary, Paper, false);
                 WorkerSummarySnapshot? currentWorker = this.GetSelectedWorker();
-                WorkerTaskKind currentOrder = currentWorker is WorkerSummarySnapshot selectedWorker
-                    ? this.runtimeSnapshots[selectedWorker.WorkerId].AssignedTask
+                WorkerTaskKind currentOrder = currentWorker is WorkerSummarySnapshot summaryWorker
+                    ? this.runtimeSnapshots[summaryWorker.WorkerId].AssignedTask
                     : WorkerTaskKind.Idle;
                 WorkerMenuArt.Draw(b, currentOrder == WorkerTaskKind.Idle ? WorkerMenuArt.Icon.Home : WorkerMenuArt.Icon.Ledger, orderSummary.X + 18, orderSummary.Y + 13, 3);
                 this.DrawText(b, "CURRENT ORDER", new Rectangle(orderSummary.X + 69, orderSummary.Y + 8, orderSummary.Width - 85, 23), MutedInk);
@@ -776,11 +809,19 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         bool enabled = Context.IsMainPlayer && this.selectedWorkerId is not null;
         WorkerTaskKind? assigned = this.selectedWorkerId is not null && this.runtimeSnapshots.TryGetValue(this.selectedWorkerId, out WorkerRuntimeSnapshot runtime) ? runtime.AssignedTask : null;
+        WorkerSummarySnapshot? selectedWorker = this.GetSelectedWorker();
+        if (selectedWorker is { Profession: WorkerProfession.Forager } forager)
+        {
+            this.DrawButton(b, this.forageAreaButton,
+                $"Forage area: {WorkerForageAreaCatalog.GetDisplayName(forager.ForageLocationName)}  >",
+                enabled, Color.White, WorkerMenuArt.Icon.Sprout);
+        }
+        IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
         for (int i = 0; i < this.orderButtons.Count; i++)
         {
             ClickableComponent button = this.orderButtons[i];
-            bool selected = assigned == TaskKinds[i];
-            this.DrawOrderCard(b, button, TaskKinds[i], enabled, selected);
+            bool selected = assigned == tasks[i];
+            this.DrawOrderCard(b, button, tasks[i], enabled, selected);
         }
     }
 
@@ -899,6 +940,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerTaskKind.WaterCrops => WorkerMenuArt.Icon.Water,
             WorkerTaskKind.HarvestCrops => WorkerMenuArt.Icon.Harvest,
             WorkerTaskKind.TendCrops => WorkerMenuArt.Icon.Tend,
+            WorkerTaskKind.CollectForage => WorkerMenuArt.Icon.Harvest,
+            WorkerTaskKind.ChopTrees => WorkerMenuArt.Icon.Tend,
+            WorkerTaskKind.ChopHardwood => WorkerMenuArt.Icon.Ledger,
             _ => WorkerMenuArt.Icon.Home,
         };
         if (button.bounds.Height < 90)
@@ -925,6 +969,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 WorkerTaskKind.WaterCrops => "Water dry crops",
                 WorkerTaskKind.HarvestCrops => "Gather ripe produce",
                 WorkerTaskKind.TendCrops => "Harvest, then water",
+                WorkerTaskKind.CollectForage => "Gather wild items",
+                WorkerTaskKind.ChopTrees => "Fell ordinary trees",
+                WorkerTaskKind.ChopHardwood => "Clear hardwood sources",
                 _ => "Return to the house",
             };
             this.DrawText(b, description, new Rectangle(button.bounds.X + 18, button.bounds.Y + 75, button.bounds.Width - 36, Math.Max(1, button.bounds.Height - 88)), enabled ? MutedInk : MutedInk * 0.7f);
@@ -969,6 +1016,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
         return null;
     }
 
+    private IReadOnlyList<WorkerTaskKind> GetSelectedTasks()
+    {
+        return WorkerTaskPolicy.GetTasks(this.GetSelectedWorker()?.Profession ?? WorkerProfession.Farmer);
+    }
+
     private void SelectWorker(string workerId)
     {
         if (this.selectedWorkerId != workerId)
@@ -976,6 +1028,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.selectedWorkerId = workerId;
             this.feedback = "Choose a daily order below. Close the menu to watch work continue.";
             this.feedbackIsError = false;
+            int index = this.workerSnapshots.FindIndex(snapshot => snapshot.WorkerId == workerId);
+            this.RebuildLayout(index >= 0 ? WorkerRowIdBase + index : null);
         }
     }
 
@@ -1113,6 +1167,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.WaterCrops => "Water crops",
         WorkerTaskKind.HarvestCrops => "Harvest crops",
         WorkerTaskKind.TendCrops => "Tend crops",
+        WorkerTaskKind.CollectForage => "Collect forage",
+        WorkerTaskKind.ChopTrees => "Cut down trees",
+        WorkerTaskKind.ChopHardwood => "Cut hardwood",
         _ => "Idle / return home",
     };
 
@@ -1121,6 +1178,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.WaterCrops => "Walk to dry, growing crops on the farm and water them. Rain and already-watered crops are skipped.",
         WorkerTaskKind.HarvestCrops => "Walk to ripe crops on the farm and harvest them. The worker checks again when there is no work left.",
         WorkerTaskKind.TendCrops => "Harvest ripe crops and water growing crops on the farm. Workers share available jobs.",
+        WorkerTaskKind.CollectForage => "Walk to the nearest reachable wild forage item in the selected outdoor area and collect it.",
+        WorkerTaskKind.ChopTrees => "Walk to the nearest reachable ordinary tree in the selected area, cut it down, and store its drops.",
+        WorkerTaskKind.ChopHardwood => "Walk to the nearest reachable hardwood source, including mahogany trees and large stumps or logs.",
         _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",
     };
 }

@@ -15,22 +15,22 @@ internal sealed class WorkerSpriteSheetBuilder
     private const float BakeScale = 4f;
     private static readonly GeneratedFrameSpec[] BaseFrameLayout =
     {
-        new(0, 0, 2, 1, false),
-        new(1, 0, 2, 0, false),
-        new(2, 0, 2, 2, false),
-        new(3, 0, 2, 0, false),
-        new(0, 1, 1, 7, false),
-        new(1, 1, 1, 6, false),
-        new(2, 1, 1, 8, false),
-        new(3, 1, 1, 6, false),
-        new(0, 2, 0, 13, false),
-        new(1, 2, 0, 12, false),
-        new(2, 2, 0, 14, false),
-        new(3, 2, 0, 12, false),
-        new(0, 3, 3, 7, true),
-        new(1, 3, 3, 6, true),
-        new(2, 3, 3, 8, true),
-        new(3, 3, 3, 6, true),
+        new(0, 0, 2, 0, false),
+        new(1, 0, 2, 1, false),
+        new(2, 0, 2, 0, false),
+        new(3, 0, 2, 2, false),
+        new(0, 1, 1, 6, false),
+        new(1, 1, 1, 7, false),
+        new(2, 1, 1, 6, false),
+        new(3, 1, 1, 8, false),
+        new(0, 2, 0, 12, false),
+        new(1, 2, 0, 13, false),
+        new(2, 2, 0, 12, false),
+        new(3, 2, 0, 14, false),
+        new(0, 3, 3, 6, true),
+        new(1, 3, 3, 7, true),
+        new(2, 3, 3, 6, true),
+        new(3, 3, 3, 8, true),
     };
 
     private readonly IMonitor monitor;

@@ -16,6 +16,10 @@ internal sealed class WorkerRosterEntry
 
     public WorkerAppearanceData Appearance { get; set; } = WorkerAppearanceData.CreateDefault();
 
+    public WorkerProfession Profession { get; set; } = WorkerProfession.Farmer;
+
+    public string ForageLocationName { get; set; } = WorkerForageAreaCatalog.DefaultLocationName;
+
     public WorkerTaskKind AssignedTask { get; set; } = WorkerTaskKind.Idle;
 
     public int DailyWage { get; set; } = WorkerEmploymentTerms.DailyWage;
@@ -35,6 +39,8 @@ internal sealed class WorkerRosterEntry
             SpawnTileX = this.SpawnTileX,
             SpawnTileY = this.SpawnTileY,
             Appearance = this.Appearance?.Clone() ?? WorkerAppearanceData.CreateDefault(),
+            Profession = this.Profession,
+            ForageLocationName = this.ForageLocationName,
             AssignedTask = this.AssignedTask,
             DailyWage = this.DailyWage,
             LastPaidDay = this.LastPaidDay,

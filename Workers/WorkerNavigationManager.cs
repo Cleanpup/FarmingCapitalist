@@ -10,6 +10,17 @@ namespace FarmingCapitalist.Workers;
 
 internal sealed class WorkerNavigationManager
 {
+    private sealed class PlannedWarpTransition
+    {
+        public string TargetLocationName { get; init; } = string.Empty;
+
+        public Point TargetTile { get; init; }
+
+        public Point ActivationTile { get; init; }
+
+        public Point WarpTile { get; init; }
+    }
+
     private sealed class ActiveWorkerRoute
     {
         public WorkerNavigationTarget Target { get; init; } = new WorkerNavigationTarget(string.Empty, Point.Zero, 2);
@@ -17,6 +28,8 @@ internal sealed class WorkerNavigationManager
         public string TriggerReason { get; init; } = string.Empty;
 
         public string? LastObservedLocationName { get; set; }
+
+        public string LegStartLocationName { get; init; } = string.Empty;
 
         public Vector2 LastObservedPosition { get; set; }
 
@@ -27,6 +40,8 @@ internal sealed class WorkerNavigationManager
         public int RetryCount { get; set; }
 
         public PathFindController? Controller { get; set; }
+
+        public PlannedWarpTransition? WarpTransition { get; init; }
     }
 
     private const int MaxStalledTicks = 180;
@@ -46,8 +61,7 @@ internal sealed class WorkerNavigationManager
         routeLength = 0;
         if (!Context.IsWorldReady
             || !Context.IsMainPlayer
-            || worker.currentLocation is null
-            || worker.currentLocation != Game1.getLocationFromName(TestWorkerDefinition.LocationName))
+            || worker.currentLocation is null)
         {
             return false;
         }
@@ -62,7 +76,7 @@ internal sealed class WorkerNavigationManager
         return true;
     }
 
-    public bool TryStartTravel(NPC worker, WorkerNavigationTarget target, string triggerReason)
+    public bool TryStartTravel(NPC worker, WorkerNavigationTarget target, string triggerReason, string? avoidFirstHopLocation = null)
     {
         if (!Context.IsWorldReady || !Context.IsMainPlayer || this.HasForeignController(worker))
         {
@@ -101,6 +115,7 @@ internal sealed class WorkerNavigationManager
         }
 
         SchedulePathDescription? routeDescription = null;
+        PlannedWarpTransition? warpTransition = null;
         try
         {
             if (worker.currentLocation == destination)
@@ -111,11 +126,18 @@ internal sealed class WorkerNavigationManager
                     routeDescription = new SchedulePathDescription(path, target.FacingDirection, null, null, target.LocationName, target.Tile);
                 }
             }
-            else if (this.TryGetFallbackLocationRoute(worker.currentLocation.NameOrUniqueName, target.LocationName) is not null)
+            else if (this.GetFallbackLocationRoutes(worker.currentLocation.NameOrUniqueName, target.LocationName, avoidFirstHopLocation).Count > 0)
             {
-                if (this.TryBuildFallbackRoute(worker, target, out SchedulePathDescription fallbackRoute, out _))
+                if (this.TryBuildFallbackRoute(
+                        worker,
+                        target,
+                        avoidFirstHopLocation,
+                        out SchedulePathDescription fallbackRoute,
+                        out _,
+                        out PlannedWarpTransition? fallbackWarpTransition))
                 {
                     routeDescription = fallbackRoute;
+                    warpTransition = fallbackWarpTransition;
                 }
             }
             else
@@ -163,10 +185,12 @@ internal sealed class WorkerNavigationManager
             Target = target,
             TriggerReason = triggerReason,
             LastObservedLocationName = worker.currentLocation.NameOrUniqueName,
+            LegStartLocationName = worker.currentLocation.NameOrUniqueName,
             LastObservedPosition = worker.Position,
             RouteStartTick = Game1.ticks,
             StalledTicks = 0,
             Controller = worker.controller,
+            WarpTransition = warpTransition,
         };
 
         this.monitor.Log(
@@ -211,12 +235,41 @@ internal sealed class WorkerNavigationManager
             if (this.IsAtTarget(worker, route.Target))
             {
                 int elapsedTicks = Math.Max(0, Game1.ticks - route.RouteStartTick);
-                this.StopWorkerNavigation(worker);
-                this.SnapWorkerToIdleFacing(worker, route.Target.FacingDirection);
+                this.ApplyIdlePose(worker);
                 this.monitor.Log(
                     $"{worker.displayName} navigation reached {route.Target.LocationName} tile {route.Target.Tile} after {elapsedTicks} ticks (trigger: {route.TriggerReason}).",
                     LogLevel.Trace);
                 this.ClearActiveRoute(workerId);
+                continue;
+            }
+
+            string currentLocationName = worker.currentLocation?.NameOrUniqueName ?? "unknown";
+            bool legHasNoSteps = worker.controller?.pathToEndPoint is not { Count: > 0 };
+            if (route.WarpTransition is PlannedWarpTransition transition
+                && string.Equals(currentLocationName, route.LegStartLocationName, StringComparison.OrdinalIgnoreCase)
+                && worker.TilePoint == transition.ActivationTile
+                && legHasNoSteps)
+            {
+                string previousLocationName = route.LegStartLocationName;
+                WorkerNavigationTarget finalTarget = route.Target;
+                this.StopTravel(worker);
+                Game1.warpCharacter(worker, transition.TargetLocationName, transition.TargetTile);
+                this.monitor.Log(
+                    $"{worker.displayName} completed warp leg {previousLocationName} {transition.WarpTile} -> "
+                    + $"{transition.TargetLocationName} {transition.TargetTile} from reachable edge tile {transition.ActivationTile}.",
+                    LogLevel.Trace);
+                this.TryStartTravel(worker, finalTarget, "continue after location warp", previousLocationName);
+                continue;
+            }
+
+            bool reachedNextLocation = !string.Equals(currentLocationName, route.LegStartLocationName, StringComparison.OrdinalIgnoreCase);
+            if (reachedNextLocation && legHasNoSteps)
+            {
+                this.monitor.Log(
+                    $"{worker.displayName} reached intermediate location {currentLocationName}; replanning the next collision-aware leg to {route.Target.LocationName} {route.Target.Tile}.",
+                    LogLevel.Trace);
+                this.StopTravel(worker);
+                this.TryStartTravel(worker, route.Target, "continue after location warp", route.LegStartLocationName);
                 continue;
             }
 
@@ -231,7 +284,6 @@ internal sealed class WorkerNavigationManager
                 continue;
             }
 
-            string currentLocationName = worker.currentLocation?.NameOrUniqueName ?? "unknown";
             if (currentLocationName == route.LastObservedLocationName && worker.Position == route.LastObservedPosition)
             {
                 route.StalledTicks++;
@@ -340,122 +392,268 @@ internal sealed class WorkerNavigationManager
 
     public void StopWorker(NPC worker)
     {
+        if (this.HasForeignController(worker))
+        {
+            return;
+        }
+
+        this.StopTravel(worker);
+        this.StopWorkerNavigation(worker);
+    }
+
+    private void StopWorkerNavigation(NPC worker)
+    {
         worker.Halt();
         worker.controller = null;
         worker.DirectionsToNewLocation = null;
     }
-
-    private void StopWorkerNavigation(NPC worker) => this.StopWorker(worker);
 
     private void ClearActiveRoute(string workerId)
     {
         this.activeRoutes.Remove(workerId);
     }
 
-    private void SnapWorkerToIdleFacing(NPC worker, int facingDirection)
+    public void ApplyIdlePose(NPC worker)
     {
-        worker.Halt();
-        worker.FacingDirection = facingDirection;
-        worker.Sprite?.faceDirectionStandard(facingDirection);
+        if (this.HasForeignController(worker))
+        {
+            return;
+        }
+
+        this.StopTravel(worker);
+        this.StopWorkerNavigation(worker);
+        worker.FacingDirection = TestWorkerDefinition.FacingDirection;
+        if (worker.Sprite is not null)
+        {
+            worker.Sprite.StopAnimation();
+            worker.Sprite.standAndFaceDirection(TestWorkerDefinition.FacingDirection);
+            worker.Sprite.CurrentFrame = 0;
+            worker.Sprite.UpdateSourceRect();
+        }
     }
 
-    private bool TryBuildFallbackRoute(NPC worker, WorkerNavigationTarget target, out SchedulePathDescription routeDescription, out string fallbackDescription)
+    private bool TryBuildFallbackRoute(
+        NPC worker,
+        WorkerNavigationTarget target,
+        string? avoidFirstHopLocation,
+        out SchedulePathDescription routeDescription,
+        out string fallbackDescription,
+        out PlannedWarpTransition? warpTransition)
     {
         routeDescription = new SchedulePathDescription(new Stack<Point>(), target.FacingDirection, null, null, target.LocationName, target.Tile);
         fallbackDescription = string.Empty;
+        warpTransition = null;
 
         if (worker.currentLocation is null)
         {
             return false;
         }
 
-        string[]? locationRoute = this.TryGetFallbackLocationRoute(worker.currentLocation.NameOrUniqueName, target.LocationName);
-        if (locationRoute is null)
+        GameLocation currentLocation = worker.currentLocation;
+        IReadOnlyList<string[]> locationRoutes = this.GetFallbackLocationRoutes(
+            currentLocation.NameOrUniqueName,
+            target.LocationName,
+            avoidFirstHopLocation);
+        foreach (string[] locationRoute in locationRoutes)
         {
-            return false;
-        }
-
-        Stack<Point>? route = this.BuildManualScheduleRoute(worker, worker.TilePoint, locationRoute, target);
-        if (route is null || route.Count == 0)
-        {
-            return false;
-        }
-
-        routeDescription = new SchedulePathDescription(route, target.FacingDirection, null, null, target.LocationName, target.Tile);
-        fallbackDescription = string.Join(" -> ", locationRoute);
-        return true;
-    }
-
-    private string[]? TryGetFallbackLocationRoute(string startLocationName, string targetLocationName)
-    {
-        if (startLocationName == "FarmHouse" && targetLocationName == "Farm")
-        {
-            return new[] { "FarmHouse", "Farm" };
-        }
-
-        if (startLocationName == "Farm" && targetLocationName == "FarmHouse")
-        {
-            return new[] { "Farm", "FarmHouse" };
-        }
-
-        return null;
-    }
-
-    private Stack<Point>? BuildManualScheduleRoute(NPC worker, Point startTile, string[] locationRoute, WorkerNavigationTarget target)
-    {
-        Stack<Point> path = new();
-        Point locationStartPoint = startTile;
-
-        for (int i = 0; i < locationRoute.Length; i++)
-        {
-            GameLocation currentLocation = Game1.RequireLocation(locationRoute[i]);
-            if (i < locationRoute.Length - 1)
+            string nextLocationName = locationRoute[1];
+            if (!this.TryBuildBestWarpLeg(worker, currentLocation, nextLocationName,
+                    out Stack<Point>? route, out Point warpPoint, out Point warpTarget, out Point activationTile))
             {
-                string nextLocationName = locationRoute[i + 1];
-                Point warpPoint = currentLocation.getWarpPointTo(nextLocationName, worker);
-                if (warpPoint == Point.Zero)
-                {
-                    this.monitor.Log(
-                        $"Fallback routing failed because {currentLocation.NameOrUniqueName} has no warp point to {nextLocationName}.",
-                        LogLevel.Trace);
-                    return null;
-                }
-
-                Stack<Point>? segmentPath = this.FindCollisionAwarePath(locationStartPoint, warpPoint, currentLocation, worker);
-                if (segmentPath is null || segmentPath.Count == 0)
-                {
-                    this.monitor.Log(
-                        $"Fallback routing couldn't build a collision-aware local path in {currentLocation.NameOrUniqueName} from {locationStartPoint} to warp {warpPoint}.",
-                        LogLevel.Trace);
-                    return null;
-                }
-
-                path = this.AddToStackForSchedule(path, segmentPath);
-                if (!this.TryResolveWarpTarget(currentLocation, nextLocationName, warpPoint, worker, out Point warpTarget))
-                {
-                    this.monitor.Log(
-                        $"Fallback routing failed because warp {warpPoint} in {currentLocation.NameOrUniqueName} had no target tile for {nextLocationName}.",
-                        LogLevel.Trace);
-                    return null;
-                }
-
-                locationStartPoint = warpTarget;
+                this.monitor.Log(
+                    $"Location route {string.Join(" -> ", locationRoute)} rejected: no reachable {currentLocation.NameOrUniqueName} -> {nextLocationName} warp lane from {worker.TilePoint}.",
+                    LogLevel.Trace);
                 continue;
             }
 
-            Stack<Point>? finalSegmentPath = this.FindCollisionAwarePath(locationStartPoint, target.Tile, currentLocation, worker);
-            if (finalSegmentPath is null || finalSegmentPath.Count == 0)
+            routeDescription = new SchedulePathDescription(route, target.FacingDirection, null, null, nextLocationName, warpTarget);
+            warpTransition = new PlannedWarpTransition
             {
-                this.monitor.Log(
-                    $"Fallback routing couldn't build a collision-aware final local path in {currentLocation.NameOrUniqueName} from {locationStartPoint} to {target.Tile}.",
-                    LogLevel.Trace);
-                return null;
-            }
-
-            path = this.AddToStackForSchedule(path, finalSegmentPath);
+                TargetLocationName = nextLocationName,
+                TargetTile = warpTarget,
+                ActivationTile = activationTile,
+                WarpTile = warpPoint,
+            };
+            fallbackDescription = string.Join(" -> ", locationRoute);
+            this.monitor.Log(
+                $"Selected location route {fallbackDescription}; current collision-aware leg is {currentLocation.NameOrUniqueName} -> {nextLocationName}.",
+                LogLevel.Trace);
+            return true;
         }
 
-        return path;
+        return false;
+    }
+
+    private IReadOnlyList<string[]> GetFallbackLocationRoutes(
+        string startLocationName,
+        string targetLocationName,
+        string? avoidFirstHopLocation)
+    {
+        Dictionary<string, string[]> links = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["FarmHouse"] = new[] { "Farm" },
+            ["Farm"] = new[] { "FarmHouse", "Forest", "BusStop", "Backwoods" },
+            ["BusStop"] = new[] { "Farm", "Forest", "Town" },
+            ["Backwoods"] = new[] { "Farm", "Mountain" },
+            ["Town"] = new[] { "BusStop", "Forest", "Mountain", "Beach" },
+            ["Forest"] = new[] { "Farm", "BusStop", "Town", "Woods" },
+            ["Mountain"] = new[] { "Town", "Backwoods", "Railroad" },
+            ["Beach"] = new[] { "Town" },
+            ["Railroad"] = new[] { "Mountain" },
+            ["Woods"] = new[] { "Forest" },
+        };
+
+        if (!links.ContainsKey(startLocationName) || !links.ContainsKey(targetLocationName))
+            return Array.Empty<string[]>();
+
+        List<string[]> routes = new();
+        Queue<List<string>> pending = new();
+        pending.Enqueue(new List<string> { startLocationName });
+        while (pending.Count > 0)
+        {
+            List<string> path = pending.Dequeue();
+            string current = path[^1];
+            if (string.Equals(current, targetLocationName, StringComparison.OrdinalIgnoreCase))
+            {
+                routes.Add(path.ToArray());
+                continue;
+            }
+
+            foreach (string next in links[current])
+            {
+                if ((path.Count == 1 && string.Equals(next, avoidFirstHopLocation, StringComparison.OrdinalIgnoreCase))
+                    || path.Contains(next, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                List<string> extension = new(path) { next };
+                pending.Enqueue(extension);
+            }
+        }
+
+        return routes
+            .OrderBy(route => route.Length)
+            .ThenBy(route => string.Join("/", route), StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private bool TryBuildBestWarpLeg(
+        NPC worker,
+        GameLocation currentLocation,
+        string nextLocationName,
+        out Stack<Point>? route,
+        out Point selectedWarpPoint,
+        out Point selectedWarpTarget,
+        out Point selectedActivationTile)
+    {
+        route = null;
+        selectedWarpPoint = Point.Zero;
+        selectedWarpTarget = Point.Zero;
+        selectedActivationTile = Point.Zero;
+        HashSet<(Point WarpPoint, Point WarpTarget)> transitions = new();
+        foreach (Warp warp in currentLocation.warps)
+        {
+            if (string.Equals(warp.TargetName, nextLocationName, StringComparison.OrdinalIgnoreCase))
+                transitions.Add((new Point(warp.X, warp.Y), new Point(warp.TargetX, warp.TargetY)));
+        }
+
+        Point fallbackWarp = currentLocation.getWarpPointTo(nextLocationName, worker);
+        if (fallbackWarp != Point.Zero
+            && this.TryResolveWarpTarget(currentLocation, nextLocationName, fallbackWarp, worker, out Point fallbackTarget))
+        {
+            transitions.Add((fallbackWarp, fallbackTarget));
+        }
+
+        foreach ((Point warpPoint, Point warpTarget) in transitions)
+        {
+            if (!this.TryBuildCollisionAwareWarpLeg(worker, currentLocation, warpPoint, out Stack<Point>? candidateRoute, out Point activationTile)
+                || candidateRoute is null
+                || (route is not null && candidateRoute.Count >= route.Count))
+            {
+                continue;
+            }
+
+            route = candidateRoute;
+            selectedWarpPoint = warpPoint;
+            selectedWarpTarget = warpTarget;
+            selectedActivationTile = activationTile;
+        }
+
+        if (route is null)
+            return false;
+
+        this.monitor.Log(
+            $"Selected warp lane: {currentLocation.NameOrUniqueName} -> {nextLocationName}; warp={selectedWarpPoint}, "
+            + $"activation={selectedActivationTile}, arrival={selectedWarpTarget}, route steps={route.Count}, candidates={transitions.Count}.",
+            LogLevel.Trace);
+        return true;
+    }
+
+    private bool TryBuildCollisionAwareWarpLeg(
+        NPC worker,
+        GameLocation currentLocation,
+        Point warpPoint,
+        out Stack<Point>? route,
+        out Point activationTile)
+    {
+        route = null;
+        activationTile = Point.Zero;
+        List<Point> approachCandidates = new();
+        if (currentLocation.isTileOnMap(warpPoint.ToVector2()))
+            approachCandidates.Add(warpPoint);
+        for (int radius = 1; radius <= 3; radius++)
+        {
+            for (int offsetX = -radius; offsetX <= radius; offsetX++)
+            {
+                for (int offsetY = -radius; offsetY <= radius; offsetY++)
+                {
+                    if (Math.Max(Math.Abs(offsetX), Math.Abs(offsetY)) != radius)
+                        continue;
+
+                    Point candidate = new(warpPoint.X + offsetX, warpPoint.Y + offsetY);
+                    if (currentLocation.isTileOnMap(candidate.ToVector2()) && !approachCandidates.Contains(candidate))
+                        approachCandidates.Add(candidate);
+                }
+            }
+        }
+
+        Stack<Point>? bestPath = null;
+        Point bestApproach = Point.Zero;
+        int bestTailSteps = int.MaxValue;
+        int bestPathSteps = int.MaxValue;
+        foreach (Point approach in approachCandidates)
+        {
+            Stack<Point>? candidatePath = PathFindController.findPath(
+                worker.TilePoint,
+                approach,
+                PathFindController.isAtEndPoint,
+                currentLocation,
+                worker,
+                30000);
+            if (candidatePath is null || candidatePath.Count == 0)
+                continue;
+
+            int tailSteps = Math.Abs(warpPoint.X - approach.X) + Math.Abs(warpPoint.Y - approach.Y);
+            if (tailSteps > bestTailSteps || (tailSteps == bestTailSteps && candidatePath.Count >= bestPathSteps))
+                continue;
+
+            bestPath = candidatePath;
+            bestApproach = approach;
+            bestTailSteps = tailSteps;
+            bestPathSteps = candidatePath.Count;
+        }
+
+        if (bestPath is null)
+            return false;
+
+        route = bestPath;
+        activationTile = bestApproach;
+        this.monitor.Log(
+            $"Warp lane candidate is reachable: warp={warpPoint}, approach={bestApproach}, "
+            + $"path steps={bestPath.Count}, tail steps={Math.Abs(warpPoint.X - bestApproach.X) + Math.Abs(warpPoint.Y - bestApproach.Y)}.",
+            LogLevel.Trace);
+        return true;
     }
 
     private Stack<Point> AddToStackForSchedule(Stack<Point> schedulePath, Stack<Point> segmentPath)
@@ -486,7 +684,7 @@ internal sealed class WorkerNavigationManager
         // Only an off-map warp endpoint needs vanilla schedule pathfinding. Never use
         // schedule routing to bypass crop trellises, fences, or placed farm objects.
         return !location.isTileOnMap(endTile.ToVector2())
-            ? PathFindController.findPathForNPCSchedules(startTile, endTile, location, 30000)
+            ? PathFindController.findPathForNPCSchedules(startTile, endTile, location, 30000, worker)
             : null;
     }
 

@@ -38,7 +38,7 @@ internal sealed class WorkerCustomizationManager
         }
 
         WorkerAppearanceData appearance = this.workerShellManager.GetSavedWorkerAppearance() ?? WorkerAppearanceData.CreateDefault();
-        Game1.activeClickableMenu = new WorkerAppearanceMenu(appearance, this.SaveCustomization, onClosed, "Hire Worker");
+        Game1.activeClickableMenu = new WorkerAppearanceMenu(appearance, WorkerProfession.Farmer, this.SaveCustomization, onClosed, "Hire Worker");
         this.monitor.Log($"Hiring costs {WorkerEmploymentTerms.HiringCost}g including today's wages, then {WorkerEmploymentTerms.DailyWage}g per day. Cancel to leave without hiring.", LogLevel.Info);
     }
 
@@ -46,7 +46,7 @@ internal sealed class WorkerCustomizationManager
     {
         if (this.CanOpenHiring())
         {
-            this.SaveCustomization(WorkerAppearanceData.CreateDefault());
+            this.SaveCustomization(WorkerAppearanceData.CreateDefault(), WorkerProfession.Farmer);
         }
     }
 
@@ -73,9 +73,9 @@ internal sealed class WorkerCustomizationManager
         return true;
     }
 
-    private void SaveCustomization(WorkerAppearanceData appearance)
+    private void SaveCustomization(WorkerAppearanceData appearance, WorkerProfession profession)
     {
-        bool hired = this.workerShellManager.TryHireWorker(appearance, out NPC? worker, out string message);
+        bool hired = this.workerShellManager.TryHireWorker(appearance, profession, out NPC? worker, out string message);
         if (hired)
         {
             this.workerBehaviorManager.HandleWorkerInitialized(worker, "hired");

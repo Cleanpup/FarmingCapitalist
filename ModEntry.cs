@@ -1,4 +1,5 @@
 using FarmingCapitalist.Workers;
+using HarmonyLib;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
@@ -11,6 +12,7 @@ internal sealed class ModEntry : Mod
     private WorkerBehaviorManager workerBehaviorManager = null!;
     private WorkerControlMenuController workerControlMenuController = null!;
     private WorkerCustomizationManager workerCustomizationManager = null!;
+    private WorkerDialogueManager workerDialogueManager = null!;
     private WorkerShellManager workerShellManager = null!;
 
     public override void Entry(IModHelper helper)
@@ -18,6 +20,8 @@ internal sealed class ModEntry : Mod
         this.workerShellManager = new WorkerShellManager(helper, this.ModManifest, this.Monitor);
         WorkerNavigationManager navigation = new(this.workerShellManager, this.Monitor);
         this.workerBehaviorManager = new WorkerBehaviorManager(navigation, this.workerShellManager, this.Monitor);
+        this.workerDialogueManager = new WorkerDialogueManager(helper, this.workerShellManager, this.Monitor);
+        this.workerDialogueManager.Register(new Harmony(this.ModManifest.UniqueID));
         this.workerCustomizationManager = new WorkerCustomizationManager(this.Monitor, this.workerShellManager, this.workerBehaviorManager);
         this.workerControlMenuController = new WorkerControlMenuController(helper.Input, this.workerShellManager, this.workerCustomizationManager, this.workerBehaviorManager);
 
@@ -85,6 +89,7 @@ internal sealed class ModEntry : Mod
     {
         this.workerControlMenuController.Reset();
         this.workerCustomizationManager.Reset();
+        this.workerDialogueManager.Reset();
         this.workerBehaviorManager.Reset();
         this.workerShellManager.Reset();
     }
@@ -108,7 +113,7 @@ internal sealed class ModEntry : Mod
                 $"Press B or use 'workers' to manage your crew. Hire: {WorkerEmploymentTerms.HiringCost}g including today's wage; later {WorkerEmploymentTerms.DailyWage}g/day.\n"
                 + "workers status — list IDs, orders, activity and location\n"
                 + "workers hire [default] — hire with custom or default appearance\n"
-                + "workers assign <id> <water|harvest|tend|idle> — assign farm work or return home\n"
+                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|idle> — assign a profession-specific job\n"
                 + "workers dismiss <id> — dismiss one worker\n"
                 + "workers pay — retry unpaid wages without charging paid workers again\n"
                 + "Choose a shared harvest destination in the Storage tab; the shipping bin is the default and overflow fallback. Only the host can manage workers.", LogLevel.Info);
@@ -136,12 +141,15 @@ internal sealed class ModEntry : Mod
                     "water" or "watercrops" => WorkerTaskKind.WaterCrops,
                     "harvest" or "harvestcrops" => WorkerTaskKind.HarvestCrops,
                     "tend" or "tendcrops" => WorkerTaskKind.TendCrops,
+                    "forage" or "collectforage" => WorkerTaskKind.CollectForage,
+                    "trees" or "choptrees" => WorkerTaskKind.ChopTrees,
+                    "hardwood" or "chophardwood" => WorkerTaskKind.ChopHardwood,
                     "idle" or "stop" => WorkerTaskKind.Idle,
                     _ => null,
                 };
                 if (task is null)
                 {
-                    this.Monitor.Log("Choose water, harvest, tend, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
+                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
                     return;
                 }
                 bool assigned = this.workerBehaviorManager.TryAssignTask(args[1], task.Value, out string assignmentMessage);
@@ -176,7 +184,7 @@ internal sealed class ModEntry : Mod
         foreach (WorkerSummarySnapshot worker in workers)
         {
             var activity = this.workerBehaviorManager.GetRuntimeSnapshot(worker.WorkerId);
-            this.Monitor.Log($"{worker.DisplayName} [{worker.WorkerId}] — {this.workerShellManager.GetAssignedTask(worker.WorkerId)}; {activity}; location: {worker.CurrentLocationName ?? "not spawned"}, tile: {worker.CurrentTile?.ToString() ?? "unknown"}; paid today: {this.workerShellManager.CanWorkerWorkToday(worker.WorkerId)}.", LogLevel.Info);
+            this.Monitor.Log($"{worker.DisplayName} [{worker.WorkerId}] — {worker.Profession}, {this.workerShellManager.GetAssignedTask(worker.WorkerId)}; {activity}; location: {worker.CurrentLocationName ?? "not spawned"}, tile: {worker.CurrentTile?.ToString() ?? "unknown"}; paid today: {this.workerShellManager.CanWorkerWorkToday(worker.WorkerId)}.", LogLevel.Info);
         }
     }
 

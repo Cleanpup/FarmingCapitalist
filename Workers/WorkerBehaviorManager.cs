@@ -36,7 +36,14 @@ internal sealed class WorkerBehaviorManager
 
     private sealed record ForagerTarget(string LocationName, Point ResourceTile, Point ApproachTile, ForagerTargetKind Kind);
 
-    private sealed record DropCollectionZone(GameLocation Location, Point Tile, HashSet<Debris> ExistingDebris, int CollectAfterTick, int ExpiresAtTick);
+    private sealed record DropCollectionZone(
+        GameLocation Location, Point Tile, HashSet<Debris> ExistingDebris, int CollectAfterTick, int ExpiresAtTick,
+        string WorkerId, string WorkerName, WorkerTaskKind Assignment, ForagerTargetKind Kind)
+    {
+        public int ChestOnlyStacks { get; set; }
+
+        public int ShippedStacks { get; set; }
+    }
 
     private sealed class ActiveForagerAction
     {
@@ -608,8 +615,12 @@ internal sealed class WorkerBehaviorManager
                 && forage.IsSpawnedObject && forage.isForage())
             {
                 location.Objects.Remove(target.ResourceTile.ToVector2());
-                WorkerItemStorage.Store(forage, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                bool chestOnly = WorkerItemStorage.Store(forage, this.workerShellManager.GetHarvestDestination(), this.monitor);
                 this.RecordCompletedWork(workerId);
+                this.monitor.Log(
+                    $"Worker {worker.displayName} [{workerId}] {assignment} forage at {target.LocationName} {target.ResourceTile}: collected; "
+                    + $"storage={(chestOnly ? "selected chest" : "shipping bin, wholly or partly")}.",
+                    LogLevel.Info);
                 location.playSound("pickUpItem");
             }
 
@@ -645,6 +656,10 @@ internal sealed class WorkerBehaviorManager
             || worker.TilePoint != action.Target.ApproachTile
             || this.workerShellManager.GetAssignedTask(workerId) != action.Assignment)
         {
+            this.monitor.Log(
+                $"Worker {worker.displayName} [{workerId}] {action.Assignment} {action.Target.Kind} at "
+                + $"{action.Target.LocationName} {action.Target.ResourceTile}: action stopped before completion.",
+                LogLevel.Info);
             this.FinishForagerAction(worker, workerId, action.Target, action.Assignment, null);
             return;
         }
@@ -673,6 +688,13 @@ internal sealed class WorkerBehaviorManager
         {
             if (resourcePresent)
                 this.RecordCompletedWork(workerId);
+            string result = !resourcePresent ? "target unavailable"
+                : action.Target.Kind == ForagerTargetKind.HardwoodClump ? "clump removed"
+                : "tree chop completed";
+            this.monitor.Log(
+                $"Worker {worker.displayName} [{workerId}] {action.Assignment} {action.Target.Kind} at "
+                + $"{action.Target.LocationName} {action.Target.ResourceTile}: {result}; drop scan pending.",
+                LogLevel.Info);
             this.FinishForagerAction(worker, workerId, action.Target, action.Assignment, action);
         }
     }
@@ -743,7 +765,11 @@ internal sealed class WorkerBehaviorManager
                 target.ResourceTile,
                 action.ExistingDebris,
                 Game1.ticks + 10,
-                Game1.ticks + 480));
+                Game1.ticks + 480,
+                workerId,
+                worker.displayName,
+                assignment,
+                target.Kind));
         }
 
         this.activeForagerActions.Remove(workerId);
@@ -821,12 +847,23 @@ internal sealed class WorkerBehaviorManager
                         continue;
 
                     zone.Location.debris.RemoveAt(debrisIndex);
-                    WorkerItemStorage.Store(item!, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                    bool chestOnly = WorkerItemStorage.Store(item!, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                    if (chestOnly)
+                        zone.ChestOnlyStacks++;
+                    else
+                        zone.ShippedStacks++;
                 }
             }
 
             if (Game1.ticks >= zone.ExpiresAtTick)
+            {
+                this.monitor.Log(
+                    $"Worker {zone.WorkerName} [{zone.WorkerId}] {zone.Assignment} {zone.Kind} drops at "
+                    + $"{zone.Location.NameOrUniqueName} {zone.Tile}: {zone.ChestOnlyStacks} stacks to selected chest, "
+                    + $"{zone.ShippedStacks} stacks shipped wholly or partly.",
+                    LogLevel.Info);
                 this.dropCollectionZones.RemoveAt(i);
+            }
         }
     }
 

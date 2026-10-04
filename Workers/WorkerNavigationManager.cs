@@ -46,7 +46,9 @@ internal sealed class WorkerNavigationManager
 
     private const int MaxStalledTicks = 180;
     private const int MaxRouteRetries = 2;
+    private const int RouteDiagnosticCooldownTicks = 600;
     private readonly Dictionary<string, ActiveWorkerRoute> activeRoutes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> nextRouteDiagnosticTick = new(StringComparer.OrdinalIgnoreCase);
     private readonly IMonitor monitor;
     private readonly WorkerShellManager workerShellManager;
 
@@ -154,6 +156,24 @@ internal sealed class WorkerNavigationManager
             this.monitor.Log($"{worker.displayName} could not plan travel to {target.LocationName} {target.Tile}: {ex.Message}", LogLevel.Trace);
         }
         planningTime.Stop();
+        if (!this.HasUsableRoute(routeDescription))
+        {
+            string diagnosticKey = $"{workerId}:{worker.currentLocation.NameOrUniqueName}:{target.LocationName}";
+            if (!this.nextRouteDiagnosticTick.TryGetValue(diagnosticKey, out int nextTick) || Game1.ticks >= nextTick)
+            {
+                this.nextRouteDiagnosticTick[diagnosticKey] = Game1.ticks + RouteDiagnosticCooldownTicks;
+                try
+                {
+                    this.LogRouteFailureDiagnostics(worker, target, planningTime.ElapsedMilliseconds, triggerReason);
+                }
+                catch (Exception ex)
+                {
+                    this.monitor.Log($"Route diagnostic for {worker.displayName} failed: {ex.Message}", LogLevel.Warn);
+                }
+            }
+            return false;
+        }
+
         if (planningTime.ElapsedMilliseconds >= 100)
         {
             this.monitor.Log(
@@ -161,15 +181,6 @@ internal sealed class WorkerNavigationManager
                 + $"{worker.TilePoint} to {target.LocationName} {target.Tile} took {planningTime.ElapsedMilliseconds} ms "
                 + $"(trigger: {triggerReason}).",
                 LogLevel.Info);
-        }
-
-        if (!this.HasUsableRoute(routeDescription))
-        {
-            this.monitor.Log(
-                $"{worker.displayName} navigation failed to build a route from {worker.currentLocation.NameOrUniqueName} tile {worker.TilePoint} to {target.LocationName} tile {target.Tile}.",
-                LogLevel.Trace);
-            this.LogRouteFailureDiagnostics(worker, target);
-            return false;
         }
 
         SchedulePathDescription finalRouteDescription = routeDescription!;
@@ -386,6 +397,7 @@ internal sealed class WorkerNavigationManager
         }
 
         this.activeRoutes.Clear();
+        this.nextRouteDiagnosticTick.Clear();
     }
 
     private bool IsAtTarget(NPC worker, WorkerNavigationTarget target)
@@ -470,9 +482,6 @@ internal sealed class WorkerNavigationManager
             if (!this.TryBuildBestWarpLeg(worker, currentLocation, nextLocationName,
                     out Stack<Point>? route, out Point warpPoint, out Point warpTarget, out Point activationTile))
             {
-                this.monitor.Log(
-                    $"Location route {string.Join(" -> ", locationRoute)} rejected: no reachable {currentLocation.NameOrUniqueName} -> {nextLocationName} warp lane from {worker.TilePoint}.",
-                    LogLevel.Trace);
                 continue;
             }
 
@@ -733,22 +742,137 @@ internal sealed class WorkerNavigationManager
         return false;
     }
 
-    private void LogRouteFailureDiagnostics(NPC worker, WorkerNavigationTarget target)
+    private void LogRouteFailureDiagnostics(NPC worker, WorkerNavigationTarget target, long elapsedMilliseconds, string triggerReason)
     {
-        if (worker.currentLocation is null)
-        {
+        GameLocation? location = worker.currentLocation;
+        if (location is null)
             return;
+
+        GameLocation? destination = Game1.getLocationFromName(target.LocationName);
+        string stage;
+        if (destination is null)
+        {
+            stage = "destination location missing";
+        }
+        else if (!destination.isTileOnMap(target.Tile.ToVector2()))
+        {
+            stage = "destination tile off map";
+        }
+        else if (location == destination)
+        {
+            stage = $"local path unavailable; target collision={this.DescribePathfindingTile(location, worker, target.Tile)}";
+        }
+        else
+        {
+            string[]? firstRoute = this.GetFallbackLocationRoutes(location.NameOrUniqueName, target.LocationName, null).FirstOrDefault();
+            if (firstRoute is null)
+            {
+                stage = "no fallback location route; vanilla schedule path unavailable";
+            }
+            else
+            {
+                string nextLocationName = firstRoute[1];
+                List<(Point WarpPoint, Point WarpTarget)> transitions = new();
+                foreach (Warp warp in location.warps)
+                {
+                    if (string.Equals(warp.TargetName, nextLocationName, StringComparison.OrdinalIgnoreCase))
+                        transitions.Add((new Point(warp.X, warp.Y), new Point(warp.TargetX, warp.TargetY)));
+                }
+
+                int explicitWarpCount = transitions.Count;
+                Point fallbackWarp = location.getWarpPointTo(nextLocationName, worker);
+                Point fallbackTarget = Point.Zero;
+                bool fallbackResolved = fallbackWarp != Point.Zero
+                    && this.TryResolveWarpTarget(location, nextLocationName, fallbackWarp, worker, out fallbackTarget);
+                if (fallbackResolved)
+                    transitions.Add((fallbackWarp, fallbackTarget));
+
+                if (transitions.Count == 0)
+                {
+                    stage = $"no warp transition for {nextLocationName}; explicit={explicitWarpCount}, fallback={fallbackWarp}, fallback resolved={fallbackResolved}";
+                }
+                else
+                {
+                    string warpSummaries = string.Join("; ", transitions.Distinct().Take(6).Select(transition =>
+                    {
+                        List<Point> approaches = this.GetWarpApproaches(location, transition.WarpPoint);
+                        int open = approaches.Count(point => !this.IsPathfindingCollision(location, worker, point));
+                        return $"warp {transition.WarpPoint}->{transition.WarpTarget}: {open}/{approaches.Count} approaches collision-free";
+                    }));
+                    stage = $"warp approach path unavailable for {nextLocationName}; explicit={explicitWarpCount}, fallback={fallbackWarp}, fallback resolved={fallbackResolved}; {warpSummaries}";
+                }
+            }
         }
 
-        bool destinationLocationFound = Game1.getLocationFromName(target.LocationName) is not null;
-        bool destinationTileOnMap = destinationLocationFound
-            && Game1.RequireLocation(target.LocationName).isTileOnMap(target.Tile.ToVector2());
-        bool startTileBlocked = worker.currentLocation.IsTileBlockedBy(worker.Tile, CollisionMask.All, CollisionMask.Characters, useFarmerTile: true);
-        bool targetTileBlocked = destinationLocationFound
-            && Game1.RequireLocation(target.LocationName).IsTileBlockedBy(target.Tile.ToVector2(), CollisionMask.All, CollisionMask.Characters, useFarmerTile: true);
-
+        Point start = worker.TilePoint;
+        Point[] neighbors = { new(start.X, start.Y - 1), new(start.X + 1, start.Y), new(start.X, start.Y + 1), new(start.X - 1, start.Y) };
+        string neighborSummary = string.Join(", ", neighbors.Select(point => $"{point}:{this.DescribePathfindingTile(location, worker, point)}"));
         this.monitor.Log(
-            $"Route diagnostics for {worker.displayName}: destination location found={destinationLocationFound}, destination tile on map={destinationTileOnMap}, start tile blocked={startTileBlocked}, target tile blocked={targetTileBlocked}.",
-            LogLevel.Trace);
+            $"Route diagnostic: {worker.displayName} {location.NameOrUniqueName} {start} -> {target.LocationName} {target.Tile}; "
+            + $"stage={stage}; planning={elapsedMilliseconds}ms; trigger={triggerReason}; neighbors=[{neighborSummary}].",
+            LogLevel.Info);
+
+        // The Farm's southern Forest arrival is a two-tile-wide lane. A blocker farther north
+        // is invisible at the arrival tile itself, so inspect the lane without changing it.
+        if (string.Equals(location.NameOrUniqueName, "Farm", StringComparison.OrdinalIgnoreCase)
+            && start.Y >= 60)
+        {
+            List<string> lane = new();
+            for (int y = 64; y >= 59; y--)
+            {
+                for (int x = 40; x <= 42; x++)
+                {
+                    Point point = new(x, y);
+                    lane.Add($"{x},{y}:{this.DescribePathfindingTile(location, worker, point)}");
+                }
+            }
+
+            this.monitor.Log($"Farm south-lane collision probe: {string.Join(" ", lane)}.", LogLevel.Info);
+        }
+    }
+
+    private List<Point> GetWarpApproaches(GameLocation location, Point warpPoint)
+    {
+        List<Point> approaches = new();
+        for (int radius = 0; radius <= 3; radius++)
+        {
+            for (int offsetX = -radius; offsetX <= radius; offsetX++)
+            {
+                for (int offsetY = -radius; offsetY <= radius; offsetY++)
+                {
+                    if (Math.Max(Math.Abs(offsetX), Math.Abs(offsetY)) != radius)
+                        continue;
+                    Point point = new(warpPoint.X + offsetX, warpPoint.Y + offsetY);
+                    if (location.isTileOnMap(point.ToVector2()))
+                        approaches.Add(point);
+                }
+            }
+        }
+
+        return approaches;
+    }
+
+    private bool IsPathfindingCollision(GameLocation location, NPC worker, Point tile)
+    {
+        if (!location.isTileOnMap(tile.ToVector2()))
+            return true;
+
+        // Match PathFindController.findPath's NPC collision check exactly.
+        Rectangle box = new(tile.X * 64 + 1, tile.Y * 64 + 1, 62, 62);
+        return location.isCollidingPosition(box, Game1.viewport, false, 0, false, worker, true, false, false, false);
+    }
+
+    private string DescribePathfindingTile(GameLocation location, NPC worker, Point tile)
+    {
+        if (!location.isTileOnMap(tile.ToVector2()))
+            return "off-map";
+
+        bool collides = this.IsPathfindingCollision(location, worker, tile);
+        List<string> details = new() { collides ? "blocked" : "open" };
+        if (location.objects.TryGetValue(tile.ToVector2(), out StardewValley.Object? placedObject))
+            details.Add($"object={placedObject.GetType().Name}({placedObject.QualifiedItemId})");
+        if (location.terrainFeatures.TryGetValue(tile.ToVector2(), out StardewValley.TerrainFeatures.TerrainFeature? terrain))
+            details.Add($"terrain={terrain.GetType().Name}");
+        return string.Join("/", details);
     }
 }

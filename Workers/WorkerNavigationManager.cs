@@ -116,6 +116,7 @@ internal sealed class WorkerNavigationManager
 
         SchedulePathDescription? routeDescription = null;
         PlannedWarpTransition? warpTransition = null;
+        System.Diagnostics.Stopwatch planningTime = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             if (worker.currentLocation == destination)
@@ -151,6 +152,15 @@ internal sealed class WorkerNavigationManager
         catch (Exception ex)
         {
             this.monitor.Log($"{worker.displayName} could not plan travel to {target.LocationName} {target.Tile}: {ex.Message}", LogLevel.Trace);
+        }
+        planningTime.Stop();
+        if (planningTime.ElapsedMilliseconds >= 100)
+        {
+            this.monitor.Log(
+                $"Worker {worker.displayName} [{workerId}] route planning from {worker.currentLocation.NameOrUniqueName} "
+                + $"{worker.TilePoint} to {target.LocationName} {target.Tile} took {planningTime.ElapsedMilliseconds} ms "
+                + $"(trigger: {triggerReason}).",
+                LogLevel.Info);
         }
 
         if (!this.HasUsableRoute(routeDescription))
@@ -624,6 +634,11 @@ internal sealed class WorkerNavigationManager
         int bestPathSteps = int.MaxValue;
         foreach (Point approach in approachCandidates)
         {
+            int tailSteps = Math.Abs(warpPoint.X - approach.X) + Math.Abs(warpPoint.Y - approach.Y);
+            // Tail distance wins before path length, so a farther approach cannot replace the best route.
+            if (tailSteps > bestTailSteps)
+                continue;
+
             Stack<Point>? candidatePath = PathFindController.findPath(
                 worker.TilePoint,
                 approach,
@@ -634,8 +649,7 @@ internal sealed class WorkerNavigationManager
             if (candidatePath is null || candidatePath.Count == 0)
                 continue;
 
-            int tailSteps = Math.Abs(warpPoint.X - approach.X) + Math.Abs(warpPoint.Y - approach.Y);
-            if (tailSteps > bestTailSteps || (tailSteps == bestTailSteps && candidatePath.Count >= bestPathSteps))
+            if (tailSteps == bestTailSteps && candidatePath.Count >= bestPathSteps)
                 continue;
 
             bestPath = candidatePath;

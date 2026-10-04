@@ -43,6 +43,8 @@ internal sealed class WorkerBehaviorManager
         public int ChestOnlyStacks { get; set; }
 
         public int ShippedStacks { get; set; }
+
+        public bool StorageStartedLogged { get; set; }
     }
 
     private sealed class ActiveForagerAction
@@ -846,8 +848,20 @@ internal sealed class WorkerBehaviorManager
                     if (zone.ExistingDebris.Contains(debris) || !this.IsDebrisNear(debris, zone.Tile, 9) || !this.TryCreateDebrisItem(debris, out Item? item))
                         continue;
 
+                    if (!zone.StorageStartedLogged)
+                    {
+                        this.monitor.Log(
+                            $"Worker {zone.WorkerName} [{zone.WorkerId}] {zone.Assignment} {zone.Kind} at "
+                            + $"{zone.Location.NameOrUniqueName} {zone.Tile}: storing first nearby drop.",
+                            LogLevel.Info);
+                        zone.StorageStartedLogged = true;
+                    }
                     zone.Location.debris.RemoveAt(debrisIndex);
+                    System.Diagnostics.Stopwatch storageTime = System.Diagnostics.Stopwatch.StartNew();
                     bool chestOnly = WorkerItemStorage.Store(item!, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                    storageTime.Stop();
+                    if (storageTime.ElapsedMilliseconds >= 100)
+                        this.monitor.Log($"Worker drop storage took {storageTime.ElapsedMilliseconds} ms at {zone.Location.NameOrUniqueName} {zone.Tile}.", LogLevel.Info);
                     if (chestOnly)
                         zone.ChestOnlyStacks++;
                     else

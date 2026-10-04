@@ -298,7 +298,7 @@ internal sealed class WorkerShellManager
     }
 
     /// <summary>Charge each employee at most once per day, including repeated DayStarted callbacks.</summary>
-    public void ProcessDailyWages()
+    public void ProcessDailyWages(bool retryUnpaid = false)
     {
         if (!this.CanManageWorkers(out _))
         {
@@ -311,7 +311,7 @@ internal sealed class WorkerShellManager
         bool changed = false;
         foreach (WorkerRosterEntry entry in this.savedWorkers)
         {
-            if (entry.LastPaidDay == today || entry.LastWageAttemptDay == today)
+            if (!WorkerWagePolicy.ShouldAttemptPayment(entry.LastPaidDay, entry.LastWageAttemptDay, today, retryUnpaid))
             {
                 continue;
             }
@@ -920,7 +920,7 @@ internal sealed class WorkerShellManager
             }
         }
 
-        this.ApplyWorkerShellState(worker, entry, targetLocation, spawnTile.ToVector2(), moveToSpawn: true);
+        this.ApplyWorkerShellState(worker, entry, targetLocation, spawnTile.ToVector2());
         return worker;
     }
 
@@ -936,11 +936,11 @@ internal sealed class WorkerShellManager
             portrait,
             eventActor: false);
 
-        this.ApplyWorkerShellState(worker, entry, location, spawnTile, moveToSpawn: true);
+        this.ApplyWorkerShellState(worker, entry, location, spawnTile);
         return worker;
     }
 
-    private void ApplyWorkerShellState(NPC worker, WorkerRosterEntry entry, GameLocation location, Vector2 spawnTile, bool moveToSpawn)
+    private void ApplyWorkerShellState(NPC worker, WorkerRosterEntry entry, GameLocation location, Vector2 spawnTile)
     {
         this.ApplyWorkerIdentity(worker, entry);
 
@@ -957,10 +957,7 @@ internal sealed class WorkerShellManager
         worker.temporaryController = null;
         worker.Halt();
 
-        if (moveToSpawn)
-        {
-            worker.Position = spawnTile * Game1.tileSize;
-        }
+        worker.Position = spawnTile * Game1.tileSize;
 
         worker.FacingDirection = TestWorkerDefinition.FacingDirection;
         worker.Sprite?.faceDirection(TestWorkerDefinition.FacingDirection);

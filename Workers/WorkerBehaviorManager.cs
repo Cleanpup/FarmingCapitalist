@@ -58,6 +58,7 @@ internal sealed class WorkerBehaviorManager
     private readonly WorkerNavigationManager navigationManager;
     private readonly WorkerShellManager workerShellManager;
     private readonly Dictionary<string, WorkerRuntimeSnapshot> snapshots = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> completedToday = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Point> activeTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ForagerTarget> activeForagerTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ActiveForagerAction> activeForagerActions = new(System.StringComparer.OrdinalIgnoreCase);
@@ -145,6 +146,7 @@ internal sealed class WorkerBehaviorManager
     {
         this.activePhases.Clear();
         this.snapshots.Clear();
+        this.completedToday.Clear();
         this.activeTargets.Clear();
         this.activeForagerTargets.Clear();
         this.activeForagerActions.Clear();
@@ -183,9 +185,7 @@ internal sealed class WorkerBehaviorManager
             this.navigationManager.StopWorker(worker);
         }
         this.activePhases[workerId] = WorkerTravelPhase.None;
-        this.activeTargets.Remove(workerId);
-        this.activeForagerTargets.Remove(workerId);
-        this.activeForagerActions.Remove(workerId);
+        this.ClearActiveJobState(workerId);
         this.returnTargets.Remove(workerId);
         this.returnReasons.Remove(workerId);
         this.retryAfterTicks.Remove(workerId);
@@ -206,13 +206,19 @@ internal sealed class WorkerBehaviorManager
     {
         if (this.workerShellManager.TryGetWorker(workerId, out NPC? worker) && worker is not null)
             this.navigationManager.StopWorker(worker);
-        this.activeTargets.Remove(workerId);
-        this.activeForagerTargets.Remove(workerId);
-        this.activeForagerActions.Remove(workerId);
+        this.ClearActiveJobState(workerId);
         this.returnTargets.Remove(workerId);
         this.returnReasons.Remove(workerId);
         this.retryAfterTicks.Remove(workerId);
         this.activePhases.Remove(workerId);
+        this.completedToday.Remove(workerId);
+    }
+
+    private void ClearActiveJobState(string workerId)
+    {
+        this.activeTargets.Remove(workerId);
+        this.activeForagerTargets.Remove(workerId);
+        this.activeForagerActions.Remove(workerId);
     }
 
     public bool TrySetForageLocation(string workerId, string locationName, out string message)
@@ -227,9 +233,7 @@ internal sealed class WorkerBehaviorManager
             return false;
 
         this.navigationManager.StopWorker(worker);
-        this.activeTargets.Remove(workerId);
-        this.activeForagerTargets.Remove(workerId);
-        this.activeForagerActions.Remove(workerId);
+        this.ClearActiveJobState(workerId);
         this.activePhases[workerId] = WorkerTravelPhase.None;
         this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
         return true;
@@ -237,9 +241,15 @@ internal sealed class WorkerBehaviorManager
 
     public WorkerRuntimeSnapshot GetRuntimeSnapshot(string workerId)
     {
-        return this.snapshots.TryGetValue(workerId, out WorkerRuntimeSnapshot snapshot)
+        WorkerRuntimeSnapshot current = this.snapshots.TryGetValue(workerId, out WorkerRuntimeSnapshot snapshot)
             ? snapshot
             : new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId), "Idle", "Waiting for an assignment", 0, null);
+        return current with { CompletedToday = this.completedToday.GetValueOrDefault(workerId) };
+    }
+
+    private void RecordCompletedWork(string workerId)
+    {
+        this.completedToday[workerId] = this.completedToday.GetValueOrDefault(workerId) + 1;
     }
 
     private void UpdateReturnHome(NPC worker, string workerId, WorkerTravelPhase phase)
@@ -296,9 +306,7 @@ internal sealed class WorkerBehaviorManager
 
     private void BeginReturnHome(NPC worker, string workerId, ReturnHomeReason reason)
     {
-        this.activeTargets.Remove(workerId);
-        this.activeForagerTargets.Remove(workerId);
-        this.activeForagerActions.Remove(workerId);
+        this.ClearActiveJobState(workerId);
         this.navigationManager.StopTravel(worker);
         this.returnTargets.Remove(workerId);
         this.returnReasons[workerId] = reason;
@@ -351,7 +359,7 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
-        if (Game1.timeOfDay < 600 || Game1.timeOfDay >= 2200 || worker.controller is not null)
+        if (!WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay) || worker.controller is not null)
             return;
         Farm farm = Game1.getFarm();
         if (worker.currentLocation != farm)
@@ -380,7 +388,8 @@ internal sealed class WorkerBehaviorManager
             this.monitor.Log(
                 $"{worker.displayName} arrived at crop tile {target}; assignment={assignment}, resolved action={action}.",
                 LogLevel.Trace);
-            this.PerformJobAt(farm, target, action);
+            if (this.PerformJobAt(farm, target, action))
+                this.RecordCompletedWork(workerId);
             this.activeTargets.Remove(workerId);
             this.LogState(workerId, worker, $"finished action at target tile {target}; rescanning farm");
         }
@@ -600,6 +609,7 @@ internal sealed class WorkerBehaviorManager
             {
                 location.Objects.Remove(target.ResourceTile.ToVector2());
                 WorkerItemStorage.Store(forage, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                this.RecordCompletedWork(workerId);
                 location.playSound("pickUpItem");
             }
 
@@ -645,6 +655,12 @@ internal sealed class WorkerBehaviorManager
 
         action.NextSwingTick = Game1.ticks + ForagerSwingIntervalTicks;
         action.SwingCount++;
+        bool resourcePresent = action.Target.Kind == ForagerTargetKind.HardwoodClump
+            ? location.resourceClumps.Any(clump => clump.Tile.ToPoint() == action.Target.ResourceTile
+                && clump.parentSheetIndex.Value is ResourceClump.stumpIndex or ResourceClump.hollowLogIndex)
+            : location.terrainFeatures.TryGetValue(action.Target.ResourceTile.ToVector2(), out TerrainFeature? feature)
+                && feature is Tree tree && !tree.falling.Value
+                && (IsHardwoodTree(tree) == (action.Assignment == WorkerTaskKind.ChopHardwood));
         Axe axe = new() { UpgradeLevel = 4, lastUser = Game1.MasterPlayer };
         bool finished = action.Target.Kind == ForagerTargetKind.HardwoodClump
             ? this.SwingAtHardwoodClump(location, action.Target, axe)
@@ -654,7 +670,11 @@ internal sealed class WorkerBehaviorManager
             $"{worker.displayName} performed {action.Assignment} swing {action.SwingCount} at {action.Target.LocationName} {action.Target.ResourceTile}; finished={finished}.",
             LogLevel.Trace);
         if (finished)
+        {
+            if (resourcePresent)
+                this.RecordCompletedWork(workerId);
             this.FinishForagerAction(worker, workerId, action.Target, action.Assignment, action);
+        }
     }
 
     private bool SwingAtHardwoodClump(GameLocation location, ForagerTarget target, Axe axe)
@@ -917,19 +937,19 @@ internal sealed class WorkerBehaviorManager
         this.retryAfterTicks.Remove(workerId);
     }
 
-    private void PerformJobAt(Farm farm, Point tile, WorkerTaskKind task)
+    private bool PerformJobAt(Farm farm, Point tile, WorkerTaskKind task)
     {
         if (!farm.terrainFeatures.TryGetValue(tile.ToVector2(), out TerrainFeature? feature) || feature is not HoeDirt dirt || dirt.crop is null)
         {
             this.monitor.Log($"Worker action skipped at tile {tile}: no HoeDirt/crop exists when the worker arrived.", LogLevel.Trace);
-            return;
+            return false;
         }
         this.monitor.Log($"Worker action check at tile {tile}: assignment={task}, watered={dirt.isWatered()}, harvestable={IsHarvestable(dirt.crop)}, crop={dirt.crop.indexOfHarvest.Value ?? "none"}.", LogLevel.Trace);
         if (task == WorkerTaskKind.WaterCrops && !dirt.isWatered())
         {
             dirt.state.Value = HoeDirt.watered;
             this.monitor.Log($"Worker watered crop tile {tile}.", LogLevel.Trace);
-            return;
+            return true;
         }
         if (task == WorkerTaskKind.HarvestCrops && IsHarvestable(dirt.crop))
         {
@@ -960,7 +980,9 @@ internal sealed class WorkerBehaviorManager
                 + $"items collected={collector.ItemsCollected}, chest deposits={collector.ChestDeposits}, "
                 + $"shipping bin count={shippingBinCountBefore}->{shippingBinCountAfter}.",
                 LogLevel.Trace);
+            return harvested || collector.ItemsCollected > 0;
         }
+        return false;
     }
 
     private void LogState(string workerId, NPC worker, string state)
@@ -1046,31 +1068,14 @@ internal sealed class WorkerBehaviorManager
         public override void tryToAddItemToHut(Item item)
         {
             this.ItemsCollected++;
-            Item? remainder = item;
-            if (this.destinationChest is not null && !this.destinationChest.GetMutex().IsLocked())
+            WorkerItemStorage.StoreResult result = WorkerItemStorage.Store(item, this.destinationChest, this.farm, ex =>
+                this.monitor.Log($"Worker could not add harvested items to the selected chest: {ex.Message}", LogLevel.Warn));
+            if (result.ChestDeposit)
+                this.ChestDeposits++;
+            if (result.ShippedRemainder && this.destinationSelected && !this.fallbackLogged)
             {
-                try
-                {
-                    int originalStack = item.Stack;
-                    remainder = this.destinationChest.addItem(item);
-                    if (remainder is null || remainder.Stack < originalStack)
-                        this.ChestDeposits++;
-                }
-                catch (System.Exception ex)
-                {
-                    this.monitor.Log($"Worker could not add harvested items to the selected chest: {ex.Message}", LogLevel.Warn);
-                    remainder = item;
-                }
-            }
-
-            if (remainder is not null)
-            {
-                this.farm.getShippingBin(Game1.MasterPlayer).Add(remainder);
-                if (this.destinationSelected && !this.fallbackLogged)
-                {
-                    this.monitor.Log("Worker's selected chest was unavailable, locked, or full; remaining produce went to the shipping bin.", LogLevel.Warn);
-                    this.fallbackLogged = true;
-                }
+                this.monitor.Log("Worker's selected chest was unavailable, locked, or full; remaining produce went to the shipping bin.", LogLevel.Warn);
+                this.fallbackLogged = true;
             }
             this.farm.playSound("harvest");
         }

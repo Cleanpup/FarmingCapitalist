@@ -165,7 +165,7 @@ internal sealed class ModEntry : Mod
             case "pay":
                 if (!this.RequireHost())
                     return;
-                this.workerShellManager.ProcessDailyWages();
+                this.workerShellManager.ProcessDailyWages(retryUnpaid: true);
                 this.LogWorkerStatus();
                 break;
             default:

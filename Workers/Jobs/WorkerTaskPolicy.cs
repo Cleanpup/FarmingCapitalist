@@ -54,7 +54,7 @@ internal static class WorkerTaskPolicy
     public static string GetProfessionLabel(WorkerProfession profession)
         => profession == WorkerProfession.Forager ? "Forager" : "Farmer";
 
-    public static string GetTaskLabel(WorkerTaskKind task) => task switch
+    public static string GetTaskLabel(WorkerTaskKind task, string idleLabel = "Idle") => task switch
     {
         WorkerTaskKind.WaterCrops => "Water crops",
         WorkerTaskKind.HarvestCrops => "Harvest crops",
@@ -62,6 +62,6 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.CollectForage => "Collect forage",
         WorkerTaskKind.ChopTrees => "Cut down trees",
         WorkerTaskKind.ChopHardwood => "Cut hardwood",
-        _ => "Idle",
+        _ => idleLabel,
     };
 }

@@ -1162,16 +1162,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     private static string FormatTile(Point? tile) => tile is Point point ? $"{point.X}, {point.Y}" : "--";
 
-    private static string GetTaskLabel(WorkerTaskKind task) => task switch
-    {
-        WorkerTaskKind.WaterCrops => "Water crops",
-        WorkerTaskKind.HarvestCrops => "Harvest crops",
-        WorkerTaskKind.TendCrops => "Tend crops",
-        WorkerTaskKind.CollectForage => "Collect forage",
-        WorkerTaskKind.ChopTrees => "Cut down trees",
-        WorkerTaskKind.ChopHardwood => "Cut hardwood",
-        _ => "Idle / return home",
-    };
+    private static string GetTaskLabel(WorkerTaskKind task)
+        => WorkerTaskPolicy.GetTaskLabel(task, "Idle / return home");
 
     private static string GetTaskDescription(WorkerTaskKind task) => task switch
     {

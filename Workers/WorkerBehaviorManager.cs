@@ -60,6 +60,21 @@ internal sealed class WorkerBehaviorManager
         public int SwingCount { get; set; }
     }
 
+    private sealed class ForagerSearchState
+    {
+        public GameLocation TargetLocation { get; init; } = null!;
+
+        public GameLocation OriginLocation { get; init; } = null!;
+
+        public Point OriginTile { get; init; }
+
+        public WorkerTaskKind Assignment { get; init; }
+
+        public List<ForagerTarget> Candidates { get; init; } = new();
+
+        public int NextIndex { get; set; }
+    }
+
     private const int TravelRetryCooldownTicks = 60;
     private const int BlockedReturnRetryCooldownTicks = 600;
     private const int MaxReturnHomeRouteAttemptsPerUpdate = 4;
@@ -82,7 +97,7 @@ internal sealed class WorkerBehaviorManager
     private readonly Dictionary<string, ReturnHomeReason> returnReasons = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> retryAfterTicks = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> nextReturnCandidateIndex = new(System.StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, int> nextForagerCandidateIndex = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ForagerSearchState> foragerSearches = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> lastDebugStates = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<Point, string> lastHarvestReadinessStates = new();
     private readonly HashSet<Point> blockedHarvestTiles = new();
@@ -172,7 +187,7 @@ internal sealed class WorkerBehaviorManager
         this.returnReasons.Clear();
         this.retryAfterTicks.Clear();
         this.nextReturnCandidateIndex.Clear();
-        this.nextForagerCandidateIndex.Clear();
+        this.foragerSearches.Clear();
         this.lastDebugStates.Clear();
         this.lastHarvestReadinessStates.Clear();
         this.blockedHarvestTiles.Clear();
@@ -209,7 +224,7 @@ internal sealed class WorkerBehaviorManager
         this.returnReasons.Remove(workerId);
         this.retryAfterTicks.Remove(workerId);
         this.nextReturnCandidateIndex.Remove(workerId);
-        this.nextForagerCandidateIndex.Remove(workerId);
+        this.foragerSearches.Remove(workerId);
         if (task == WorkerTaskKind.Idle)
         {
             this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
@@ -232,7 +247,7 @@ internal sealed class WorkerBehaviorManager
         this.returnReasons.Remove(workerId);
         this.retryAfterTicks.Remove(workerId);
         this.nextReturnCandidateIndex.Remove(workerId);
-        this.nextForagerCandidateIndex.Remove(workerId);
+        this.foragerSearches.Remove(workerId);
         this.activePhases.Remove(workerId);
         this.completedToday.Remove(workerId);
     }
@@ -242,7 +257,7 @@ internal sealed class WorkerBehaviorManager
         this.activeTargets.Remove(workerId);
         this.activeForagerTargets.Remove(workerId);
         this.activeForagerActions.Remove(workerId);
-        this.nextForagerCandidateIndex.Remove(workerId);
+        this.foragerSearches.Remove(workerId);
     }
 
     public bool TrySetForageLocation(string workerId, string locationName, out string message)
@@ -482,6 +497,13 @@ internal sealed class WorkerBehaviorManager
     private void UpdateForagerWork(NPC worker, string workerId, WorkerTaskKind assignment)
     {
         if (!WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay))
+        {
+            if (Game1.shouldTimePass() && worker.controller is null && !this.navigationManager.HasActiveRoute(workerId))
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+
+        if (!Game1.shouldTimePass())
             return;
 
         if (this.activeForagerActions.TryGetValue(workerId, out ActiveForagerAction? action))
@@ -523,32 +545,47 @@ internal sealed class WorkerBehaviorManager
         if (!this.CanRetryTravel(workerId))
             return;
 
-        List<ForagerTarget> candidates = this.GetForagerTargets(location, assignment).Take(96).ToList();
-        if (candidates.Count == 0)
+        if (!this.foragerSearches.TryGetValue(workerId, out ForagerSearchState? search)
+            || search.TargetLocation != location
+            || search.OriginLocation != worker.currentLocation
+            || search.OriginTile != worker.TilePoint
+            || search.Assignment != assignment)
         {
-            this.nextForagerCandidateIndex.Remove(workerId);
-            if (this.HasFallingTree(location, assignment))
+            // Build one search snapshot after each completed job. Route attempts are
+            // spread across updates so an obstructed field cannot block a frame.
+            List<ForagerTarget> candidates = this.GetForagerTargets(location, assignment).ToList();
+            if (candidates.Count == 0)
             {
-                this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Working", "Waiting for a felled tree to settle", 0, null);
+                this.foragerSearches.Remove(workerId);
+                if (this.HasFallingTree(location, assignment))
+                {
+                    this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Working", "Waiting for a felled tree to settle", 0, null);
+                    return;
+                }
+
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
                 return;
             }
 
-            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
-            return;
+            search = new ForagerSearchState
+            {
+                TargetLocation = location,
+                OriginLocation = worker.currentLocation!,
+                OriginTile = worker.TilePoint,
+                Assignment = assignment,
+                Candidates = worker.currentLocation == location
+                    ? candidates.OrderBy(target => Math.Abs(worker.TilePoint.X - target.ApproachTile.X)
+                        + Math.Abs(worker.TilePoint.Y - target.ApproachTile.Y)).ToList()
+                    : candidates.OrderBy(target => target.ResourceTile.X + target.ResourceTile.Y).ToList(),
+            };
+            this.foragerSearches[workerId] = search;
         }
 
-        // A full path search for every candidate stalls the game when a tree falls.
-        // Cheap distance orders candidates; TryStartTravel checks the actual route.
-        List<ForagerTarget> ordered = worker.currentLocation == location
-            ? candidates.OrderBy(target => Math.Abs(worker.TilePoint.X - target.ApproachTile.X)
-                + Math.Abs(worker.TilePoint.Y - target.ApproachTile.Y)).ToList()
-            : candidates.OrderBy(target => target.ResourceTile.X + target.ResourceTile.Y).ToList();
-        int startIndex = this.nextForagerCandidateIndex.GetValueOrDefault(workerId) % ordered.Count;
         WorkerNavigationTarget? resolvedTarget = null;
         bool TryCandidate(ForagerTarget target)
         {
             WorkerNavigationTarget navigationTarget = new(target.LocationName, target.ApproachTile, TestWorkerDefinition.FacingDirection);
-            HashSet<Point> validApproaches = candidates
+            HashSet<Point> validApproaches = search.Candidates
                 .Where(candidate => candidate.ResourceTile == target.ResourceTile && candidate.Kind == target.Kind)
                 .Select(candidate => candidate.ApproachTile)
                 .ToHashSet();
@@ -562,9 +599,10 @@ internal sealed class WorkerBehaviorManager
             return true;
         }
 
-        bool foundRoute = WorkerBoundedCandidateSearch.TryFind(ordered, startIndex,
+        bool foundRoute = WorkerBoundedCandidateSearch.TryFind(search.Candidates, search.NextIndex,
             MaxForagerRouteAttemptsPerUpdate, ForagerPlanningBudgetMilliseconds, TryCandidate,
-            out ForagerTarget? selectedTarget, out int nextIndex, out int attempted, out long planningMilliseconds);
+            out ForagerTarget? selectedTarget, out int nextIndex, out int attempted,
+            out bool exhausted, out long planningMilliseconds);
         if (planningMilliseconds >= 100)
             this.monitor.Log($"Forager route search took {planningMilliseconds} ms for {attempted} candidates in {location.NameOrUniqueName}.", LogLevel.Info);
         if (foundRoute && selectedTarget is not null && resolvedTarget is not null)
@@ -572,7 +610,7 @@ internal sealed class WorkerBehaviorManager
             ForagerTarget target = selectedTarget;
 
             this.activeForagerTargets[workerId] = target with { ApproachTile = resolvedTarget.Tile };
-            this.nextForagerCandidateIndex.Remove(workerId);
+            this.foragerSearches.Remove(workerId);
             this.activePhases[workerId] = WorkerTravelPhase.TravellingToFarmTarget;
             this.retryAfterTicks.Remove(workerId);
             this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Traveling",
@@ -581,9 +619,15 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
-        this.nextForagerCandidateIndex[workerId] = nextIndex;
-        this.retryAfterTicks[workerId] = Game1.ticks
-            + (startIndex + attempted >= ordered.Count ? TravelRetryCooldownTicks : ForagerSearchRetryTicks);
+        if (exhausted)
+        {
+            this.monitor.Log($"{worker.displayName} has no reachable {assignment} approach among {search.Candidates.Count} candidates in {location.NameOrUniqueName}; returning home.", LogLevel.Info);
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+
+        search.NextIndex = nextIndex;
+        this.retryAfterTicks[workerId] = Game1.ticks + ForagerSearchRetryTicks;
         this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Blocked", "No reachable target found; retrying", 0, null);
     }
 

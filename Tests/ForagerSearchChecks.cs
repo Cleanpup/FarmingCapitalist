@@ -8,18 +8,34 @@ for (int batch = 0; batch < 24 && selected is null; batch++)
 {
     bool found = WorkerBoundedCandidateSearch.TryFind(candidates, cursor, 4, 1000,
         candidate => { totalAttempts++; return candidate == "40"; },
-        out selected, out cursor, out int attempted, out _);
+        out selected, out cursor, out int attempted, out bool exhausted, out _);
     Assert(attempted <= 4, "A route search update must test at most four approaches.");
     Assert(found == (selected is not null), "The search result must match its selected target.");
+    Assert(!exhausted, "A reachable later candidate must be tried before declaring the sweep exhausted.");
 }
 Assert(selected == "40" && totalAttempts == 41, "A later reachable target must be found across bounded updates.");
 
+string[] blocked = Enumerable.Range(0, 9).Select(index => index.ToString()).ToArray();
+int blockedCursor = 0;
+int blockedAttempts = 0;
+for (int batch = 0; batch < 3; batch++)
+{
+    bool found = WorkerBoundedCandidateSearch.TryFind(blocked, blockedCursor, 4, 1000,
+        _ => { blockedAttempts++; return false; },
+        out _, out blockedCursor, out int attempted, out bool exhausted, out _);
+    Assert(!found && attempted <= 4, "Blocked approaches must remain bounded per update.");
+    Assert(exhausted == (batch == 2), "The search must signal return home only after every approach was attempted.");
+}
+Assert(blockedAttempts == blocked.Length && blockedCursor == 0,
+    "An exhausted search must not silently restart the same blocked approaches.");
+
 bool limited = WorkerBoundedCandidateSearch.TryFind(candidates, 7, 4, 0, _ => false,
-    out _, out int nextIndex, out int limitedAttempts, out _);
+    out _, out int nextIndex, out int limitedAttempts, out bool budgetExhausted, out _);
 Assert(!limited && limitedAttempts == 1 && nextIndex == 8,
     "A spent time budget must still try one candidate and then resume at the next.");
+Assert(!budgetExhausted, "A spent time budget must not be mistaken for exhausted work.");
 
-Console.WriteLine("Forager search checks passed: bounded attempts, cursor progress, and time-budget behavior.");
+Console.WriteLine("Forager search checks passed: reachable alternative, all-blocked exhaustion, and bounded attempts.");
 
 static void Assert(bool condition, string message)
 {

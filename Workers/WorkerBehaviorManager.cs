@@ -61,6 +61,9 @@ internal sealed class WorkerBehaviorManager
     }
 
     private const int TravelRetryCooldownTicks = 60;
+    private const int BlockedReturnRetryCooldownTicks = 600;
+    private const int MaxReturnHomeRouteAttemptsPerUpdate = 4;
+    private const int ReturnHomePlanningBudgetMilliseconds = 100;
     private const int ForagerSwingIntervalTicks = 24;
     private readonly Dictionary<string, WorkerTravelPhase> activePhases = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly IMonitor monitor;
@@ -75,6 +78,7 @@ internal sealed class WorkerBehaviorManager
     private readonly Dictionary<string, WorkerNavigationTarget> returnTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ReturnHomeReason> returnReasons = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> retryAfterTicks = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> nextReturnCandidateIndex = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> lastDebugStates = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<Point, string> lastHarvestReadinessStates = new();
     private readonly HashSet<Point> blockedHarvestTiles = new();
@@ -163,6 +167,7 @@ internal sealed class WorkerBehaviorManager
         this.returnTargets.Clear();
         this.returnReasons.Clear();
         this.retryAfterTicks.Clear();
+        this.nextReturnCandidateIndex.Clear();
         this.lastDebugStates.Clear();
         this.lastHarvestReadinessStates.Clear();
         this.blockedHarvestTiles.Clear();
@@ -198,6 +203,7 @@ internal sealed class WorkerBehaviorManager
         this.returnTargets.Remove(workerId);
         this.returnReasons.Remove(workerId);
         this.retryAfterTicks.Remove(workerId);
+        this.nextReturnCandidateIndex.Remove(workerId);
         if (task == WorkerTaskKind.Idle)
         {
             this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
@@ -219,6 +225,7 @@ internal sealed class WorkerBehaviorManager
         this.returnTargets.Remove(workerId);
         this.returnReasons.Remove(workerId);
         this.retryAfterTicks.Remove(workerId);
+        this.nextReturnCandidateIndex.Remove(workerId);
         this.activePhases.Remove(workerId);
         this.completedToday.Remove(workerId);
     }
@@ -285,6 +292,7 @@ internal sealed class WorkerBehaviorManager
             this.navigationManager.ApplyIdlePose(worker);
             this.activePhases[workerId] = WorkerTravelPhase.RestingAtFarmhouse;
             this.retryAfterTicks.Remove(workerId);
+            this.nextReturnCandidateIndex.Remove(workerId);
             WorkerTaskKind assignment = this.workerShellManager.GetAssignedTask(workerId);
             string status = this.returnReasons.GetValueOrDefault(workerId, ReturnHomeReason.WorkComplete) == ReturnHomeReason.ExplicitIdle
                 ? "Idle at home"
@@ -309,12 +317,17 @@ internal sealed class WorkerBehaviorManager
         this.retryAfterTicks[workerId] = Game1.ticks + TravelRetryCooldownTicks;
         if (!this.navigationManager.TryStartTravel(worker, homeTarget, "retry return home"))
         {
+            this.retryAfterTicks[workerId] = Game1.ticks + BlockedReturnRetryCooldownTicks;
             this.LogState(workerId, worker, $"return-home route retry failed for {homeTarget.Tile}; waiting before retry");
         }
     }
 
     private void BeginReturnHome(NPC worker, string workerId, ReturnHomeReason reason)
     {
+        if (!this.activePhases.TryGetValue(workerId, out WorkerTravelPhase previousPhase)
+            || previousPhase != WorkerTravelPhase.ReturningToFarmhouse)
+            this.nextReturnCandidateIndex.Remove(workerId);
+
         this.ClearActiveJobState(workerId);
         this.navigationManager.StopTravel(worker);
         this.returnTargets.Remove(workerId);
@@ -327,8 +340,14 @@ internal sealed class WorkerBehaviorManager
             .Select(pair => pair.Value.Tile)
             .ToHashSet();
         IReadOnlyList<WorkerNavigationTarget> candidates = this.workerShellManager.GetWorkerReturnTargets(worker, reservedIdleTargets);
-        foreach (WorkerNavigationTarget candidate in candidates)
+        int startIndex = candidates.Count > 0 ? this.nextReturnCandidateIndex.GetValueOrDefault(workerId) % candidates.Count : 0;
+        int attempted = 0;
+        System.Diagnostics.Stopwatch planningTime = System.Diagnostics.Stopwatch.StartNew();
+        while (attempted < Math.Min(candidates.Count, MaxReturnHomeRouteAttemptsPerUpdate)
+            && (attempted == 0 || planningTime.ElapsedMilliseconds < ReturnHomePlanningBudgetMilliseconds))
         {
+            WorkerNavigationTarget candidate = candidates[(startIndex + attempted) % candidates.Count];
+            attempted++;
             if (!this.navigationManager.TryStartTravel(worker, candidate, reason == ReturnHomeReason.ExplicitIdle ? "idle/return home" : "work complete/return home"))
             {
                 continue;
@@ -336,6 +355,7 @@ internal sealed class WorkerBehaviorManager
 
             this.returnTargets[workerId] = candidate;
             this.retryAfterTicks.Remove(workerId);
+            this.nextReturnCandidateIndex.Remove(workerId);
             this.snapshots[workerId] = new WorkerRuntimeSnapshot(
                 this.workerShellManager.GetAssignedTask(workerId),
                 "Traveling",
@@ -346,13 +366,17 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
+        if (candidates.Count > 0)
+            this.nextReturnCandidateIndex[workerId] = (startIndex + attempted) % candidates.Count;
+        this.retryAfterTicks[workerId] = Game1.ticks + BlockedReturnRetryCooldownTicks;
+
         this.snapshots[workerId] = new WorkerRuntimeSnapshot(
             this.workerShellManager.GetAssignedTask(workerId),
             "Returning",
             "Returning home",
             0,
             null);
-        this.LogState(workerId, worker, "could not find a reachable home tile; waiting before retry");
+        this.LogState(workerId, worker, "home route unavailable; waiting before retry");
     }
 
     private bool CanRetryTravel(string workerId)

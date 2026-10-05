@@ -4,7 +4,7 @@ using Microsoft.Xna.Framework;
 
 namespace FarmingCapitalist.Workers;
 
-internal sealed record WorkerRouteOption<TLeg>(TLeg Leg, Point ArrivalTile) where TLeg : class;
+internal sealed record WorkerRouteOption<TLeg>(Point ArrivalTile, Func<TLeg?> BuildLeg) where TLeg : class;
 
 /// <summary>Choose a first warp only after every remaining leg can reach its next exit or final tile.</summary>
 internal static class WorkerRouteSelector
@@ -26,7 +26,7 @@ internal static class WorkerRouteSelector
             if (route.Length < 2)
                 continue;
 
-            if (TryFollow(routeIndex, route, 0, startTile, null, destinationTile,
+            if (TryFollow(routeIndex, route, 0, startTile, destinationTile,
                     getLegOptions, canReachDestination, deadEnds, out firstLeg))
             {
                 selectedRoute = route;
@@ -44,7 +44,6 @@ internal static class WorkerRouteSelector
         string[] route,
         int legIndex,
         Point startTile,
-        TLeg? firstLeg,
         Point destinationTile,
         Func<string, Point, string, IReadOnlyList<WorkerRouteOption<TLeg>>> getLegOptions,
         Func<string, Point, Point, bool> canReachDestination,
@@ -54,8 +53,8 @@ internal static class WorkerRouteSelector
     {
         if (legIndex == route.Length - 1)
         {
-            selectedFirstLeg = canReachDestination(route[legIndex], startTile, destinationTile) ? firstLeg : null;
-            return selectedFirstLeg is not null;
+            selectedFirstLeg = null;
+            return canReachDestination(route[legIndex], startTile, destinationTile);
         }
 
         if (deadEnds.Contains((routeIndex, legIndex, startTile)))
@@ -66,9 +65,18 @@ internal static class WorkerRouteSelector
 
         foreach (WorkerRouteOption<TLeg> option in getLegOptions(route[legIndex], startTile, route[legIndex + 1]))
         {
-            if (TryFollow(routeIndex, route, legIndex + 1, option.ArrivalTile, firstLeg ?? option.Leg,
-                    destinationTile, getLegOptions, canReachDestination, deadEnds, out selectedFirstLeg))
+            // Validate the arrival's onward route before doing a potentially expensive path
+            // search to the current warp. A dead-end landing should cost no first-leg search.
+            if (!TryFollow(routeIndex, route, legIndex + 1, option.ArrivalTile,
+                    destinationTile, getLegOptions, canReachDestination, deadEnds, out _))
+                continue;
+
+            TLeg? leg = option.BuildLeg();
+            if (leg is not null)
+            {
+                selectedFirstLeg = leg;
                 return true;
+            }
         }
 
         deadEnds.Add((routeIndex, legIndex, startTile));

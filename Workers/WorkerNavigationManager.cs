@@ -494,7 +494,7 @@ internal sealed class WorkerNavigationManager
         {
             var key = (locationName, startTile, nextLocationName);
             if (!legCache.TryGetValue(key, out IReadOnlyList<WorkerRouteOption<ReachableWarpLeg>>? options))
-                legCache[key] = options = this.GetReachableWarpLegs(worker, locationName, startTile, nextLocationName);
+                legCache[key] = options = this.GetWarpLegOptions(worker, locationName, startTile, nextLocationName);
             return options;
         }
 
@@ -588,7 +588,7 @@ internal sealed class WorkerNavigationManager
             .ToArray();
     }
 
-    private IReadOnlyList<WorkerRouteOption<ReachableWarpLeg>> GetReachableWarpLegs(
+    private IReadOnlyList<WorkerRouteOption<ReachableWarpLeg>> GetWarpLegOptions(
         NPC worker, string locationName, Point startTile, string nextLocationName)
     {
         GameLocation? currentLocation = Game1.getLocationFromName(locationName);
@@ -613,24 +613,27 @@ internal sealed class WorkerNavigationManager
         List<WorkerRouteOption<ReachableWarpLeg>> options = new();
         foreach ((Point warpPoint, Point warpTarget) in transitions)
         {
-            if (!nextLocation.isTileOnMap(warpTarget.ToVector2())
-                || !this.TryBuildCollisionAwareWarpLeg(worker, currentLocation, startTile, warpPoint,
-                    out Stack<Point>? candidateRoute, out Point activationTile)
-                || candidateRoute is null)
+            if (!nextLocation.isTileOnMap(warpTarget.ToVector2()))
                 continue;
 
-            ReachableWarpLeg leg = new()
+            options.Add(new WorkerRouteOption<ReachableWarpLeg>(warpTarget, () =>
             {
-                Route = candidateRoute,
-                WarpPoint = warpPoint,
-                WarpTarget = warpTarget,
-                ActivationTile = activationTile,
-                NextLocationName = nextLocationName,
-            };
-            options.Add(new WorkerRouteOption<ReachableWarpLeg>(leg, warpTarget));
+                if (!this.TryBuildCollisionAwareWarpLeg(worker, currentLocation, startTile, warpPoint,
+                        out Stack<Point>? route, out Point activationTile) || route is null)
+                    return null;
+
+                return new ReachableWarpLeg
+                {
+                    Route = route,
+                    WarpPoint = warpPoint,
+                    WarpTarget = warpTarget,
+                    ActivationTile = activationTile,
+                    NextLocationName = nextLocationName,
+                };
+            }));
         }
 
-        return options.OrderBy(option => option.Leg.Route.Count).ToArray();
+        return options;
     }
 
     private bool TryBuildCollisionAwareWarpLeg(
@@ -645,15 +648,9 @@ internal sealed class WorkerNavigationManager
         activationTile = Point.Zero;
         List<Point> approachCandidates = this.GetWarpApproaches(currentLocation, warpPoint);
 
-        Stack<Point>? bestPath = null;
-        Point bestApproach = Point.Zero;
-        int bestTailSteps = int.MaxValue;
-        int bestPathSteps = int.MaxValue;
         foreach (Point approach in approachCandidates)
         {
-            int tailSteps = Math.Abs(warpPoint.X - approach.X) + Math.Abs(warpPoint.Y - approach.Y);
-            // Tail distance wins before path length, so a farther approach cannot replace the best route.
-            if (tailSteps > bestTailSteps)
+            if (this.IsPathfindingCollision(currentLocation, worker, approach))
                 continue;
 
             Stack<Point>? candidatePath = PathFindController.findPath(
@@ -666,21 +663,12 @@ internal sealed class WorkerNavigationManager
             if (candidatePath is null || candidatePath.Count == 0)
                 continue;
 
-            if (tailSteps == bestTailSteps && candidatePath.Count >= bestPathSteps)
-                continue;
-
-            bestPath = candidatePath;
-            bestApproach = approach;
-            bestTailSteps = tailSteps;
-            bestPathSteps = candidatePath.Count;
+            route = candidatePath;
+            activationTile = approach;
+            return true;
         }
 
-        if (bestPath is null)
-            return false;
-
-        route = bestPath;
-        activationTile = bestApproach;
-        return true;
+        return false;
     }
 
     private Stack<Point> AddToStackForSchedule(Stack<Point> schedulePath, Stack<Point> segmentPath)

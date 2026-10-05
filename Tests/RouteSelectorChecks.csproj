@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="RouteSelectorChecks.cs" />
+    <Compile Include="../Workers/Navigation/WorkerRouteSelector.cs" Link="WorkerRouteSelector.cs" />
+    <Reference Include="MonoGame.Framework">
+      <HintPath>$(GamePath)/MonoGame.Framework.dll</HintPath>
+    </Reference>
+    <Reference Include="xTile">
+      <HintPath>$(GamePath)/xTile.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

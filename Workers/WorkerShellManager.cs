@@ -240,6 +240,41 @@ internal sealed class WorkerShellManager
         return this.GetWorkerEntry(workerId)?.ForageLocationName ?? WorkerForageAreaCatalog.DefaultLocationName;
     }
 
+    public WorkerObstacleReport? GetPendingObstacleReport(string workerId)
+        => this.GetWorkerEntry(workerId)?.PendingObstacleReport?.Clone();
+
+    public void ReportLargeObstacle(string workerId, WorkerTaskKind task, string locationName)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry)
+            return;
+
+        if (entry.PendingObstacleReport is { } previous
+            && previous.Task == task
+            && string.Equals(previous.LocationName, locationName, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        entry.PendingObstacleReport = new WorkerObstacleReport
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Task = task,
+            LocationName = locationName,
+            Message = $"I couldn't finish {WorkerTaskPolicy.GetTaskLabel(task).ToLowerInvariant()} in "
+                + $"{WorkerForageAreaCatalog.GetDisplayName(locationName)}. Big trees, logs, or boulders blocked my way. Please clear a path.",
+        };
+        this.PersistRoster();
+    }
+
+    public bool TryAcknowledgeObstacleReport(string workerId, string reportId)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry
+            || !WorkerObstacleReportPolicy.MatchesAcknowledgment(entry.PendingObstacleReport, reportId))
+            return false;
+
+        entry.PendingObstacleReport = null;
+        this.PersistRoster();
+        return true;
+    }
+
     public bool TrySetForageLocation(string workerId, string locationName, out string message)
     {
         if (!this.CanManageWorkers(out message))

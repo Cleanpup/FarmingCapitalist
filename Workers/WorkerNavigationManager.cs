@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Pathfinding;
+using StardewValley.TerrainFeatures;
 
 namespace FarmingCapitalist.Workers;
 
@@ -87,6 +88,47 @@ internal sealed class WorkerNavigationManager
 
         routeLength = path.Count;
         return true;
+    }
+
+    public WorkerObstacleRoutePlanner? CreateObstacleRoutePlanner(NPC worker, IEnumerable<Point> targets)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || worker.currentLocation is not GameLocation location)
+            return null;
+
+        return new WorkerObstacleRoutePlanner(worker.TilePoint, targets,
+            tile => this.ClassifyObstacleRouteTile(location, worker, tile));
+    }
+
+    public bool IsSmallRouteObstacle(NPC worker, Point tile)
+        => Context.IsWorldReady && Context.IsMainPlayer && worker.currentLocation is GameLocation location
+            && this.ClassifyObstacleRouteTile(location, worker, tile) == WorkerRouteTileKind.SmallDebris;
+
+    private WorkerRouteTileKind ClassifyObstacleRouteTile(GameLocation location, NPC worker, Point tile)
+    {
+        Vector2 position = tile.ToVector2();
+        if (!location.isTileOnMap(position)
+            || location.warps.Any(warp => warp.X == tile.X && warp.Y == tile.Y))
+            return WorkerRouteTileKind.Impassable;
+
+        if (!this.IsPathfindingCollision(location, worker, tile))
+            return WorkerRouteTileKind.Open;
+
+        if (location.terrainFeatures.TryGetValue(position, out TerrainFeature? feature))
+            return feature is Tree or FruitTree ? WorkerRouteTileKind.LargeObstacle : WorkerRouteTileKind.Impassable;
+
+        if (location.resourceClumps.Any(clump => tile.X >= clump.Tile.X && tile.X < clump.Tile.X + clump.width.Value
+                && tile.Y >= clump.Tile.Y && tile.Y < clump.Tile.Y + clump.height.Value))
+            return WorkerRouteTileKind.LargeObstacle;
+
+        if (!location.objects.TryGetValue(position, out StardewValley.Object? item)
+            || !WorkerRouteObstacleClassifier.IsSmallLitter(item)
+            || !location.isTilePassable(position)
+            || location.doesTileHaveProperty(tile.X, tile.Y, "NPCBarrier", "Back") is not null
+            || location.characters.Any(character => character != worker && character.TilePoint == tile)
+            || location.farmers.Any(farmer => farmer.TilePoint == tile))
+            return WorkerRouteTileKind.Impassable;
+
+        return WorkerRouteTileKind.SmallDebris;
     }
 
     public bool TryStartTravel(NPC worker, WorkerNavigationTarget target, string triggerReason,

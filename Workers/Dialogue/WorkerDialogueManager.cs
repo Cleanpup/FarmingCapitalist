@@ -16,22 +16,35 @@ internal sealed class WorkerDialogueManager
     private const string DefaultDialoguePath = "assets/worker-dialogue.json";
     private static WorkerDialogueManager? instance;
 
+    private const string ObstacleReportAckMessageType = "WorkerObstacleReportAck";
+
+    public sealed class ObstacleReportAck
+    {
+        public string WorkerId { get; set; } = string.Empty;
+
+        public string ReportId { get; set; } = string.Empty;
+    }
+
     private readonly IModHelper helper;
     private readonly IMonitor monitor;
     private readonly WorkerShellManager workerShellManager;
+    private readonly string modId;
+    private readonly HashSet<string> locallyAcknowledgedReports = new(StringComparer.Ordinal);
     private bool assetFailureLogged;
 
-    public WorkerDialogueManager(IModHelper helper, WorkerShellManager workerShellManager, IMonitor monitor)
+    public WorkerDialogueManager(IModHelper helper, WorkerShellManager workerShellManager, IMonitor monitor, string modId)
     {
         this.helper = helper;
         this.workerShellManager = workerShellManager;
         this.monitor = monitor;
+        this.modId = modId;
     }
 
     public void Register(Harmony harmony)
     {
         instance = this;
         this.helper.Events.Content.AssetRequested += this.OnAssetRequested;
+        this.helper.Events.Multiplayer.ModMessageReceived += this.OnModMessageReceived;
         harmony.Patch(
             AccessTools.Method(typeof(NPC), nameof(NPC.checkAction)),
             prefix: new HarmonyMethod(typeof(WorkerDialogueManager), nameof(BeforeNpcCheckAction)));
@@ -40,6 +53,17 @@ internal sealed class WorkerDialogueManager
     public void Reset()
     {
         this.assetFailureLogged = false;
+        this.locallyAcknowledgedReports.Clear();
+    }
+
+    private void OnModMessageReceived(object? sender, ModMessageReceivedEventArgs e)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || e.FromModID != this.modId
+            || e.Type != ObstacleReportAckMessageType)
+            return;
+
+        ObstacleReportAck ack = e.ReadAs<ObstacleReportAck>();
+        this.workerShellManager.TryAcknowledgeObstacleReport(ack.WorkerId, ack.ReportId);
     }
 
     private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
@@ -77,7 +101,12 @@ internal sealed class WorkerDialogueManager
         }
 
         WorkerTaskKind task = this.workerShellManager.GetAssignedTask(workerId);
-        (string key, string text) = this.GetDialogueLine(workerId, task);
+        WorkerObstacleReport? report = this.workerShellManager.GetPendingObstacleReport(workerId);
+        if (report is not null && this.locallyAcknowledgedReports.Contains(report.Id))
+            report = null;
+        (string key, string text) = report is not null
+            ? ($"ObstacleReport:{report.Id}", report.Message)
+            : this.GetDialogueLine(workerId, task);
         string resolvedText = text
             .Replace("{{workerName}}", worker.displayName, StringComparison.Ordinal)
             .Replace("{{task}}", WorkerTaskPolicy.GetTaskLabel(task), StringComparison.Ordinal);
@@ -86,6 +115,15 @@ internal sealed class WorkerDialogueManager
         worker.CurrentDialogue.Clear();
         worker.CurrentDialogue.Push(dialogue);
         Game1.drawDialogue(worker);
+        if (report is not null)
+        {
+            this.locallyAcknowledgedReports.Add(report.Id);
+            if (Context.IsMainPlayer)
+                this.workerShellManager.TryAcknowledgeObstacleReport(workerId, report.Id);
+            else
+                this.helper.Multiplayer.SendMessage(new ObstacleReportAck { WorkerId = workerId, ReportId = report.Id },
+                    ObstacleReportAckMessageType, modIDs: new[] { this.modId });
+        }
         return true;
     }
 

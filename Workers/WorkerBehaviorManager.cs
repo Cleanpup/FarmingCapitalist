@@ -32,13 +32,15 @@ internal sealed class WorkerBehaviorManager
         Tree,
         HardwoodTree,
         HardwoodClump,
+        RouteDebris,
     }
 
     private sealed record ForagerTarget(string LocationName, Point ResourceTile, Point ApproachTile, ForagerTargetKind Kind);
 
     private sealed record DropCollectionZone(
         GameLocation Location, Point Tile, HashSet<Debris> ExistingDebris, int CollectAfterTick, int ExpiresAtTick,
-        string WorkerId, string WorkerName, WorkerTaskKind Assignment, ForagerTargetKind Kind)
+        string WorkerId, string WorkerName, WorkerTaskKind Assignment, ForagerTargetKind Kind,
+        HashSet<Debris>? CapturedDebris = null)
     {
         public int ChestOnlyStacks { get; set; }
 
@@ -73,6 +75,25 @@ internal sealed class WorkerBehaviorManager
         public List<ForagerTarget> Candidates { get; init; } = new();
 
         public int NextIndex { get; set; }
+
+        public WorkerObstacleRoutePlanner? ObstaclePlanner { get; set; }
+    }
+
+    private sealed class ActiveObstacleClear
+    {
+        public GameLocation Location { get; init; } = null!;
+
+        public Point ObstacleTile { get; init; }
+
+        public Point ApproachTile { get; init; }
+
+        public StardewValley.Object ExpectedObject { get; init; } = null!;
+
+        public HashSet<Debris> CapturedDebris { get; } = new();
+
+        public int NextSwingTick { get; set; }
+
+        public int SwingCount { get; set; }
     }
 
     private const int TravelRetryCooldownTicks = 60;
@@ -82,6 +103,9 @@ internal sealed class WorkerBehaviorManager
     private const int MaxForagerRouteAttemptsPerUpdate = 4;
     private const int ForagerPlanningBudgetMilliseconds = 50;
     private const int ForagerSearchRetryTicks = 20;
+    private const int ObstacleSearchNodesPerUpdate = 64;
+    private const int ObstacleSearchMaxNodes = 12000;
+    private const int MaxDebrisClearingSwings = 4;
     private const int ForagerSwingIntervalTicks = 24;
     private readonly Dictionary<string, WorkerTravelPhase> activePhases = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly IMonitor monitor;
@@ -92,6 +116,7 @@ internal sealed class WorkerBehaviorManager
     private readonly Dictionary<string, Point> activeTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ForagerTarget> activeForagerTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ActiveForagerAction> activeForagerActions = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ActiveObstacleClear> activeObstacleClears = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly List<DropCollectionZone> dropCollectionZones = new();
     private readonly Dictionary<string, WorkerNavigationTarget> returnTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ReturnHomeReason> returnReasons = new(System.StringComparer.OrdinalIgnoreCase);
@@ -182,6 +207,7 @@ internal sealed class WorkerBehaviorManager
         this.activeTargets.Clear();
         this.activeForagerTargets.Clear();
         this.activeForagerActions.Clear();
+        this.activeObstacleClears.Clear();
         this.dropCollectionZones.Clear();
         this.returnTargets.Clear();
         this.returnReasons.Clear();
@@ -257,6 +283,7 @@ internal sealed class WorkerBehaviorManager
         this.activeTargets.Remove(workerId);
         this.activeForagerTargets.Remove(workerId);
         this.activeForagerActions.Remove(workerId);
+        this.activeObstacleClears.Remove(workerId);
         this.foragerSearches.Remove(workerId);
     }
 
@@ -512,6 +539,12 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
+        if (this.activeObstacleClears.TryGetValue(workerId, out ActiveObstacleClear? obstacleClear))
+        {
+            this.UpdateObstacleClear(worker, workerId, assignment, obstacleClear);
+            return;
+        }
+
         if (worker.controller is not null)
             return;
 
@@ -563,7 +596,17 @@ internal sealed class WorkerBehaviorManager
                     return;
                 }
 
-                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+                ForagerSearchState emptySearch = new()
+                {
+                    TargetLocation = location,
+                    OriginLocation = worker.currentLocation!,
+                    OriginTile = worker.TilePoint,
+                    Assignment = assignment,
+                };
+                if (this.TryStartObstaclePlan(worker, workerId, assignment, emptySearch))
+                    this.foragerSearches[workerId] = emptySearch;
+                else
+                    this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
                 return;
             }
 
@@ -579,6 +622,12 @@ internal sealed class WorkerBehaviorManager
                     : candidates.OrderBy(target => target.ResourceTile.X + target.ResourceTile.Y).ToList(),
             };
             this.foragerSearches[workerId] = search;
+        }
+
+        if (search.ObstaclePlanner is not null)
+        {
+            this.UpdateObstaclePlan(worker, workerId, assignment, search);
+            return;
         }
 
         WorkerNavigationTarget? resolvedTarget = null;
@@ -621,8 +670,8 @@ internal sealed class WorkerBehaviorManager
 
         if (exhausted)
         {
-            this.monitor.Log($"{worker.displayName} has no reachable {assignment} approach among {search.Candidates.Count} candidates in {location.NameOrUniqueName}; returning home.", LogLevel.Info);
-            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            if (!this.TryStartObstaclePlan(worker, workerId, assignment, search))
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
             return;
         }
 
@@ -631,7 +680,137 @@ internal sealed class WorkerBehaviorManager
         this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Blocked", "No reachable target found; retrying", 0, null);
     }
 
-    private IEnumerable<ForagerTarget> GetForagerTargets(GameLocation location, WorkerTaskKind assignment)
+    private bool TryStartObstaclePlan(NPC worker, string workerId, WorkerTaskKind assignment, ForagerSearchState search)
+    {
+        if (worker.currentLocation != search.TargetLocation)
+            return false;
+
+        Point[] potentialApproaches = this.GetForagerTargets(search.TargetLocation, assignment, includeBlockedApproaches: true)
+            .Select(target => target.ApproachTile)
+            .Distinct()
+            .ToArray();
+        if (potentialApproaches.Length == 0)
+            return false;
+
+        search.ObstaclePlanner = this.navigationManager.CreateObstacleRoutePlanner(worker, potentialApproaches);
+        if (search.ObstaclePlanner is null)
+            return false;
+
+        this.retryAfterTicks.Remove(workerId);
+        this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Checking", "Checking blocked routes", 0, null);
+        return true;
+    }
+
+    private void UpdateObstaclePlan(NPC worker, string workerId, WorkerTaskKind assignment, ForagerSearchState search)
+    {
+        WorkerObstaclePlanStatus status = search.ObstaclePlanner!.Advance(
+            ObstacleSearchNodesPerUpdate, ObstacleSearchMaxNodes, out WorkerObstacleClearance? clearance);
+        if (status == WorkerObstaclePlanStatus.Searching)
+            return;
+
+        if (status == WorkerObstaclePlanStatus.ClearSmallDebris && clearance is not null
+            && search.TargetLocation.objects.TryGetValue(clearance.ObstacleTile.ToVector2(), out StardewValley.Object? item)
+            && this.navigationManager.IsSmallRouteObstacle(worker, clearance.ObstacleTile))
+        {
+            WorkerNavigationTarget approach = new(search.TargetLocation.NameOrUniqueName,
+                clearance.ApproachTile, TestWorkerDefinition.FacingDirection);
+            if (this.navigationManager.TryStartTravel(worker, approach, "walk to route debris", out _))
+            {
+                this.activeObstacleClears[workerId] = new ActiveObstacleClear
+                {
+                    Location = search.TargetLocation,
+                    ObstacleTile = clearance.ObstacleTile,
+                    ApproachTile = clearance.ApproachTile,
+                    ExpectedObject = item,
+                    NextSwingTick = Game1.ticks,
+                };
+                this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Clearing", "Clearing small route debris", 0, clearance.ObstacleTile);
+                this.monitor.Log($"{worker.displayName} will clear small route debris at {clearance.ObstacleTile} from {clearance.ApproachTile} in {search.TargetLocation.NameOrUniqueName}.", LogLevel.Info);
+                return;
+            }
+        }
+
+        if (status == WorkerObstaclePlanStatus.BlockedByLargeObstacle)
+            this.workerShellManager.ReportLargeObstacle(workerId, assignment, search.TargetLocation.NameOrUniqueName);
+
+        this.monitor.Log($"{worker.displayName} could not reach {assignment} work in {search.TargetLocation.NameOrUniqueName}; route obstacle check={status}. Returning home.", LogLevel.Info);
+        this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+    }
+
+    private void UpdateObstacleClear(NPC worker, string workerId, WorkerTaskKind assignment, ActiveObstacleClear clear)
+    {
+        if (worker.controller is not null || this.navigationManager.HasActiveRoute(workerId))
+            return;
+
+        if (worker.currentLocation != clear.Location || worker.TilePoint != clear.ApproachTile
+            || Math.Abs(worker.TilePoint.X - clear.ObstacleTile.X) + Math.Abs(worker.TilePoint.Y - clear.ObstacleTile.Y) != 1)
+        {
+            this.monitor.Log($"{worker.displayName} could not reach small route debris at {clear.ObstacleTile}; returning home.", LogLevel.Info);
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+
+        if (!clear.Location.objects.TryGetValue(clear.ObstacleTile.ToVector2(), out StardewValley.Object? item)
+            || !ReferenceEquals(item, clear.ExpectedObject))
+        {
+            this.activeObstacleClears.Remove(workerId);
+            this.foragerSearches.Remove(workerId);
+            return;
+        }
+
+        if (!this.navigationManager.IsSmallRouteObstacle(worker, clear.ObstacleTile))
+        {
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+
+        this.AnimateForagerSwing(worker, clear.ObstacleTile);
+        if (Game1.ticks < clear.NextSwingTick)
+            return;
+
+        StardewValley.Tool tool = item.IsWeeds() ? new MeleeWeapon("47")
+            : item.IsTwig() ? new Axe()
+            : new Pickaxe();
+        tool.lastUser = Game1.MasterPlayer;
+        clear.SwingCount++;
+        clear.NextSwingTick = Game1.ticks + ForagerSwingIntervalTicks;
+        HashSet<Debris> beforeSwing = clear.Location.debris.ToHashSet();
+        try
+        {
+            clear.Location.performToolAction(tool, clear.ObstacleTile.X, clear.ObstacleTile.Y);
+        }
+        catch (Exception ex)
+        {
+            this.monitor.Log($"{worker.displayName} could not clear route debris at {clear.ObstacleTile}: {ex.Message}", LogLevel.Warn);
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+
+        clear.CapturedDebris.UnionWith(WorkerDebrisCapture.CaptureNew(beforeSwing, clear.Location.debris));
+
+        if (clear.Location.objects.TryGetValue(clear.ObstacleTile.ToVector2(), out StardewValley.Object? remaining)
+            && ReferenceEquals(remaining, item))
+        {
+            if (clear.SwingCount >= MaxDebrisClearingSwings)
+            {
+                this.monitor.Log($"{worker.displayName} stopped clearing route debris at {clear.ObstacleTile} after {clear.SwingCount} tool uses; returning home.", LogLevel.Warn);
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            }
+            return;
+        }
+
+        if (clear.CapturedDebris.Count > 0)
+            this.dropCollectionZones.Add(new DropCollectionZone(clear.Location, clear.ObstacleTile,
+                new HashSet<Debris>(), Game1.ticks + 1, Game1.ticks + 60,
+                workerId, worker.displayName, assignment, ForagerTargetKind.RouteDebris, clear.CapturedDebris));
+
+        this.monitor.Log($"{worker.displayName} cleared small route debris at {clear.Location.NameOrUniqueName} {clear.ObstacleTile}; captured {clear.CapturedDebris.Count} drop groups.", LogLevel.Info);
+        this.activeObstacleClears.Remove(workerId);
+        this.foragerSearches.Remove(workerId);
+        this.navigationManager.ApplyIdlePose(worker);
+    }
+
+    private IEnumerable<ForagerTarget> GetForagerTargets(GameLocation location, WorkerTaskKind assignment, bool includeBlockedApproaches = false)
     {
         if (assignment == WorkerTaskKind.CollectForage)
         {
@@ -641,7 +820,7 @@ internal sealed class WorkerBehaviorManager
                     continue;
 
                 Point resourceTile = pair.Key.ToPoint();
-                foreach (Point approach in this.GetApproachTiles(location, resourceTile, 1, 1))
+                foreach (Point approach in this.GetApproachTiles(location, resourceTile, 1, 1, includeBlockedApproaches))
                     yield return new ForagerTarget(location.NameOrUniqueName, resourceTile, approach, ForagerTargetKind.Forage);
             }
             yield break;
@@ -659,7 +838,7 @@ internal sealed class WorkerBehaviorManager
                 continue;
 
             Point resourceTile = pair.Key.ToPoint();
-            foreach (Point approach in this.GetApproachTiles(location, resourceTile, 1, 1))
+            foreach (Point approach in this.GetApproachTiles(location, resourceTile, 1, 1, includeBlockedApproaches))
                 yield return new ForagerTarget(location.NameOrUniqueName, resourceTile, approach,
                     hardwood ? ForagerTargetKind.HardwoodTree : ForagerTargetKind.Tree);
         }
@@ -673,12 +852,12 @@ internal sealed class WorkerBehaviorManager
                 continue;
 
             Point resourceTile = clump.Tile.ToPoint();
-            foreach (Point approach in this.GetApproachTiles(location, resourceTile, clump.width.Value, clump.height.Value))
+            foreach (Point approach in this.GetApproachTiles(location, resourceTile, clump.width.Value, clump.height.Value, includeBlockedApproaches))
                 yield return new ForagerTarget(location.NameOrUniqueName, resourceTile, approach, ForagerTargetKind.HardwoodClump);
         }
     }
 
-    private IEnumerable<Point> GetApproachTiles(GameLocation location, Point resourceTile, int width, int height)
+    private IEnumerable<Point> GetApproachTiles(GameLocation location, Point resourceTile, int width, int height, bool includeBlockedApproaches)
     {
         HashSet<Point> yielded = new();
         for (int x = resourceTile.X - 1; x <= resourceTile.X + width; x++)
@@ -686,7 +865,8 @@ internal sealed class WorkerBehaviorManager
             foreach (int y in new[] { resourceTile.Y - 1, resourceTile.Y + height })
             {
                 Point candidate = new(x, y);
-                if (yielded.Add(candidate) && this.IsWalkableApproach(location, candidate))
+                if (yielded.Add(candidate)
+                    && (includeBlockedApproaches ? location.isTileOnMap(candidate.ToVector2()) : this.IsWalkableApproach(location, candidate)))
                     yield return candidate;
             }
         }
@@ -695,7 +875,8 @@ internal sealed class WorkerBehaviorManager
             foreach (int x in new[] { resourceTile.X - 1, resourceTile.X + width })
             {
                 Point candidate = new(x, y);
-                if (yielded.Add(candidate) && this.IsWalkableApproach(location, candidate))
+                if (yielded.Add(candidate)
+                    && (includeBlockedApproaches ? location.isTileOnMap(candidate.ToVector2()) : this.IsWalkableApproach(location, candidate)))
                     yield return candidate;
             }
         }
@@ -954,7 +1135,9 @@ internal sealed class WorkerBehaviorManager
                 for (int debrisIndex = zone.Location.debris.Count - 1; debrisIndex >= 0; debrisIndex--)
                 {
                     Debris debris = zone.Location.debris[debrisIndex];
-                    if (zone.ExistingDebris.Contains(debris) || !this.IsDebrisNear(debris, zone.Tile, 9) || !this.TryCreateDebrisItem(debris, out Item? item))
+                    bool belongsToZone = WorkerDebrisCapture.BelongsToZone(debris, zone.ExistingDebris,
+                        zone.CapturedDebris, zone.CapturedDebris is null && this.IsDebrisNear(debris, zone.Tile, 9));
+                    if (!belongsToZone || !this.TryCreateDebrisItem(debris, out Item? item))
                         continue;
 
                     if (!zone.StorageStartedLogged)
@@ -965,9 +1148,18 @@ internal sealed class WorkerBehaviorManager
                             LogLevel.Info);
                         zone.StorageStartedLogged = true;
                     }
-                    zone.Location.debris.RemoveAt(debrisIndex);
                     System.Diagnostics.Stopwatch storageTime = System.Diagnostics.Stopwatch.StartNew();
-                    bool chestOnly = WorkerItemStorage.Store(item!, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                    bool chestOnly;
+                    try
+                    {
+                        chestOnly = WorkerItemStorage.Store(item!, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                    }
+                    catch (Exception ex)
+                    {
+                        this.monitor.Log($"Worker could not store debris at {zone.Location.NameOrUniqueName} {zone.Tile}; leaving it on the ground: {ex.Message}", LogLevel.Warn);
+                        continue;
+                    }
+                    zone.Location.debris.RemoveAt(debrisIndex);
                     storageTime.Stop();
                     if (storageTime.ElapsedMilliseconds >= 100)
                         this.monitor.Log($"Worker drop storage took {storageTime.ElapsedMilliseconds} ms at {zone.Location.NameOrUniqueName} {zone.Tile}.", LogLevel.Info);

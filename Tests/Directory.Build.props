@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'ObstacleRouteChecks'">
+    <BaseIntermediateOutputPath>obj/ObstacleRouteChecks/</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

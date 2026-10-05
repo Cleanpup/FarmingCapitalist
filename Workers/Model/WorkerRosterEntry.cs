@@ -30,6 +30,8 @@ internal sealed class WorkerRosterEntry
     /// <summary>Prevents duplicate day-start events from retrying an unaffordable payment.</summary>
     public int LastWageAttemptDay { get; set; } = -1;
 
+    public WorkerObstacleReport? PendingObstacleReport { get; set; }
+
     public WorkerRosterEntry Clone()
     {
         return new WorkerRosterEntry
@@ -45,6 +47,7 @@ internal sealed class WorkerRosterEntry
             DailyWage = this.DailyWage,
             LastPaidDay = this.LastPaidDay,
             LastWageAttemptDay = this.LastWageAttemptDay,
+            PendingObstacleReport = this.PendingObstacleReport?.Clone(),
         };
     }
 }

@@ -244,6 +244,16 @@ internal sealed class WorkerShellManager
         => this.GetWorkerEntry(workerId)?.PendingObstacleReport?.Clone();
 
     public void ReportLargeObstacle(string workerId, WorkerTaskKind task, string locationName)
+        => this.ReportBlockedRoute(workerId, task, locationName,
+            $"I couldn't finish {WorkerTaskPolicy.GetTaskLabel(task).ToLowerInvariant()} in "
+            + $"{WorkerForageAreaCatalog.GetDisplayName(locationName)}. Big trees, logs, or boulders blocked my way. Please clear a path.");
+
+    public void ReportBlockedRoute(string workerId, WorkerTaskKind task, string locationName)
+        => this.ReportBlockedRoute(workerId, task, locationName,
+            $"I couldn't finish {(task == WorkerTaskKind.Idle ? "returning home" : WorkerTaskPolicy.GetTaskLabel(task).ToLowerInvariant())} in "
+            + $"{WorkerForageAreaCatalog.GetDisplayName(locationName)}. I couldn't find a clear way home. Please clear a path.");
+
+    private void ReportBlockedRoute(string workerId, WorkerTaskKind task, string locationName, string message)
     {
         if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry)
             return;
@@ -258,8 +268,7 @@ internal sealed class WorkerShellManager
             Id = Guid.NewGuid().ToString("N"),
             Task = task,
             LocationName = locationName,
-            Message = $"I couldn't finish {WorkerTaskPolicy.GetTaskLabel(task).ToLowerInvariant()} in "
-                + $"{WorkerForageAreaCatalog.GetDisplayName(locationName)}. Big trees, logs, or boulders blocked my way. Please clear a path.",
+            Message = message,
         };
         this.PersistRoster();
     }

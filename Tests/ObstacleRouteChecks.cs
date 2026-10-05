@@ -60,6 +60,18 @@ Assert(!WorkerObstacleReportPolicy.MatchesAcknowledgment(reloaded, "stale")
     && !WorkerObstacleReportPolicy.MatchesAcknowledgment(null, "current"),
     "A delayed multiplayer acknowledgment must not erase a newer or missing report.");
 
+int stoneActionLimit = WorkerObstacleToolProgressPolicy.GetMaximumActions(initialDurability: 7, damagePerToolAction: 1, hardLimit: 32);
+Assert(stoneActionLimit == 7, "Small stone work must be bounded by the actual remaining durability instead of a four-swing cutoff.");
+Assert(WorkerObstacleToolProgressPolicy.Evaluate(true, true, 7, 0, 1, stoneActionLimit) == WorkerObstacleToolActionStatus.Completed
+    && WorkerObstacleToolProgressPolicy.Evaluate(false, false, 7, 7, 1, stoneActionLimit) == WorkerObstacleToolActionStatus.Completed,
+    "A completed tool action or removed object must finish clearing immediately.");
+Assert(WorkerObstacleToolProgressPolicy.Evaluate(false, true, 7, 6, 1, stoneActionLimit) == WorkerObstacleToolActionStatus.Continue
+    && WorkerObstacleToolProgressPolicy.Evaluate(false, true, 7, 7, 1, stoneActionLimit) == WorkerObstacleToolActionStatus.NoProgress
+    && WorkerObstacleToolProgressPolicy.Evaluate(false, true, 1, 0, stoneActionLimit, stoneActionLimit) == WorkerObstacleToolActionStatus.ActionLimitReached,
+    "Durability progress must continue, while stalled or exhausted work stops safely.");
+Assert(WorkerObstacleToolProgressPolicy.GetMaximumActions(1000, 1, 32) == 32,
+    "Malformed or unusually durable small litter must still have a finite safety bound.");
+
 Console.WriteLine("Obstacle route checks passed: small clearing, large reporting, protected terrain, exact drops, and report acknowledgment.");
 
 static WorkerObstaclePlanStatus Run(WorkerObstacleRoutePlanner planner, out WorkerObstacleClearance? clearance)

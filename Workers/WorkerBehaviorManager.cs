@@ -18,6 +18,7 @@ internal sealed class WorkerBehaviorManager
         TravellingToFarmTarget,
         ReturningToFarmhouse,
         RestingAtFarmhouse,
+        BlockedAtLocation,
     }
 
     private enum ReturnHomeReason
@@ -93,11 +94,16 @@ internal sealed class WorkerBehaviorManager
 
         public int NextSwingTick { get; set; }
 
-        public int SwingCount { get; set; }
+        public int ToolActionCount { get; set; }
+
+        public int MaxToolActions { get; init; }
+
+        public int CooldownWaitStartedAtTick { get; set; } = -1;
+
+        public int CooldownWaitLimitTicks { get; set; }
     }
 
     private const int TravelRetryCooldownTicks = 60;
-    private const int BlockedReturnRetryCooldownTicks = 600;
     private const int MaxReturnHomeRouteAttemptsPerUpdate = 4;
     private const int ReturnHomePlanningBudgetMilliseconds = 100;
     private const int MaxForagerRouteAttemptsPerUpdate = 4;
@@ -105,7 +111,7 @@ internal sealed class WorkerBehaviorManager
     private const int ForagerSearchRetryTicks = 20;
     private const int ObstacleSearchNodesPerUpdate = 64;
     private const int ObstacleSearchMaxNodes = 12000;
-    private const int MaxDebrisClearingSwings = 4;
+    private const int MaxDebrisToolActions = 32;
     private const int ForagerSwingIntervalTicks = 24;
     private readonly Dictionary<string, WorkerTravelPhase> activePhases = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly IMonitor monitor;
@@ -188,6 +194,9 @@ internal sealed class WorkerBehaviorManager
                 this.UpdateReturnHome(worker, workerId, phase);
                 continue;
             }
+
+            if (phase == WorkerTravelPhase.BlockedAtLocation)
+                continue;
 
             WorkerTaskKind assignment = this.workerShellManager.GetAssignedTask(workerId);
             if (assignment != WorkerTaskKind.Idle && this.workerShellManager.CanWorkerWorkToday(workerId))
@@ -375,8 +384,15 @@ internal sealed class WorkerBehaviorManager
         if (!this.navigationManager.TryStartTravel(worker, homeTarget, "retry return home", out WorkerNavigationTarget resolvedTarget,
                 allowed.Contains, actual => this.returnTargets[workerId] = actual))
         {
-            this.retryAfterTicks[workerId] = Game1.ticks + BlockedReturnRetryCooldownTicks;
-            this.LogState(workerId, worker, $"return-home route retry failed for {homeTarget.Tile}; waiting before retry");
+            this.workerShellManager.ReportBlockedRoute(workerId, this.workerShellManager.GetAssignedTask(workerId),
+                worker.currentLocation?.NameOrUniqueName ?? TestWorkerDefinition.LocationName);
+            this.navigationManager.ApplyIdlePose(worker);
+            this.activePhases[workerId] = WorkerTravelPhase.BlockedAtLocation;
+            this.returnTargets.Remove(workerId);
+            this.retryAfterTicks.Remove(workerId);
+            this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
+                "Blocked", "No clear route home; waiting for a new order", 0, null);
+            this.LogState(workerId, worker, $"return-home route failed for {homeTarget.Tile}; stopped and waiting for a new order");
         }
         else
             this.returnTargets[workerId] = resolvedTarget;
@@ -432,15 +448,14 @@ internal sealed class WorkerBehaviorManager
 
         if (candidates.Count > 0)
             this.nextReturnCandidateIndex[workerId] = (startIndex + attempted) % candidates.Count;
-        this.retryAfterTicks[workerId] = Game1.ticks + BlockedReturnRetryCooldownTicks;
-
-        this.snapshots[workerId] = new WorkerRuntimeSnapshot(
-            this.workerShellManager.GetAssignedTask(workerId),
-            "Returning",
-            "Returning home",
-            0,
-            null);
-        this.LogState(workerId, worker, "home route unavailable; waiting before retry");
+        WorkerTaskKind blockedTask = this.workerShellManager.GetAssignedTask(workerId);
+        string blockedLocation = worker.currentLocation?.NameOrUniqueName ?? TestWorkerDefinition.LocationName;
+        this.workerShellManager.ReportBlockedRoute(workerId, blockedTask, blockedLocation);
+        this.navigationManager.ApplyIdlePose(worker);
+        this.activePhases[workerId] = WorkerTravelPhase.BlockedAtLocation;
+        this.retryAfterTicks.Remove(workerId);
+        this.snapshots[workerId] = new WorkerRuntimeSnapshot(blockedTask, "Blocked", "No clear route home; waiting for a new order", 0, null);
+        this.LogState(workerId, worker, "no clear route home; stopped and waiting for a new order");
     }
 
     private bool CanRetryTravel(string workerId)
@@ -723,6 +738,8 @@ internal sealed class WorkerBehaviorManager
                     ApproachTile = clearance.ApproachTile,
                     ExpectedObject = item,
                     NextSwingTick = Game1.ticks,
+                    MaxToolActions = WorkerObstacleToolProgressPolicy.GetMaximumActions(
+                        item.MinutesUntilReady, damagePerToolAction: 1, hardLimit: MaxDebrisToolActions),
                 };
                 this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Clearing", "Clearing small route debris", 0, clearance.ObstacleTile);
                 this.monitor.Log($"{worker.displayName} will clear small route debris at {clearance.ObstacleTile} from {clearance.ApproachTile} in {search.TargetLocation.NameOrUniqueName}.", LogLevel.Info);
@@ -765,6 +782,21 @@ internal sealed class WorkerBehaviorManager
         }
 
         this.AnimateForagerSwing(worker, clear.ObstacleTile);
+        if (item.shakeTimer > 0)
+        {
+            if (clear.CooldownWaitStartedAtTick < 0)
+            {
+                clear.CooldownWaitStartedAtTick = Game1.ticks;
+                clear.CooldownWaitLimitTicks = item.shakeTimer + ForagerSwingIntervalTicks;
+            }
+            if (Game1.ticks - clear.CooldownWaitStartedAtTick > clear.CooldownWaitLimitTicks)
+            {
+                this.monitor.Log($"{worker.displayName} stopped clearing route debris at {clear.ObstacleTile}; the tool cooldown did not finish.", LogLevel.Warn);
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            }
+            return;
+        }
+        clear.CooldownWaitStartedAtTick = -1;
         if (Game1.ticks < clear.NextSwingTick)
             return;
 
@@ -772,12 +804,14 @@ internal sealed class WorkerBehaviorManager
             : item.IsTwig() ? new Axe()
             : new Pickaxe();
         tool.lastUser = Game1.MasterPlayer;
-        clear.SwingCount++;
+        clear.ToolActionCount++;
         clear.NextSwingTick = Game1.ticks + ForagerSwingIntervalTicks;
         HashSet<Debris> beforeSwing = clear.Location.debris.ToHashSet();
+        int durabilityBefore = item.MinutesUntilReady;
+        bool toolActionCompleted;
         try
         {
-            clear.Location.performToolAction(tool, clear.ObstacleTile.X, clear.ObstacleTile.Y);
+            toolActionCompleted = item.performToolAction(tool);
         }
         catch (Exception ex)
         {
@@ -788,14 +822,38 @@ internal sealed class WorkerBehaviorManager
 
         clear.CapturedDebris.UnionWith(WorkerDebrisCapture.CaptureNew(beforeSwing, clear.Location.debris));
 
-        if (clear.Location.objects.TryGetValue(clear.ObstacleTile.ToVector2(), out StardewValley.Object? remaining)
-            && ReferenceEquals(remaining, item))
+        int durabilityAfter = item.MinutesUntilReady;
+        bool remains = clear.Location.objects.TryGetValue(clear.ObstacleTile.ToVector2(), out StardewValley.Object? remaining)
+            && ReferenceEquals(remaining, item);
+        WorkerObstacleToolActionStatus actionStatus = WorkerObstacleToolProgressPolicy.Evaluate(
+            toolActionCompleted, remains, durabilityBefore, durabilityAfter, clear.ToolActionCount, clear.MaxToolActions);
+        if (actionStatus == WorkerObstacleToolActionStatus.Completed)
         {
-            if (clear.SwingCount >= MaxDebrisClearingSwings)
+            if (toolActionCompleted)
             {
-                this.monitor.Log($"{worker.displayName} stopped clearing route debris at {clear.ObstacleTile} after {clear.SwingCount} tool uses; returning home.", LogLevel.Warn);
-                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+                if (item.IsBreakableStone())
+                    clear.Location.OnStoneDestroyed(item.ItemId, clear.ObstacleTile.X, clear.ObstacleTile.Y, Game1.MasterPlayer);
+                item.performRemoveAction();
+                if (clear.Location.objects.TryGetValue(clear.ObstacleTile.ToVector2(), out StardewValley.Object? stillPresent)
+                    && ReferenceEquals(stillPresent, item))
+                    clear.Location.objects.Remove(clear.ObstacleTile.ToVector2());
             }
+            clear.CapturedDebris.UnionWith(WorkerDebrisCapture.CaptureNew(beforeSwing, clear.Location.debris));
+        }
+        else if (actionStatus is WorkerObstacleToolActionStatus.NoProgress or WorkerObstacleToolActionStatus.ActionLimitReached)
+        {
+            this.monitor.Log($"{worker.displayName} could not clear route debris at {clear.ObstacleTile}; tool progress={durabilityBefore}->{durabilityAfter}, actions={clear.ToolActionCount}/{clear.MaxToolActions}. Returning home.", LogLevel.Warn);
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+        else
+        {
+            if (item.shakeTimer > 0)
+            {
+                clear.CooldownWaitStartedAtTick = Game1.ticks;
+                clear.CooldownWaitLimitTicks = item.shakeTimer + ForagerSwingIntervalTicks;
+            }
+            this.monitor.Log($"{worker.displayName} used a route-debris tool at {clear.ObstacleTile}; completed={toolActionCompleted}, durability={durabilityBefore}->{durabilityAfter}, cooldown={item.shakeTimer}, actions={clear.ToolActionCount}/{clear.MaxToolActions}.", LogLevel.Trace);
             return;
         }
 

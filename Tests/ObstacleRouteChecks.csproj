@@ -10,6 +10,7 @@
   <ItemGroup>
     <Compile Include="ObstacleRouteChecks.cs" />
     <Compile Include="../Workers/Navigation/WorkerObstacleRoutePlanner.cs" Link="WorkerObstacleRoutePlanner.cs" />
+    <Compile Include="../Workers/Navigation/WorkerObstacleToolProgressPolicy.cs" Link="WorkerObstacleToolProgressPolicy.cs" />
     <Compile Include="../Workers/Storage/WorkerDebrisCapture.cs" Link="WorkerDebrisCapture.cs" />
     <Compile Include="../Workers/Model/WorkerObstacleReport.cs" Link="WorkerObstacleReport.cs" />
     <Compile Include="../Workers/Model/WorkerObstacleReportPolicy.cs" Link="WorkerObstacleReportPolicy.cs" />

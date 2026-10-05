@@ -314,12 +314,22 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
+        HashSet<Point> reserved = this.returnTargets
+            .Where(pair => !string.Equals(pair.Key, workerId, System.StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair.Value.Tile)
+            .ToHashSet();
+        HashSet<Point> allowed = this.workerShellManager.GetWorkerReturnTargets(worker, reserved)
+            .Select(candidate => candidate.Tile)
+            .ToHashSet();
         this.retryAfterTicks[workerId] = Game1.ticks + TravelRetryCooldownTicks;
-        if (!this.navigationManager.TryStartTravel(worker, homeTarget, "retry return home"))
+        if (!this.navigationManager.TryStartTravel(worker, homeTarget, "retry return home", out WorkerNavigationTarget resolvedTarget,
+                allowed.Contains, actual => this.returnTargets[workerId] = actual))
         {
             this.retryAfterTicks[workerId] = Game1.ticks + BlockedReturnRetryCooldownTicks;
             this.LogState(workerId, worker, $"return-home route retry failed for {homeTarget.Tile}; waiting before retry");
         }
+        else
+            this.returnTargets[workerId] = resolvedTarget;
     }
 
     private void BeginReturnHome(NPC worker, string workerId, ReturnHomeReason reason)
@@ -340,6 +350,7 @@ internal sealed class WorkerBehaviorManager
             .Select(pair => pair.Value.Tile)
             .ToHashSet();
         IReadOnlyList<WorkerNavigationTarget> candidates = this.workerShellManager.GetWorkerReturnTargets(worker, reservedIdleTargets);
+        HashSet<Point> allowedLandingTiles = candidates.Select(candidate => candidate.Tile).ToHashSet();
         int startIndex = candidates.Count > 0 ? this.nextReturnCandidateIndex.GetValueOrDefault(workerId) % candidates.Count : 0;
         int attempted = 0;
         System.Diagnostics.Stopwatch planningTime = System.Diagnostics.Stopwatch.StartNew();
@@ -348,12 +359,15 @@ internal sealed class WorkerBehaviorManager
         {
             WorkerNavigationTarget candidate = candidates[(startIndex + attempted) % candidates.Count];
             attempted++;
-            if (!this.navigationManager.TryStartTravel(worker, candidate, reason == ReturnHomeReason.ExplicitIdle ? "idle/return home" : "work complete/return home"))
+            if (!this.navigationManager.TryStartTravel(worker, candidate,
+                    reason == ReturnHomeReason.ExplicitIdle ? "idle/return home" : "work complete/return home",
+                    out WorkerNavigationTarget resolvedTarget, allowedLandingTiles.Contains,
+                    actual => this.returnTargets[workerId] = actual))
             {
                 continue;
             }
 
-            this.returnTargets[workerId] = candidate;
+            this.returnTargets[workerId] = resolvedTarget;
             this.retryAfterTicks.Remove(workerId);
             this.nextReturnCandidateIndex.Remove(workerId);
             this.snapshots[workerId] = new WorkerRuntimeSnapshot(
@@ -361,8 +375,8 @@ internal sealed class WorkerBehaviorManager
                 "Traveling",
                 "Returning home",
                 0,
-                candidate.Tile);
-            this.LogState(workerId, worker, $"returning home to {candidate.LocationName} tile {candidate.Tile}");
+                resolvedTarget.Tile);
+            this.LogState(workerId, worker, $"returning home to {resolvedTarget.LocationName} tile {resolvedTarget.Tile}");
             return;
         }
 
@@ -395,14 +409,9 @@ internal sealed class WorkerBehaviorManager
         if (!WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay) || worker.controller is not null)
             return;
         Farm farm = Game1.getFarm();
-        if (worker.currentLocation != farm)
-        {
-            this.LogState(workerId, worker, $"not at farm ({worker.currentLocation?.NameOrUniqueName ?? "unknown"}); routing to farm staging tile {new Point(60, 20)}");
-            this.StartJobTravel(worker, workerId, new Point(60, 20), assignment, "travel to farm");
-            return;
-        }
-
-        if (this.activeTargets.TryGetValue(workerId, out Point target) && worker.TilePoint == target && worker.controller is null)
+        if (worker.currentLocation == farm
+            && this.activeTargets.TryGetValue(workerId, out Point target)
+            && worker.TilePoint == target && worker.controller is null)
         {
             this.navigationManager.ApplyIdlePose(worker);
             WorkerTaskKind action = WorkerTaskKind.Idle;
@@ -443,7 +452,7 @@ internal sealed class WorkerBehaviorManager
 
         if (assignment is WorkerTaskKind.HarvestCrops or WorkerTaskKind.TendCrops)
         {
-            if (this.TryFindCropTarget(worker, farm, assignment, WorkerTaskKind.HarvestCrops, out Point harvestTarget))
+            if (this.TryFindCropTarget(worker, workerId, farm, assignment, WorkerTaskKind.HarvestCrops, out Point harvestTarget))
             {
                 this.StartJobTravel(worker, workerId, harvestTarget, WorkerTaskKind.HarvestCrops, "travel to harvest target");
                 return;
@@ -453,7 +462,7 @@ internal sealed class WorkerBehaviorManager
         }
 
         if (assignment is WorkerTaskKind.WaterCrops or WorkerTaskKind.TendCrops
-            && this.TryFindCropTarget(worker, farm, assignment, WorkerTaskKind.WaterCrops, out Point waterTarget))
+            && this.TryFindCropTarget(worker, workerId, farm, assignment, WorkerTaskKind.WaterCrops, out Point waterTarget))
         {
             this.StartJobTravel(worker, workerId, waterTarget, WorkerTaskKind.WaterCrops, "travel to watering target");
             return;
@@ -536,10 +545,17 @@ internal sealed class WorkerBehaviorManager
         foreach (ForagerTarget target in ordered)
         {
             WorkerNavigationTarget navigationTarget = new(target.LocationName, target.ApproachTile, TestWorkerDefinition.FacingDirection);
-            if (!this.navigationManager.TryStartTravel(worker, navigationTarget, $"travel to {WorkerTaskPolicy.GetTaskLabel(assignment).ToLowerInvariant()} target"))
+            HashSet<Point> validApproaches = candidates
+                .Where(candidate => candidate.ResourceTile == target.ResourceTile && candidate.Kind == target.Kind)
+                .Select(candidate => candidate.ApproachTile)
+                .ToHashSet();
+            if (!this.navigationManager.TryStartTravel(worker, navigationTarget,
+                    $"travel to {WorkerTaskPolicy.GetTaskLabel(assignment).ToLowerInvariant()} target",
+                    out WorkerNavigationTarget resolvedTarget, validApproaches.Contains,
+                    actual => this.activeForagerTargets[workerId] = target with { ApproachTile = actual.Tile }))
                 continue;
 
-            this.activeForagerTargets[workerId] = target;
+            this.activeForagerTargets[workerId] = target with { ApproachTile = resolvedTarget.Tile };
             this.activePhases[workerId] = WorkerTravelPhase.TravellingToFarmTarget;
             this.retryAfterTicks.Remove(workerId);
             this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Traveling",
@@ -934,7 +950,7 @@ internal sealed class WorkerBehaviorManager
         return true;
     }
 
-    private bool TryFindCropTarget(NPC worker, Farm farm, WorkerTaskKind assignment, WorkerTaskKind desiredAction, out Point target)
+    private bool TryFindCropTarget(NPC worker, string workerId, Farm farm, WorkerTaskKind assignment, WorkerTaskKind desiredAction, out Point target)
     {
         target = Point.Zero;
         int shortestRoute = int.MaxValue;
@@ -944,16 +960,7 @@ internal sealed class WorkerBehaviorManager
         foreach (KeyValuePair<Vector2, TerrainFeature> pair in farm.terrainFeatures.Pairs.OrderBy(p => p.Key.X + p.Key.Y))
         {
             Point candidate = pair.Key.ToPoint();
-            if (pair.Value is not HoeDirt dirt || dirt.crop is null || dirt.crop.dead.Value)
-                continue;
-
-            if (desiredAction == WorkerTaskKind.HarvestCrops && this.blockedHarvestTiles.Contains(candidate))
-                continue;
-
-            bool harvestable = IsHarvestable(dirt.crop);
-            bool needsWater = !dirt.isWatered();
-            WorkerTaskKind action = WorkerTaskPolicy.SelectCropAction(assignment, true, harvestable, needsWater);
-            if (action != desiredAction)
+            if (!this.IsEligibleCropTarget(workerId, farm, candidate, assignment, desiredAction))
                 continue;
 
             int fallbackDistance = Math.Abs(worker.TilePoint.X - candidate.X) + Math.Abs(worker.TilePoint.Y - candidate.Y);
@@ -963,7 +970,8 @@ internal sealed class WorkerBehaviorManager
                 fallbackTarget = candidate;
             }
 
-            if (!this.navigationManager.TryGetLocalRouteLength(worker, candidate, out int routeLength))
+            if (worker.currentLocation != farm
+                || !this.navigationManager.TryGetLocalRouteLength(worker, candidate, out int routeLength))
                 continue;
 
             if (routeLength >= shortestRoute)
@@ -989,6 +997,18 @@ internal sealed class WorkerBehaviorManager
         return false;
     }
 
+    private bool IsEligibleCropTarget(string workerId, Farm farm, Point tile, WorkerTaskKind assignment, WorkerTaskKind desiredAction)
+    {
+        if (this.activeTargets.Any(pair => !string.Equals(pair.Key, workerId, System.StringComparison.OrdinalIgnoreCase)
+                && pair.Value == tile)
+            || desiredAction == WorkerTaskKind.HarvestCrops && this.blockedHarvestTiles.Contains(tile)
+            || !farm.terrainFeatures.TryGetValue(tile.ToVector2(), out TerrainFeature? feature)
+            || feature is not HoeDirt dirt || dirt.crop is null || dirt.crop.dead.Value)
+            return false;
+
+        return WorkerTaskPolicy.SelectCropAction(assignment, true, IsHarvestable(dirt.crop), !dirt.isWatered()) == desiredAction;
+    }
+
     private void StartJobTravel(NPC worker, string workerId, Point target, WorkerTaskKind task, string reason)
     {
         if (!this.CanRetryTravel(workerId))
@@ -1001,7 +1021,12 @@ internal sealed class WorkerBehaviorManager
         this.retryAfterTicks[workerId] = Game1.ticks + TravelRetryCooldownTicks;
         this.snapshots[workerId] = new WorkerRuntimeSnapshot(task, "Traveling", $"Walking to crop at {target}", 0, target);
         this.LogState(workerId, worker, $"selected {task} target tile {target}; starting route ({reason})");
-        if (!this.navigationManager.TryStartTravel(worker, new WorkerNavigationTarget("Farm", target, 2), reason))
+        WorkerTaskKind assignment = this.workerShellManager.GetAssignedTask(workerId);
+        Farm farm = Game1.getFarm();
+        if (!this.navigationManager.TryStartTravel(worker, new WorkerNavigationTarget("Farm", target, 2), reason,
+                out WorkerNavigationTarget resolvedTarget,
+                landingValidator: point => this.IsEligibleCropTarget(workerId, farm, point, assignment, task),
+                onWarpArrival: actual => this.activeTargets[workerId] = actual.Tile))
         {
             this.LogState(workerId, worker, $"route start failed for target tile {target}; clearing target and waiting for next update");
             this.activeTargets.Remove(workerId);
@@ -1009,6 +1034,7 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
+        this.activeTargets[workerId] = resolvedTarget.Tile;
         this.retryAfterTicks.Remove(workerId);
     }
 

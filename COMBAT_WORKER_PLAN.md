@@ -8,7 +8,7 @@ Status: design plan only. No combat code, deployment, or save migration has been
 - The Jobs screen selects one combat destination: **Farm**, **regular Mines**, **Skull Cavern (desert caves)**, **Ginger Island farm (slimes)**, or **Ginger Island near the Volcano entrance**. Store the selection per worker, independently of other workers. The Island destinations are outdoor areas; the Volcano Dungeon is not included by this decision.
 - Regular Mines workers first appear in the **mine entrance cave**, inside the Mines and before descending to level zero, at a checked free tile. Never place them outside on Mountain.
 - For dungeon destinations, offer both **Follow the farmer** and **Explore independently** modes. Persist the selected mode per worker. The follower mode tracks the host farmer initially; multiplayer follower targeting can be expanded if desired.
-- A defeated worker teleports home safely and remains off duty for the rest of that day. Monster loot goes to the same shared chest destination and overflow path as other worker loot; there is no separate blue chest.
+- When a worker's HP is depleted, stop combat and teleport it home immediately; it remains off duty for the rest of that day. Assigning **Idle** starts its return home immediately, without waiting for a fight or floor to finish. Monster loot goes to the same shared chest destination and overflow path as other worker loot; there is no separate blue chest.
 - The selected job and location survive save/reload. Transient fight state, target references, generated floor references, paths, and animation timers do not.
 - One host decides movement, attacks, drops, XP, and save writes. Multiplayer clients observe the mirrored worker state.
 
@@ -22,9 +22,9 @@ Status: design plan only. No combat code, deployment, or save migration has been
 - Worker shells are `NPC`s, not farmers. Combat, health, damage, monster targeting, and drops therefore need a deliberate worker-owned adapter instead of assuming player combat methods apply. Confirm the exact Stardew 1.6 APIs against installed assemblies before implementing.
 - The XP work being tested exists in another worktree. Merge or rebase it before implementing combat XP, then award only the attacking worker's Combat XP on a confirmed kill. Do not route worker actions through `Game1.player` or `Game1.MasterPlayer` XP calls.
 
-## Remaining gameplay decision
+## Remaining time clarification
 
-Should a dungeon worker leave at shift end, after clearing a floor, when the followed farmer leaves, or only on manual recall? The answer also determines whether a mine worker waits at the entrance before entering a floor. Keep this open until the player decides; Farm combat can be built first.
+The player specified a latest return time of **“12 PM.”** Confirm whether this means **noon** or **midnight** before encoding a clock value. Treat it as the daily deadline for ending combat work and returning home; do not guess. HP depletion and an Idle order trigger the returns described above regardless of the deadline. Clearing a floor alone does not determine the daily return time.
 
 ## Implementation sequence
 
@@ -44,7 +44,7 @@ Should a dungeon worker leave at shift end, after clearing a floor, when the fol
 4. Give the worker an explicit health/damage/defeat model and visible attack feedback. The host must apply damage once per valid strike; clients render mirrored results. Attacks can affect only monsters and must not use the farmer as the attacker for XP, knockback, kill statistics, or quests.
 5. Capture drops attributable to that kill, including cases where vanilla death creates debris, without collecting older player drops. Deposit those drops through `WorkerItemStorage` using the existing shared chest destination and its overflow behavior. Do not introduce a separate chest.
 6. On a confirmed kill, increment this worker's work count and award Combat XP only to its own persistent XP record. Zero XP for merely hitting, travelling, or another worker's kill unless the player chooses a different rule. Ensure no player XP is awarded.
-7. On Farm, when no eligible monster remains or work hours end, visibly return through an exit to a reserved home tile. On defeat in any area, stop attacks and safely teleport home, then latch off duty until the next day. Handle unavailable normal routes with the existing conservative return policy; never strand or duplicate a worker.
+7. On Farm, when no eligible monster remains or the confirmed daily deadline arrives, visibly return through an exit to a reserved home tile. An Idle order interrupts combat and starts the normal return path immediately. If HP reaches zero in any area, cancel attack/path state and teleport to a checked safe home tile immediately, then latch off duty until the next day. Handle unavailable normal routes with the existing conservative return policy; never strand or duplicate a worker.
 
 ### 3. Mine and Island transitions
 
@@ -53,15 +53,15 @@ Should a dungeon worker leave at shift end, after clearing a floor, when the fol
 3. For Skull Cavern, handle bus/desert access and cavern entry. For Ginger Island, route to either the Island farm where slimes appear or the outdoor area near the Volcano entrance, according to the worker's saved selection. Validate each area's unlock/access and live monsters. Do not enter the Volcano Dungeon under the current destination choices. Distinguish persistent outdoor maps from generated dungeon floors.
 4. For generated floors, reacquire `GameLocation` and monsters after each floor change. Cancel old target references, release reservations, and select a safe arrival tile away from ladders, exits, NPC barriers, other workers, and farmers. Never serialize floor objects or internal generated IDs.
 5. In Follow mode, watch the host farmer's warp/floor events and move the worker to a checked safe tile on that farmer's floor. In Explore mode, choose reachable monsters and legal floor transitions independently with bounded search/recovery. In both modes, remove the worker from old floor character lists before placement on a new floor. If the destination cannot safely host a worker, keep it at the entrance station or recall it; do not leave duplicates.
-6. Define departure on farmer exit, shift end, and a cleared floor after the player answers the timing question. Manual Idle always recalls; defeat always teleports the worker home for the day. Save and disconnect cleanup must not delete the worker roster or leave a stale NPC in a dead generated location.
+6. Use the confirmed clock deadline to end dungeon work and start the home route. Manual Idle starts the home route immediately; depleted HP triggers an immediate safe teleport home and an off-duty latch for the day. A floor clear or followed farmer's exit must release stale targets and choose a safe next state under the selected mode, without silently treating either as the daily deadline. Save and disconnect cleanup must not delete the worker roster or leave a stale NPC in a dead generated location.
 
 ### 4. Integration and verification
 
 - Rebase onto the completed XP feature and integrate only through its per-worker API. Verify distinct Combat XP totals for two workers, and unchanged player XP.
 - Compile with `dotnet build -p:EnableModDeploy=false` against the installed game assemblies. Verify every uncertain NPC/monster/mine API by a focused prototype and local source inspection before finalizing it.
 - Add focused tests for target reservation and release, damage ownership, one kill/one XP grant, drop attribution without old-debris capture, save migration, host-only mutation, Follow/Explore mode persistence, floor-transition cleanup, and safe return/defeat rules.
-- In a test save, hire two Combat Workers with different destinations and modes. Check Farm combat; the regular mine entrance cave; Follow and Explore transitions in Mines and Skull Cavern; both outdoor Island destinations; inaccessible/unlocked areas; a moving monster; a kill and shared-destination loot; defeat and off-duty latch; the decided dungeon return timing; manual recall mid-attack; save/reload; day reset; and multiplayer host/client views. Check that the farmer and the second worker retain independent XP, and that no stale worker remains on a prior dungeon floor.
+- In a test save, hire two Combat Workers with different destinations and modes. Check Farm combat; the regular mine entrance cave; Follow and Explore transitions in Mines and Skull Cavern; both outdoor Island destinations; inaccessible/unlocked areas; a moving monster; a kill and shared-destination loot; zero-HP immediate home teleport and off-duty latch; the confirmed daily deadline; immediate Idle recall mid-attack; save/reload; day reset; and multiplayer host/client views. Check that the farmer and the second worker retain independent XP, and that no stale worker remains on a prior dungeon floor.
 
 ## Shipping gates
 
-The dungeon return timing decision above must be answered before its departure behavior is coded. A successful build and focused tests are required, followed by the player's in-game test. No DLL should be installed by this planning branch.
+The “12 PM” noon/midnight clarification above must be answered before the daily deadline is coded. A successful build and focused tests are required, followed by the player's in-game test. No DLL should be installed by this planning branch.

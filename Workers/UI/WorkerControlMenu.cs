@@ -558,12 +558,14 @@ internal sealed class WorkerControlMenu : IClickableMenu
         bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager };
         int ordersTop = this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 56 : 12) + (showForageArea ? 58 : 0);
         int cardGap = 8;
-        int cardWidth = Math.Max(1, (this.ordersBounds.Width - 28 - cardGap) / 2);
-        int cardHeight = Math.Max(1, (this.ordersBounds.Bottom - 14 - ordersTop - cardGap) / 2);
+        int cardColumns = this.ordersBounds.Height < 220 ? 3 : 2;
+        int cardWidth = Math.Max(1, (this.ordersBounds.Width - 28 - cardGap * (cardColumns - 1)) / cardColumns);
         IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
+        int cardRows = Math.Max(1, (tasks.Count + cardColumns - 1) / cardColumns);
+        int cardHeight = Math.Max(1, (this.ordersBounds.Bottom - 14 - ordersTop - cardGap * (cardRows - 1)) / cardRows);
         for (int i = 0; i < tasks.Count; i++)
         {
-            this.orderButtons.Add(Button(OrderIdBase + i, new Rectangle(this.ordersBounds.X + 14 + (i % 2) * (cardWidth + cardGap), ordersTop + (i / 2) * (cardHeight + cardGap), cardWidth, cardHeight)));
+            this.orderButtons.Add(Button(OrderIdBase + i, new Rectangle(this.ordersBounds.X + 14 + (i % cardColumns) * (cardWidth + cardGap), ordersTop + (i / cardColumns) * (cardHeight + cardGap), cardWidth, cardHeight)));
         }
         this.forageAreaButton = Button(ForageAreaId, new Rectangle(this.ordersBounds.X + 18,
             this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 60 : 8), this.ordersBounds.Width - 36, 48));
@@ -943,6 +945,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerTaskKind.CollectForage => WorkerMenuArt.Icon.Harvest,
             WorkerTaskKind.ChopTrees => WorkerMenuArt.Icon.Tend,
             WorkerTaskKind.ChopHardwood => WorkerMenuArt.Icon.Ledger,
+            WorkerTaskKind.ClearDebris => WorkerMenuArt.Icon.Tend,
             _ => WorkerMenuArt.Icon.Home,
         };
         if (button.bounds.Height < 90)
@@ -972,6 +975,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 WorkerTaskKind.CollectForage => "Gather wild items",
                 WorkerTaskKind.ChopTrees => "Fell ordinary trees",
                 WorkerTaskKind.ChopHardwood => "Clear hardwood sources",
+                WorkerTaskKind.ClearDebris => "Remove small litter",
                 _ => "Return to the house",
             };
             this.DrawText(b, description, new Rectangle(button.bounds.X + 18, button.bounds.Y + 75, button.bounds.Width - 36, Math.Max(1, button.bounds.Height - 88)), enabled ? MutedInk : MutedInk * 0.7f);
@@ -1173,6 +1177,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.CollectForage => "Walk to the nearest reachable wild forage item in the selected outdoor area and collect it.",
         WorkerTaskKind.ChopTrees => "Walk to the nearest reachable ordinary tree in the selected area, cut it down, and store its drops.",
         WorkerTaskKind.ChopHardwood => "Walk to the nearest reachable hardwood source, including mahogany trees and large stumps or logs.",
+        WorkerTaskKind.ClearDebris => "Clear loose stones, weeds, and small fallen wood. Foragers work in their selected outdoor area; Farmers work on the farm.",
         _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",
     };
 }

@@ -10,4 +10,5 @@ internal enum WorkerTaskKind
     CollectForage = 4,
     ChopTrees = 5,
     ChopHardwood = 6,
+    ClearDebris = 7,
 }

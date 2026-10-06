@@ -9,5 +9,9 @@
   <ItemGroup>
     <Compile Include="ForagerSearchChecks.cs" />
     <Compile Include="../Workers/Navigation/WorkerBoundedCandidateSearch.cs" Link="WorkerBoundedCandidateSearch.cs" />
+    <Compile Include="../Workers/Navigation/WorkerForagerApproachMatcher.cs" Link="WorkerForagerApproachMatcher.cs" />
+    <Reference Include="MonoGame.Framework">
+      <HintPath>$(GamePath)/MonoGame.Framework.dll</HintPath>
+    </Reference>
   </ItemGroup>
 </Project>

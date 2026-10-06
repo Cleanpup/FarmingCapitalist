@@ -17,6 +17,31 @@ WorkerObstaclePlanStatus status = Run(small, out WorkerObstacleClearance? cleara
 Assert(status == WorkerObstaclePlanStatus.ClearSmallDebris && clearance == new WorkerObstacleClearance(new Point(2, 1), new Point(1, 1)),
     "Only the small blocker on a useful route should be selected, from its reachable neighbor.");
 
+HashSet<Point> rejectedDebris = new() { new Point(2, 1) };
+WorkerObstacleRoutePlanner retry = new(start, new[] { goal }, point => rejectedDebris.Contains(point)
+    ? WorkerRouteTileKind.Impassable : Corridor(point, WorkerRouteTileKind.SmallDebris));
+status = Run(retry, out clearance);
+Assert(status == WorkerObstaclePlanStatus.NoRoute && clearance is null,
+    "A failed work-debris approach must be excluded from the next search instead of selected forever.");
+
+Point secondGoal = new(4, 3);
+WorkerRouteTileKind TwoCorridors(Point point) =>
+    point.X < 0 || point.X > 4 || point.Y < 1 || point.Y > 3
+        || point.Y == 2 && point.X != 0 ? WorkerRouteTileKind.Impassable
+        : point.X == 2 ? WorkerRouteTileKind.SmallDebris : WorkerRouteTileKind.Open;
+Point branchStart = new(0, 2);
+WorkerObstacleRoutePlanner firstBranch = new(branchStart, new[] { goal, secondGoal }, TwoCorridors);
+status = Run(firstBranch, out clearance);
+Assert(status == WorkerObstaclePlanStatus.ClearSmallDebris && clearance is not null,
+    "A blocked work route should identify one useful small obstacle.");
+Point failedTile = clearance!.ObstacleTile;
+WorkerObstacleRoutePlanner alternateBranch = new(branchStart, new[] { goal, secondGoal },
+    point => point == failedTile ? WorkerRouteTileKind.Impassable : TwoCorridors(point));
+status = Run(alternateBranch, out clearance);
+Assert(status == WorkerObstaclePlanStatus.ClearSmallDebris && clearance is not null
+    && clearance.ObstacleTile != failedTile,
+    "After one debris approach fails, work planning should choose another eligible corridor.");
+
 WorkerObstacleRoutePlanner large = new(start, new[] { goal }, point => Corridor(point, WorkerRouteTileKind.LargeObstacle));
 status = Run(large, out clearance);
 Assert(status == WorkerObstaclePlanStatus.BlockedByLargeObstacle && clearance is null,
@@ -38,8 +63,18 @@ WorkerObstacleRoutePlanner detour = new(start, new[] { goal }, point =>
         ? WorkerRouteTileKind.Impassable
         : point == new Point(2, 1) ? WorkerRouteTileKind.SmallDebris : WorkerRouteTileKind.Open);
 status = Run(detour, out clearance);
-Assert(status == WorkerObstaclePlanStatus.NoRoute && clearance is null,
+Assert(status == WorkerObstaclePlanStatus.ReachableClearRoute && clearance is null,
     "A free detour should not cause unnecessary clearing.");
+
+WorkerObstacleRoutePlanner openExit = new(start, new[] { goal }, _ => WorkerRouteTileKind.Open);
+status = Run(openExit, out clearance);
+Assert(status == WorkerObstaclePlanStatus.ReachableClearRoute && clearance is null,
+    "An existing clear route must be distinguished from a truly unreachable exit.");
+Assert(!WorkerReturnFallbackPolicy.MayUseEmergencyWarp(true, false, true)
+    && !WorkerReturnFallbackPolicy.MayUseEmergencyWarp(false, true, true)
+    && !WorkerReturnFallbackPolicy.MayUseEmergencyWarp(false, false, false)
+    && WorkerReturnFallbackPolicy.MayUseEmergencyWarp(false, false, true),
+    "Emergency placement requires no visible route, no clearable debris route, and a safe landing.");
 
 object existing = new();
 object produced = new();
@@ -72,7 +107,19 @@ Assert(WorkerObstacleToolProgressPolicy.Evaluate(false, true, 7, 6, 1, stoneActi
 Assert(WorkerObstacleToolProgressPolicy.GetMaximumActions(1000, 1, 32) == 32,
     "Malformed or unusually durable small litter must still have a finite safety bound.");
 
-Console.WriteLine("Obstacle route checks passed: small clearing, large reporting, protected terrain, exact drops, and report acknowledgment.");
+Assert((int)WorkerTaskKind.ClearDebris == 7
+    && (int)WorkerTaskKind.ChopHardwood == 6,
+    "The new saved assignment must not change existing task IDs.");
+Assert(WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Farmer, WorkerTaskKind.ClearDebris)
+    && WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Forager, WorkerTaskKind.ClearDebris)
+    && WorkerTaskPolicy.GetTasks(WorkerProfession.Farmer).Contains(WorkerTaskKind.ClearDebris)
+    && WorkerTaskPolicy.GetTasks(WorkerProfession.Forager).Contains(WorkerTaskKind.ClearDebris),
+    "Both professions must offer and accept the assigned debris job.");
+Assert(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Farmer, WorkerTaskKind.ChopHardwood)
+    && !WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Forager, WorkerTaskKind.WaterCrops),
+    "Adding the shared job must preserve profession-specific restrictions.");
+
+Console.WriteLine("Obstacle route checks passed: small clearing, failed-approach recovery, large reporting, exact drops, acknowledgment, and shared debris assignment.");
 
 static WorkerObstaclePlanStatus Run(WorkerObstacleRoutePlanner planner, out WorkerObstacleClearance? clearance)
 {

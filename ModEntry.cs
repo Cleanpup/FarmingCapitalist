@@ -113,7 +113,7 @@ internal sealed class ModEntry : Mod
                 $"Press B or use 'workers' to manage your crew. Hire: {WorkerEmploymentTerms.HiringCost}g including today's wage; later {WorkerEmploymentTerms.DailyWage}g/day.\n"
                 + "workers status — list IDs, orders, activity and location\n"
                 + "workers hire [default] — hire with custom or default appearance\n"
-                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|idle> — assign a profession-specific job\n"
+                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|idle> — assign a job\n"
                 + "workers dismiss <id> — dismiss one worker\n"
                 + "workers pay — retry unpaid wages without charging paid workers again\n"
                 + "Choose a shared harvest destination in the Storage tab; the shipping bin is the default and overflow fallback. Only the host can manage workers.", LogLevel.Info);
@@ -144,12 +144,13 @@ internal sealed class ModEntry : Mod
                     "forage" or "collectforage" => WorkerTaskKind.CollectForage,
                     "trees" or "choptrees" => WorkerTaskKind.ChopTrees,
                     "hardwood" or "chophardwood" => WorkerTaskKind.ChopHardwood,
+                    "debris" or "cleardebris" => WorkerTaskKind.ClearDebris,
                     "idle" or "stop" => WorkerTaskKind.Idle,
                     _ => null,
                 };
                 if (task is null)
                 {
-                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
+                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, debris, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
                     return;
                 }
                 bool assigned = this.workerBehaviorManager.TryAssignTask(args[1], task.Value, out string assignmentMessage);

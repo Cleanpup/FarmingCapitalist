@@ -18,6 +18,7 @@ internal sealed class WorkerBehaviorManager
         TravellingToFarmTarget,
         ReturningToFarmhouse,
         RestingAtFarmhouse,
+        CheckingHomeRoute,
         BlockedAtLocation,
     }
 
@@ -36,7 +37,8 @@ internal sealed class WorkerBehaviorManager
         RouteDebris,
     }
 
-    private sealed record ForagerTarget(string LocationName, Point ResourceTile, Point ApproachTile, ForagerTargetKind Kind);
+    private sealed record ForagerTarget(string LocationName, Point ResourceTile, Point ApproachTile, ForagerTargetKind Kind,
+        StardewValley.Object? ExpectedObject = null);
 
     private sealed record DropCollectionZone(
         GameLocation Location, Point Tile, HashSet<Debris> ExistingDebris, int CollectAfterTick, int ExpiresAtTick,
@@ -77,6 +79,8 @@ internal sealed class WorkerBehaviorManager
 
         public int NextIndex { get; set; }
 
+        public int HardwoodFailureDiagnosticCount { get; set; }
+
         public WorkerObstacleRoutePlanner? ObstaclePlanner { get; set; }
     }
 
@@ -101,10 +105,16 @@ internal sealed class WorkerBehaviorManager
         public int CooldownWaitStartedAtTick { get; set; } = -1;
 
         public int CooldownWaitLimitTicks { get; set; }
+
+        public bool ContinueReturnHome { get; init; }
+
+        public bool IsAssignedDebrisJob { get; init; }
+
+        public ReturnHomeReason ReturnReason { get; init; }
     }
 
     private const int TravelRetryCooldownTicks = 60;
-    private const int MaxReturnHomeRouteAttemptsPerUpdate = 4;
+    private const int MaxReturnHomeRouteAttemptsPerUpdate = 1;
     private const int ReturnHomePlanningBudgetMilliseconds = 100;
     private const int MaxForagerRouteAttemptsPerUpdate = 4;
     private const int ForagerPlanningBudgetMilliseconds = 50;
@@ -112,6 +122,8 @@ internal sealed class WorkerBehaviorManager
     private const int ObstacleSearchNodesPerUpdate = 64;
     private const int ObstacleSearchMaxNodes = 12000;
     private const int MaxDebrisToolActions = 32;
+    private const int MaxFailedWorkDebrisApproaches = 8;
+    private const int FailedCropRetryTicks = 300;
     private const int ForagerSwingIntervalTicks = 24;
     private readonly Dictionary<string, WorkerTravelPhase> activePhases = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly IMonitor monitor;
@@ -129,6 +141,10 @@ internal sealed class WorkerBehaviorManager
     private readonly Dictionary<string, int> retryAfterTicks = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> nextReturnCandidateIndex = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ForagerSearchState> foragerSearches = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<Point>> failedWorkDebris = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<Point, int>> failedCropTargets = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Point> lastCropFallbackTargets = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, WorkerObstacleRoutePlanner> homeRoutePlanners = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> lastDebugStates = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<Point, string> lastHarvestReadinessStates = new();
     private readonly HashSet<Point> blockedHarvestTiles = new();
@@ -179,6 +195,9 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
+        if (!Game1.shouldTimePass())
+            return;
+
         this.UpdateDropCollectionZones();
 
         foreach (NPC worker in this.workerShellManager.GetSpawnedWorkers())
@@ -189,6 +208,18 @@ internal sealed class WorkerBehaviorManager
             }
 
             WorkerTravelPhase phase = this.activePhases.GetValueOrDefault(workerId, WorkerTravelPhase.None);
+            if (this.activeObstacleClears.TryGetValue(workerId, out ActiveObstacleClear? obstacleClear))
+            {
+                this.UpdateObstacleClear(worker, workerId, this.workerShellManager.GetAssignedTask(workerId), obstacleClear);
+                continue;
+            }
+
+            if (phase == WorkerTravelPhase.CheckingHomeRoute)
+            {
+                this.UpdateHomeRouteCheck(worker, workerId);
+                continue;
+            }
+
             if (phase is WorkerTravelPhase.ReturningToFarmhouse or WorkerTravelPhase.RestingAtFarmhouse)
             {
                 this.UpdateReturnHome(worker, workerId, phase);
@@ -223,6 +254,10 @@ internal sealed class WorkerBehaviorManager
         this.retryAfterTicks.Clear();
         this.nextReturnCandidateIndex.Clear();
         this.foragerSearches.Clear();
+        this.failedWorkDebris.Clear();
+        this.failedCropTargets.Clear();
+        this.lastCropFallbackTargets.Clear();
+        this.homeRoutePlanners.Clear();
         this.lastDebugStates.Clear();
         this.lastHarvestReadinessStates.Clear();
         this.blockedHarvestTiles.Clear();
@@ -260,6 +295,9 @@ internal sealed class WorkerBehaviorManager
         this.retryAfterTicks.Remove(workerId);
         this.nextReturnCandidateIndex.Remove(workerId);
         this.foragerSearches.Remove(workerId);
+        this.failedWorkDebris.Remove(workerId);
+        this.failedCropTargets.Remove(workerId);
+        this.lastCropFallbackTargets.Remove(workerId);
         if (task == WorkerTaskKind.Idle)
         {
             this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
@@ -283,6 +321,9 @@ internal sealed class WorkerBehaviorManager
         this.retryAfterTicks.Remove(workerId);
         this.nextReturnCandidateIndex.Remove(workerId);
         this.foragerSearches.Remove(workerId);
+        this.failedWorkDebris.Remove(workerId);
+        this.failedCropTargets.Remove(workerId);
+        this.lastCropFallbackTargets.Remove(workerId);
         this.activePhases.Remove(workerId);
         this.completedToday.Remove(workerId);
     }
@@ -293,6 +334,7 @@ internal sealed class WorkerBehaviorManager
         this.activeForagerTargets.Remove(workerId);
         this.activeForagerActions.Remove(workerId);
         this.activeObstacleClears.Remove(workerId);
+        this.homeRoutePlanners.Remove(workerId);
         this.foragerSearches.Remove(workerId);
     }
 
@@ -384,15 +426,8 @@ internal sealed class WorkerBehaviorManager
         if (!this.navigationManager.TryStartTravel(worker, homeTarget, "retry return home", out WorkerNavigationTarget resolvedTarget,
                 allowed.Contains, actual => this.returnTargets[workerId] = actual))
         {
-            this.workerShellManager.ReportBlockedRoute(workerId, this.workerShellManager.GetAssignedTask(workerId),
-                worker.currentLocation?.NameOrUniqueName ?? TestWorkerDefinition.LocationName);
-            this.navigationManager.ApplyIdlePose(worker);
-            this.activePhases[workerId] = WorkerTravelPhase.BlockedAtLocation;
             this.returnTargets.Remove(workerId);
-            this.retryAfterTicks.Remove(workerId);
-            this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
-                "Blocked", "No clear route home; waiting for a new order", 0, null);
-            this.LogState(workerId, worker, $"return-home route failed for {homeTarget.Tile}; stopped and waiting for a new order");
+            this.BeginHomeRouteCheck(worker, workerId, this.returnReasons.GetValueOrDefault(workerId, ReturnHomeReason.WorkComplete));
         }
         else
             this.returnTargets[workerId] = resolvedTarget;
@@ -448,14 +483,150 @@ internal sealed class WorkerBehaviorManager
 
         if (candidates.Count > 0)
             this.nextReturnCandidateIndex[workerId] = (startIndex + attempted) % candidates.Count;
-        WorkerTaskKind blockedTask = this.workerShellManager.GetAssignedTask(workerId);
+        this.BeginHomeRouteCheck(worker, workerId, reason);
+    }
+
+    private void BeginHomeRouteCheck(NPC worker, string workerId, ReturnHomeReason reason)
+    {
+        this.returnReasons[workerId] = reason;
+        this.returnTargets.Remove(workerId);
+        this.retryAfterTicks.Remove(workerId);
+        WorkerObstacleRoutePlanner? planner = this.navigationManager.CreateWarpAccessObstaclePlanner(worker);
+        if (planner is null)
+        {
+            this.DeferEmergencyReturnCheck(worker, workerId, "home exit route planner unavailable");
+            return;
+        }
+
+        this.homeRoutePlanners[workerId] = planner;
+        this.activePhases[workerId] = WorkerTravelPhase.CheckingHomeRoute;
+        this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
+            "Checking", "Checking clear paths to exits", 0, null);
+        this.LogState(workerId, worker, "checking for reachable exits and small debris that can be cleared");
+    }
+
+    private void UpdateHomeRouteCheck(NPC worker, string workerId)
+    {
+        if (worker.controller is not null || this.navigationManager.HasActiveRoute(workerId)
+            || !Game1.shouldTimePass() || !this.homeRoutePlanners.TryGetValue(workerId, out WorkerObstacleRoutePlanner? planner))
+            return;
+
+        WorkerObstaclePlanStatus status = planner.Advance(ObstacleSearchNodesPerUpdate, ObstacleSearchMaxNodes,
+            out WorkerObstacleClearance? clearance);
+        if (status == WorkerObstaclePlanStatus.Searching)
+            return;
+
+        if (status == WorkerObstaclePlanStatus.ClearSmallDebris && clearance is not null
+            && worker.currentLocation is GameLocation location
+            && location.objects.TryGetValue(clearance.ObstacleTile.ToVector2(), out StardewValley.Object? item)
+            && this.navigationManager.IsSmallRouteObstacle(worker, clearance.ObstacleTile))
+        {
+            WorkerNavigationTarget approach = new(location.NameOrUniqueName, clearance.ApproachTile, TestWorkerDefinition.FacingDirection);
+            if (this.navigationManager.TryStartTravel(worker, approach, "walk to clear route to exit", out _))
+            {
+                ReturnHomeReason reason = this.returnReasons.GetValueOrDefault(workerId, ReturnHomeReason.WorkComplete);
+                this.activeObstacleClears[workerId] = new ActiveObstacleClear
+                {
+                    Location = location,
+                    ObstacleTile = clearance.ObstacleTile,
+                    ApproachTile = clearance.ApproachTile,
+                    ExpectedObject = item,
+                    NextSwingTick = Game1.ticks,
+                    MaxToolActions = WorkerObstacleToolProgressPolicy.GetMaximumActions(
+                        item.MinutesUntilReady, damagePerToolAction: 1, hardLimit: MaxDebrisToolActions),
+                    ContinueReturnHome = true,
+                    ReturnReason = reason,
+                };
+                this.homeRoutePlanners.Remove(workerId);
+                this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
+                    "Clearing", "Clearing small debris from the exit route", 0, clearance.ObstacleTile);
+                this.monitor.Log($"{worker.displayName} will clear small route debris at {clearance.ObstacleTile} from {clearance.ApproachTile} to reach an exit in {location.NameOrUniqueName}.", LogLevel.Info);
+                return;
+            }
+
+            this.homeRoutePlanners.Remove(workerId);
+            this.DeferEmergencyReturnCheck(worker, workerId,
+                "could not walk to small exit-route debris despite a clear route plan; retrying visible return");
+            return;
+        }
+
+        if (status == WorkerObstaclePlanStatus.ReachableClearRoute)
+        {
+            // The route search found a clear walk to an authored exit. Keep trying
+            // the ordinary visible return path; an emergency warp is not justified.
+            this.homeRoutePlanners.Remove(workerId);
+            this.DeferEmergencyReturnCheck(worker, workerId, "clear authored exit route found; delaying emergency placement and retrying visible return");
+            return;
+        }
+
+        if (status == WorkerObstaclePlanStatus.SearchLimitReached)
+        {
+            this.homeRoutePlanners.Remove(workerId);
+            this.DeferEmergencyReturnCheck(worker, workerId, "exit search limit reached without proof of no route; retrying before emergency placement");
+            return;
+        }
+
+        this.homeRoutePlanners.Remove(workerId);
+        this.TryEmergencyReturnHome(worker, workerId,
+            this.returnReasons.GetValueOrDefault(workerId, ReturnHomeReason.WorkComplete),
+            $"no walkable exit route after obstacle search ({status})");
+    }
+
+    private void DeferEmergencyReturnCheck(NPC worker, string workerId, string reason)
+    {
+        this.activePhases[workerId] = WorkerTravelPhase.ReturningToFarmhouse;
+        this.returnTargets.Remove(workerId);
+        this.retryAfterTicks[workerId] = Game1.ticks + TravelRetryCooldownTicks;
+        this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
+            "Checking", "Retrying visible return before emergency placement", 0, null);
+        this.LogState(workerId, worker, reason);
+    }
+
+    private void TryEmergencyReturnHome(NPC worker, string workerId, ReturnHomeReason reason, string trigger)
+    {
+        HashSet<Point> reserved = this.returnTargets
+            .Where(pair => !string.Equals(pair.Key, workerId, StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair.Value.Tile)
+            .ToHashSet();
+        IReadOnlyList<WorkerNavigationTarget> safeTargets = this.workerShellManager.GetWorkerReturnTargets(worker, reserved);
+        bool safeLandingAvailable = safeTargets.Count > 0;
+        if (WorkerReturnFallbackPolicy.MayUseEmergencyWarp(
+                visibleRouteAvailable: false, clearableDebrisRouteAvailable: false, safeLandingAvailable: safeLandingAvailable)
+            && !this.navigationManager.HasForeignController(worker))
+        {
+            WorkerNavigationTarget homeTarget = safeTargets[0];
+            this.navigationManager.StopWorker(worker);
+            try
+            {
+                Game1.warpCharacter(worker, homeTarget.LocationName, homeTarget.Tile);
+                this.returnTargets[workerId] = homeTarget;
+                this.returnReasons[workerId] = reason;
+                this.activePhases[workerId] = WorkerTravelPhase.ReturningToFarmhouse;
+                this.retryAfterTicks.Remove(workerId);
+                this.homeRoutePlanners.Remove(workerId);
+                this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
+                    "Traveling", "Emergency return home", 0, homeTarget.Tile);
+                this.navigationManager.ApplyIdlePose(worker);
+                this.monitor.Log($"{worker.displayName} used the last-resort home warp after no walkable exit route remained ({trigger}); safe FarmHouse landing={homeTarget.Tile}.", LogLevel.Warn);
+                return;
+            }
+            catch (Exception ex)
+            {
+                this.monitor.Log($"{worker.displayName} emergency home warp failed: {ex.Message}", LogLevel.Warn);
+            }
+        }
+
         string blockedLocation = worker.currentLocation?.NameOrUniqueName ?? TestWorkerDefinition.LocationName;
-        this.workerShellManager.ReportBlockedRoute(workerId, blockedTask, blockedLocation);
+        this.workerShellManager.ReportBlockedRoute(workerId, this.workerShellManager.GetAssignedTask(workerId), blockedLocation);
         this.navigationManager.ApplyIdlePose(worker);
+        this.returnTargets.Remove(workerId);
+        this.returnReasons[workerId] = reason;
         this.activePhases[workerId] = WorkerTravelPhase.BlockedAtLocation;
         this.retryAfterTicks.Remove(workerId);
-        this.snapshots[workerId] = new WorkerRuntimeSnapshot(blockedTask, "Blocked", "No clear route home; waiting for a new order", 0, null);
-        this.LogState(workerId, worker, "no clear route home; stopped and waiting for a new order");
+        this.homeRoutePlanners.Remove(workerId);
+        this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
+            "Blocked", "No safe way home; waiting for a new order", 0, null);
+        this.LogState(workerId, worker, $"emergency home placement unavailable; blocked ({trigger})");
     }
 
     private bool CanRetryTravel(string workerId)
@@ -465,7 +636,8 @@ internal sealed class WorkerBehaviorManager
 
     private void UpdateAssignedWork(NPC worker, string workerId, WorkerTaskKind assignment)
     {
-        if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Forager)
+        if (assignment == WorkerTaskKind.ClearDebris
+            || this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Forager)
         {
             this.UpdateForagerWork(worker, workerId, assignment);
             return;
@@ -476,7 +648,8 @@ internal sealed class WorkerBehaviorManager
         Farm farm = Game1.getFarm();
         if (worker.currentLocation == farm
             && this.activeTargets.TryGetValue(workerId, out Point target)
-            && worker.TilePoint == target && worker.controller is null)
+            && WorkerCropApproachPolicy.IsInWorkRange(worker.TilePoint, target)
+            && worker.controller is null && !this.navigationManager.HasActiveRoute(workerId))
         {
             this.navigationManager.ApplyIdlePose(worker);
             WorkerTaskKind action = WorkerTaskKind.Idle;
@@ -507,6 +680,7 @@ internal sealed class WorkerBehaviorManager
                 && !this.navigationManager.HasActiveRoute(workerId)
                 && Game1.shouldTimePass())
             {
+                this.MarkFailedCropTarget(workerId, this.activeTargets[workerId]);
                 this.activeTargets.Remove(workerId);
                 this.retryAfterTicks[workerId] = Game1.ticks + TravelRetryCooldownTicks;
             }
@@ -563,7 +737,10 @@ internal sealed class WorkerBehaviorManager
         if (worker.controller is not null)
             return;
 
-        string locationName = this.workerShellManager.GetForageLocationName(workerId);
+        string locationName = assignment == WorkerTaskKind.ClearDebris
+            && this.workerShellManager.GetWorkerProfession(workerId) != WorkerProfession.Forager
+            ? "Farm"
+            : this.workerShellManager.GetForageLocationName(workerId);
         GameLocation? location = Game1.getLocationFromName(locationName);
         if (location is null || !WorkerForageAreaCatalog.IsValidLocation(locationName))
         {
@@ -601,7 +778,7 @@ internal sealed class WorkerBehaviorManager
         {
             // Build one search snapshot after each completed job. Route attempts are
             // spread across updates so an obstructed field cannot block a frame.
-            List<ForagerTarget> candidates = this.GetForagerTargets(location, assignment).ToList();
+            List<ForagerTarget> candidates = this.GetForagerTargets(worker, workerId, location, assignment).ToList();
             if (candidates.Count == 0)
             {
                 this.foragerSearches.Remove(workerId);
@@ -648,6 +825,13 @@ internal sealed class WorkerBehaviorManager
         WorkerNavigationTarget? resolvedTarget = null;
         bool TryCandidate(ForagerTarget target)
         {
+            if (assignment == WorkerTaskKind.ClearDebris
+                && (this.IsDebrisReservedByAnother(workerId, search.TargetLocation, target.ResourceTile)
+                    || !search.TargetLocation.objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? current)
+                    || !ReferenceEquals(current, target.ExpectedObject)
+                    || !WorkerRouteObstacleClassifier.IsSmallLitter(current)))
+                return false;
+
             WorkerNavigationTarget navigationTarget = new(target.LocationName, target.ApproachTile, TestWorkerDefinition.FacingDirection);
             HashSet<Point> validApproaches = search.Candidates
                 .Where(candidate => candidate.ResourceTile == target.ResourceTile && candidate.Kind == target.Kind)
@@ -657,7 +841,11 @@ internal sealed class WorkerBehaviorManager
                     $"travel to {WorkerTaskPolicy.GetTaskLabel(assignment).ToLowerInvariant()} target",
                     out WorkerNavigationTarget candidateTarget, validApproaches.Contains,
                     actual => this.activeForagerTargets[workerId] = target with { ApproachTile = actual.Tile }))
+            {
+                if (assignment == WorkerTaskKind.ChopHardwood && worker.currentLocation == search.TargetLocation)
+                    this.LogFailedHardwoodCandidate(worker, search, target);
                 return false;
+            }
 
             resolvedTarget = candidateTarget;
             return true;
@@ -700,14 +888,15 @@ internal sealed class WorkerBehaviorManager
         if (worker.currentLocation != search.TargetLocation)
             return false;
 
-        Point[] potentialApproaches = this.GetForagerTargets(search.TargetLocation, assignment, includeBlockedApproaches: true)
+        Point[] potentialApproaches = this.GetForagerTargets(worker, workerId, search.TargetLocation, assignment, includeBlockedApproaches: true)
             .Select(target => target.ApproachTile)
             .Distinct()
             .ToArray();
         if (potentialApproaches.Length == 0)
             return false;
 
-        search.ObstaclePlanner = this.navigationManager.CreateObstacleRoutePlanner(worker, potentialApproaches);
+        this.failedWorkDebris.TryGetValue(workerId, out HashSet<Point>? excludedTiles);
+        search.ObstaclePlanner = this.navigationManager.CreateObstacleRoutePlanner(worker, potentialApproaches, excludedTiles);
         if (search.ObstaclePlanner is null)
             return false;
 
@@ -725,6 +914,8 @@ internal sealed class WorkerBehaviorManager
 
         if (status == WorkerObstaclePlanStatus.ClearSmallDebris && clearance is not null
             && search.TargetLocation.objects.TryGetValue(clearance.ObstacleTile.ToVector2(), out StardewValley.Object? item)
+            && (assignment != WorkerTaskKind.ClearDebris
+                || !this.IsDebrisReservedByAnother(workerId, search.TargetLocation, clearance.ObstacleTile))
             && this.navigationManager.IsSmallRouteObstacle(worker, clearance.ObstacleTile))
         {
             WorkerNavigationTarget approach = new(search.TargetLocation.NameOrUniqueName,
@@ -740,11 +931,66 @@ internal sealed class WorkerBehaviorManager
                     NextSwingTick = Game1.ticks,
                     MaxToolActions = WorkerObstacleToolProgressPolicy.GetMaximumActions(
                         item.MinutesUntilReady, damagePerToolAction: 1, hardLimit: MaxDebrisToolActions),
+                    IsAssignedDebrisJob = assignment == WorkerTaskKind.ClearDebris,
                 };
                 this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Clearing", "Clearing small route debris", 0, clearance.ObstacleTile);
                 this.monitor.Log($"{worker.displayName} will clear small route debris at {clearance.ObstacleTile} from {clearance.ApproachTile} in {search.TargetLocation.NameOrUniqueName}.", LogLevel.Info);
                 return;
             }
+        }
+
+        // A live approach can become usable after debris clearing, or may have been
+        // absent from the initial snapshot. Resource eligibility and NPC walkability
+        // are rechecked together; snapshot membership is diagnostic only.
+        List<ForagerTarget> stillEligibleTargets = this.GetForagerTargets(worker, workerId, search.TargetLocation, assignment).ToList();
+        if (status == WorkerObstaclePlanStatus.ReachableClearRoute)
+        {
+            Point? reached = search.ObstaclePlanner.ReachedTarget;
+            bool matchedSnapshot = reached is Point point
+                && search.Candidates.Any(candidate => candidate.ApproachTile == point);
+            List<ForagerTarget> eligibleMatches = reached is Point reachedPoint
+                ? stillEligibleTargets.Where(candidate => candidate.ApproachTile == reachedPoint).ToList()
+                : new List<ForagerTarget>();
+            string matchedResources = eligibleMatches.Count == 0
+                ? "none"
+                : string.Join(", ", eligibleMatches.Select(candidate => $"{candidate.Kind}@{candidate.ResourceTile}"));
+            this.monitor.Log($"Forager fallback route result: reached approach={reached?.ToString() ?? "unknown"}; "
+                + $"search-snapshot match={matchedSnapshot}; currently eligible match={eligibleMatches.Count > 0}; "
+                + $"eligible resources=[{matchedResources}].", LogLevel.Info);
+        }
+
+        if (status == WorkerObstaclePlanStatus.ReachableClearRoute
+            && search.ObstaclePlanner.ReachedTarget is Point reachableApproach
+            && WorkerForagerApproachMatcher.TryFind(stillEligibleTargets, reachableApproach,
+                target => target.ApproachTile, out ForagerTarget? currentCandidate)
+            && currentCandidate is not null)
+        {
+            HashSet<Point> validApproaches = stillEligibleTargets
+                .Where(candidate => candidate.ResourceTile == currentCandidate.ResourceTile && candidate.Kind == currentCandidate.Kind)
+                .Select(candidate => candidate.ApproachTile)
+                .ToHashSet();
+            WorkerNavigationTarget navigationTarget = new(currentCandidate.LocationName,
+                currentCandidate.ApproachTile, TestWorkerDefinition.FacingDirection);
+            if (this.navigationManager.TryStartTravel(worker, navigationTarget,
+                    $"retry visible route to reachable {WorkerTaskPolicy.GetTaskLabel(assignment).ToLowerInvariant()} target",
+                    out WorkerNavigationTarget resolvedTarget, validApproaches.Contains,
+                    actual => this.activeForagerTargets[workerId] = currentCandidate with { ApproachTile = actual.Tile }))
+            {
+                this.activeForagerTargets[workerId] = currentCandidate with { ApproachTile = resolvedTarget.Tile };
+                this.foragerSearches.Remove(workerId);
+                this.activePhases[workerId] = WorkerTravelPhase.TravellingToFarmTarget;
+                this.retryAfterTicks.Remove(workerId);
+                this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Traveling",
+                    $"Walking to {WorkerForageAreaCatalog.GetDisplayName(currentCandidate.LocationName)} {currentCandidate.ResourceTile}",
+                    0, currentCandidate.ResourceTile);
+                this.LogState(workerId, worker,
+                    $"fallback planner recovered reachable {assignment} target {currentCandidate.LocationName} "
+                    + $"{currentCandidate.ResourceTile} via {resolvedTarget.Tile}");
+                return;
+            }
+
+            this.monitor.Log($"{worker.displayName} fallback planner found a clear route to eligible {assignment} target "
+                + $"{currentCandidate.ResourceTile} via {reachableApproach}, but ordinary route planning still failed.", LogLevel.Info);
         }
 
         if (status == WorkerObstaclePlanStatus.BlockedByLargeObstacle)
@@ -754,16 +1000,48 @@ internal sealed class WorkerBehaviorManager
         this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
     }
 
+    private void LogFailedHardwoodCandidate(NPC worker, ForagerSearchState search, ForagerTarget target)
+    {
+        search.HardwoodFailureDiagnosticCount++;
+        if (search.HardwoodFailureDiagnosticCount <= 8)
+        {
+            string route = this.navigationManager.GetLocalRouteDiagnostic(worker, target.ApproachTile);
+            this.monitor.Log($"Hardwood candidate route failed ({search.HardwoodFailureDiagnosticCount}/8 details): "
+                + $"resource={target.ResourceTile}; kind={target.Kind}; approach={target.ApproachTile}; {route}", LogLevel.Info);
+        }
+        else if (search.HardwoodFailureDiagnosticCount == 9)
+        {
+            this.monitor.Log("Hardwood candidate route details suppressed after 8 failures in this search sweep.", LogLevel.Info);
+        }
+    }
+
     private void UpdateObstacleClear(NPC worker, string workerId, WorkerTaskKind assignment, ActiveObstacleClear clear)
     {
+        if (clear.IsAssignedDebrisJob
+            && (assignment != WorkerTaskKind.ClearDebris
+                || !this.workerShellManager.CanWorkerWorkToday(workerId)
+                || !WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay)))
+        {
+            this.activeObstacleClears.Remove(workerId);
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+
         if (worker.controller is not null || this.navigationManager.HasActiveRoute(workerId))
             return;
 
         if (worker.currentLocation != clear.Location || worker.TilePoint != clear.ApproachTile
             || Math.Abs(worker.TilePoint.X - clear.ObstacleTile.X) + Math.Abs(worker.TilePoint.Y - clear.ObstacleTile.Y) != 1)
         {
-            this.monitor.Log($"{worker.displayName} could not reach small route debris at {clear.ObstacleTile}; returning home.", LogLevel.Info);
-            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            this.monitor.Log($"{worker.displayName} could not reach small route debris at {clear.ObstacleTile}; "
+                + (clear.ContinueReturnHome ? "checking return route." : "replanning work."), LogLevel.Info);
+            if (clear.ContinueReturnHome)
+            {
+                this.activeObstacleClears.Remove(workerId);
+                this.TryEmergencyReturnHome(worker, workerId, clear.ReturnReason, "could not reach clearable exit-route debris");
+                return;
+            }
+            this.RetryWorkAfterFailedDebris(worker, workerId, clear);
             return;
         }
 
@@ -771,13 +1049,26 @@ internal sealed class WorkerBehaviorManager
             || !ReferenceEquals(item, clear.ExpectedObject))
         {
             this.activeObstacleClears.Remove(workerId);
+            if (clear.ContinueReturnHome)
+            {
+                this.BeginReturnHome(worker, workerId, clear.ReturnReason);
+                return;
+            }
             this.foragerSearches.Remove(workerId);
             return;
         }
 
-        if (!this.navigationManager.IsSmallRouteObstacle(worker, clear.ObstacleTile))
+        if (clear.IsAssignedDebrisJob
+            ? !WorkerRouteObstacleClassifier.IsSmallLitter(item)
+            : !this.navigationManager.IsSmallRouteObstacle(worker, clear.ObstacleTile))
         {
-            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            if (clear.ContinueReturnHome)
+            {
+                this.activeObstacleClears.Remove(workerId);
+                this.BeginReturnHome(worker, workerId, clear.ReturnReason);
+                return;
+            }
+            this.RetryWorkAfterFailedDebris(worker, workerId, clear);
             return;
         }
 
@@ -792,7 +1083,13 @@ internal sealed class WorkerBehaviorManager
             if (Game1.ticks - clear.CooldownWaitStartedAtTick > clear.CooldownWaitLimitTicks)
             {
                 this.monitor.Log($"{worker.displayName} stopped clearing route debris at {clear.ObstacleTile}; the tool cooldown did not finish.", LogLevel.Warn);
-                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+                if (clear.ContinueReturnHome)
+                {
+                    this.activeObstacleClears.Remove(workerId);
+                    this.TryEmergencyReturnHome(worker, workerId, clear.ReturnReason, "exit-route debris cooldown timed out");
+                    return;
+                }
+                this.RetryWorkAfterFailedDebris(worker, workerId, clear);
             }
             return;
         }
@@ -816,7 +1113,13 @@ internal sealed class WorkerBehaviorManager
         catch (Exception ex)
         {
             this.monitor.Log($"{worker.displayName} could not clear route debris at {clear.ObstacleTile}: {ex.Message}", LogLevel.Warn);
-            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            if (clear.ContinueReturnHome)
+            {
+                this.activeObstacleClears.Remove(workerId);
+                this.TryEmergencyReturnHome(worker, workerId, clear.ReturnReason, "exit-route debris action failed");
+                return;
+            }
+            this.RetryWorkAfterFailedDebris(worker, workerId, clear);
             return;
         }
 
@@ -842,8 +1145,14 @@ internal sealed class WorkerBehaviorManager
         }
         else if (actionStatus is WorkerObstacleToolActionStatus.NoProgress or WorkerObstacleToolActionStatus.ActionLimitReached)
         {
-            this.monitor.Log($"{worker.displayName} could not clear route debris at {clear.ObstacleTile}; tool progress={durabilityBefore}->{durabilityAfter}, actions={clear.ToolActionCount}/{clear.MaxToolActions}. Returning home.", LogLevel.Warn);
-            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            this.monitor.Log($"{worker.displayName} could not clear route debris at {clear.ObstacleTile}; tool progress={durabilityBefore}->{durabilityAfter}, actions={clear.ToolActionCount}/{clear.MaxToolActions}.", LogLevel.Warn);
+            if (clear.ContinueReturnHome)
+            {
+                this.activeObstacleClears.Remove(workerId);
+                this.TryEmergencyReturnHome(worker, workerId, clear.ReturnReason, "exit-route debris made no further tool progress");
+                return;
+            }
+            this.RetryWorkAfterFailedDebris(worker, workerId, clear);
             return;
         }
         else
@@ -863,13 +1172,72 @@ internal sealed class WorkerBehaviorManager
                 workerId, worker.displayName, assignment, ForagerTargetKind.RouteDebris, clear.CapturedDebris));
 
         this.monitor.Log($"{worker.displayName} cleared small route debris at {clear.Location.NameOrUniqueName} {clear.ObstacleTile}; captured {clear.CapturedDebris.Count} drop groups.", LogLevel.Info);
+        if (clear.IsAssignedDebrisJob)
+        {
+            this.RecordCompletedWork(workerId);
+            this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Working",
+                $"Cleared debris at {clear.ObstacleTile}", 0, clear.ObstacleTile);
+        }
         this.activeObstacleClears.Remove(workerId);
         this.foragerSearches.Remove(workerId);
         this.navigationManager.ApplyIdlePose(worker);
+        if (clear.ContinueReturnHome)
+            this.BeginReturnHome(worker, workerId, clear.ReturnReason);
     }
 
-    private IEnumerable<ForagerTarget> GetForagerTargets(GameLocation location, WorkerTaskKind assignment, bool includeBlockedApproaches = false)
+    private void RetryWorkAfterFailedDebris(NPC worker, string workerId, ActiveObstacleClear clear)
     {
+        this.navigationManager.StopTravel(worker);
+        this.activeObstacleClears.Remove(workerId);
+        this.foragerSearches.Remove(workerId);
+        if (clear.CapturedDebris.Count > 0)
+            this.dropCollectionZones.Add(new DropCollectionZone(clear.Location, clear.ObstacleTile,
+                new HashSet<Debris>(), Game1.ticks + 1, Game1.ticks + 60,
+                workerId, worker.displayName, this.workerShellManager.GetAssignedTask(workerId),
+                ForagerTargetKind.RouteDebris, clear.CapturedDebris));
+
+        HashSet<Point> failed = this.failedWorkDebris.GetValueOrDefault(workerId) ?? new HashSet<Point>();
+        this.failedWorkDebris[workerId] = failed;
+        failed.Add(clear.ObstacleTile);
+        if (failed.Count >= MaxFailedWorkDebrisApproaches
+            && this.workerShellManager.GetAssignedTask(workerId) != WorkerTaskKind.ClearDebris)
+        {
+            this.monitor.Log($"{worker.displayName} exhausted {failed.Count} failed work-route debris approaches; returning home.", LogLevel.Info);
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+
+        this.activePhases[workerId] = WorkerTravelPhase.None;
+        this.retryAfterTicks[workerId] = Game1.ticks + TravelRetryCooldownTicks;
+        this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
+            "Checking", "Rechecking work routes after blocked debris", 0, clear.ObstacleTile);
+    }
+
+    private IEnumerable<ForagerTarget> GetForagerTargets(NPC worker, string workerId, GameLocation location,
+        WorkerTaskKind assignment, bool includeBlockedApproaches = false)
+    {
+        if (assignment == WorkerTaskKind.ClearDebris)
+        {
+            foreach (KeyValuePair<Vector2, StardewValley.Object> pair in location.Objects.Pairs)
+            {
+                if (!WorkerRouteObstacleClassifier.IsSmallLitter(pair.Value))
+                    continue;
+
+                Point debrisTile = pair.Key.ToPoint();
+                if (this.failedWorkDebris.GetValueOrDefault(workerId)?.Contains(debrisTile) == true
+                    || this.IsDebrisReservedByAnother(workerId, location, debrisTile))
+                    continue;
+
+                foreach (Point approach in this.GetApproachTiles(worker, location, debrisTile, 1, 1, includeBlockedApproaches))
+                {
+                    if (Math.Abs(approach.X - debrisTile.X) + Math.Abs(approach.Y - debrisTile.Y) == 1)
+                        yield return new ForagerTarget(location.NameOrUniqueName, debrisTile, approach,
+                            ForagerTargetKind.RouteDebris, pair.Value);
+                }
+            }
+            yield break;
+        }
+
         if (assignment == WorkerTaskKind.CollectForage)
         {
             foreach (KeyValuePair<Vector2, StardewValley.Object> pair in location.Objects.Pairs)
@@ -878,7 +1246,7 @@ internal sealed class WorkerBehaviorManager
                     continue;
 
                 Point resourceTile = pair.Key.ToPoint();
-                foreach (Point approach in this.GetApproachTiles(location, resourceTile, 1, 1, includeBlockedApproaches))
+                foreach (Point approach in this.GetApproachTiles(worker, location, resourceTile, 1, 1, includeBlockedApproaches))
                     yield return new ForagerTarget(location.NameOrUniqueName, resourceTile, approach, ForagerTargetKind.Forage);
             }
             yield break;
@@ -896,7 +1264,7 @@ internal sealed class WorkerBehaviorManager
                 continue;
 
             Point resourceTile = pair.Key.ToPoint();
-            foreach (Point approach in this.GetApproachTiles(location, resourceTile, 1, 1, includeBlockedApproaches))
+            foreach (Point approach in this.GetApproachTiles(worker, location, resourceTile, 1, 1, includeBlockedApproaches))
                 yield return new ForagerTarget(location.NameOrUniqueName, resourceTile, approach,
                     hardwood ? ForagerTargetKind.HardwoodTree : ForagerTargetKind.Tree);
         }
@@ -910,41 +1278,37 @@ internal sealed class WorkerBehaviorManager
                 continue;
 
             Point resourceTile = clump.Tile.ToPoint();
-            foreach (Point approach in this.GetApproachTiles(location, resourceTile, clump.width.Value, clump.height.Value, includeBlockedApproaches))
+            foreach (Point approach in this.GetApproachTiles(worker, location, resourceTile, clump.width.Value, clump.height.Value, includeBlockedApproaches))
                 yield return new ForagerTarget(location.NameOrUniqueName, resourceTile, approach, ForagerTargetKind.HardwoodClump);
         }
     }
 
-    private IEnumerable<Point> GetApproachTiles(GameLocation location, Point resourceTile, int width, int height, bool includeBlockedApproaches)
+    private bool IsDebrisReservedByAnother(string workerId, GameLocation location, Point tile)
     {
-        HashSet<Point> yielded = new();
-        for (int x = resourceTile.X - 1; x <= resourceTile.X + width; x++)
+        foreach (KeyValuePair<string, ForagerTarget> pair in this.activeForagerTargets)
         {
-            foreach (int y in new[] { resourceTile.Y - 1, resourceTile.Y + height })
-            {
-                Point candidate = new(x, y);
-                if (yielded.Add(candidate)
-                    && (includeBlockedApproaches ? location.isTileOnMap(candidate.ToVector2()) : this.IsWalkableApproach(location, candidate)))
-                    yield return candidate;
-            }
+            if (!string.Equals(pair.Key, workerId, StringComparison.OrdinalIgnoreCase)
+                && pair.Value.Kind == ForagerTargetKind.RouteDebris
+                && pair.Value.LocationName == location.NameOrUniqueName
+                && pair.Value.ResourceTile == tile)
+                return true;
         }
-        for (int y = resourceTile.Y; y < resourceTile.Y + height; y++)
+
+        foreach (KeyValuePair<string, ActiveObstacleClear> pair in this.activeObstacleClears)
         {
-            foreach (int x in new[] { resourceTile.X - 1, resourceTile.X + width })
-            {
-                Point candidate = new(x, y);
-                if (yielded.Add(candidate)
-                    && (includeBlockedApproaches ? location.isTileOnMap(candidate.ToVector2()) : this.IsWalkableApproach(location, candidate)))
-                    yield return candidate;
-            }
+            if (!string.Equals(pair.Key, workerId, StringComparison.OrdinalIgnoreCase)
+                && pair.Value.Location == location && pair.Value.ObstacleTile == tile)
+                return true;
         }
+
+        return false;
     }
 
-    private bool IsWalkableApproach(GameLocation location, Point tile)
-    {
-        return location.isTileOnMap(tile.ToVector2())
-            && !location.IsTileBlockedBy(tile.ToVector2(), CollisionMask.All, CollisionMask.Characters, useFarmerTile: true);
-    }
+    private IEnumerable<Point> GetApproachTiles(NPC worker, GameLocation location, Point resourceTile,
+        int width, int height, bool includeBlockedApproaches)
+        => WorkerApproachTiles.AroundResource(resourceTile, width, height, tile => includeBlockedApproaches
+            ? location.isTileOnMap(tile.ToVector2())
+            : this.navigationManager.IsWalkableWorkTile(location, worker, tile));
 
     private void BeginForagerAction(
         NPC worker,
@@ -953,6 +1317,36 @@ internal sealed class WorkerBehaviorManager
         ForagerTarget target,
         WorkerTaskKind assignment)
     {
+        if (assignment == WorkerTaskKind.ClearDebris && target.Kind == ForagerTargetKind.RouteDebris)
+        {
+            if (!location.objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? item)
+                || !ReferenceEquals(item, target.ExpectedObject)
+                || !WorkerRouteObstacleClassifier.IsSmallLitter(item)
+                || this.IsDebrisReservedByAnother(workerId, location, target.ResourceTile))
+            {
+                this.FinishForagerAction(worker, workerId, target, assignment, null);
+                return;
+            }
+
+            this.navigationManager.StopWorker(worker);
+            this.activeForagerTargets.Remove(workerId);
+            this.activeObstacleClears[workerId] = new ActiveObstacleClear
+            {
+                Location = location,
+                ObstacleTile = target.ResourceTile,
+                ApproachTile = target.ApproachTile,
+                ExpectedObject = item,
+                NextSwingTick = Game1.ticks,
+                MaxToolActions = WorkerObstacleToolProgressPolicy.GetMaximumActions(
+                    item.MinutesUntilReady, damagePerToolAction: 1, hardLimit: MaxDebrisToolActions),
+                IsAssignedDebrisJob = true,
+            };
+            this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Clearing",
+                $"Clearing debris in {WorkerForageAreaCatalog.GetDisplayName(location.NameOrUniqueName)}", 0, target.ResourceTile);
+            this.monitor.Log($"{worker.displayName} started clearing assigned debris at {location.NameOrUniqueName} {target.ResourceTile} from {target.ApproachTile}.", LogLevel.Info);
+            return;
+        }
+
         if (target.Kind == ForagerTargetKind.Forage)
         {
             if (location.Objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? forage)
@@ -1282,6 +1676,9 @@ internal sealed class WorkerBehaviorManager
         foreach (KeyValuePair<Vector2, TerrainFeature> pair in farm.terrainFeatures.Pairs.OrderBy(p => p.Key.X + p.Key.Y))
         {
             Point candidate = pair.Key.ToPoint();
+            if (this.failedCropTargets.TryGetValue(workerId, out Dictionary<Point, int>? failed)
+                && failed.TryGetValue(candidate, out int retryAt) && Game1.ticks < retryAt)
+                continue;
             if (!this.IsEligibleCropTarget(workerId, farm, candidate, assignment, desiredAction))
                 continue;
 
@@ -1310,9 +1707,12 @@ internal sealed class WorkerBehaviorManager
         if (shortestFallbackDistance < int.MaxValue)
         {
             target = fallbackTarget;
-            this.monitor.Log(
-                $"No collision-aware route length was available for {desiredAction}; falling back to nearest eligible tile {target}.",
-                LogLevel.Trace);
+            if (!this.lastCropFallbackTargets.TryGetValue(workerId, out Point previous) || previous != target)
+            {
+                this.lastCropFallbackTargets[workerId] = target;
+                this.monitor.Log($"No local route length available for {desiredAction} from {worker.currentLocation?.NameOrUniqueName}; "
+                    + $"trying crop {target} through an existing warp.", LogLevel.Trace);
+            }
             return true;
         }
 
@@ -1345,19 +1745,51 @@ internal sealed class WorkerBehaviorManager
         this.LogState(workerId, worker, $"selected {task} target tile {target}; starting route ({reason})");
         WorkerTaskKind assignment = this.workerShellManager.GetAssignedTask(workerId);
         Farm farm = Game1.getFarm();
-        if (!this.navigationManager.TryStartTravel(worker, new WorkerNavigationTarget("Farm", target, 2), reason,
+        if (worker.currentLocation == farm && WorkerCropApproachPolicy.IsInWorkRange(worker.TilePoint, target))
+        {
+            this.retryAfterTicks.Remove(workerId);
+            return;
+        }
+        Point travelTile = target;
+        if (worker.currentLocation == farm)
+        {
+            int shortest = int.MaxValue;
+            foreach (Point approach in WorkerCropApproachPolicy.GetApproaches(target))
+            {
+                if (!this.navigationManager.TryGetLocalRouteLength(worker, approach, out int length) || length >= shortest)
+                    continue;
+                travelTile = approach;
+                shortest = length;
+            }
+            if (shortest == int.MaxValue)
+            {
+                this.MarkFailedCropTarget(workerId, target);
+                this.activeTargets.Remove(workerId);
+                this.monitor.Log($"{worker.displayName} found no walkable approach to crop {target}; trying another crop.", LogLevel.Info);
+                return;
+            }
+        }
+
+        if (!this.navigationManager.TryStartTravel(worker, new WorkerNavigationTarget("Farm", travelTile, 2), reason,
                 out WorkerNavigationTarget resolvedTarget,
-                landingValidator: point => this.IsEligibleCropTarget(workerId, farm, point, assignment, task),
-                onWarpArrival: actual => this.activeTargets[workerId] = actual.Tile))
+                landingValidator: point => WorkerCropApproachPolicy.IsNearbyLanding(point, target,
+                    this.IsEligibleCropTarget(workerId, farm, target, assignment, task))))
         {
             this.LogState(workerId, worker, $"route start failed for target tile {target}; clearing target and waiting for next update");
+            this.MarkFailedCropTarget(workerId, target);
             this.activeTargets.Remove(workerId);
             this.retryAfterTicks[workerId] = Game1.ticks + TravelRetryCooldownTicks;
             return;
         }
 
-        this.activeTargets[workerId] = resolvedTarget.Tile;
         this.retryAfterTicks.Remove(workerId);
+    }
+
+    private void MarkFailedCropTarget(string workerId, Point target)
+    {
+        Dictionary<Point, int> failed = this.failedCropTargets.GetValueOrDefault(workerId) ?? new Dictionary<Point, int>();
+        this.failedCropTargets[workerId] = failed;
+        failed[target] = Game1.ticks + FailedCropRetryTicks;
     }
 
     private bool PerformJobAt(Farm farm, Point tile, WorkerTaskKind task)

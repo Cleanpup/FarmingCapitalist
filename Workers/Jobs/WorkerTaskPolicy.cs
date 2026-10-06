@@ -5,12 +5,14 @@ internal static class WorkerTaskPolicy
 {
     private static readonly WorkerTaskKind[] FarmerTasks =
     {
-        WorkerTaskKind.WaterCrops, WorkerTaskKind.HarvestCrops, WorkerTaskKind.TendCrops, WorkerTaskKind.Idle,
+        WorkerTaskKind.WaterCrops, WorkerTaskKind.HarvestCrops, WorkerTaskKind.TendCrops,
+        WorkerTaskKind.ClearDebris, WorkerTaskKind.Idle,
     };
 
     private static readonly WorkerTaskKind[] ForagerTasks =
     {
-        WorkerTaskKind.ChopTrees, WorkerTaskKind.CollectForage, WorkerTaskKind.ChopHardwood, WorkerTaskKind.Idle,
+        WorkerTaskKind.ChopTrees, WorkerTaskKind.CollectForage, WorkerTaskKind.ChopHardwood,
+        WorkerTaskKind.ClearDebris, WorkerTaskKind.Idle,
     };
 
     public const int WorkDayEndsAt = 2200;
@@ -62,6 +64,7 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.CollectForage => "Collect forage",
         WorkerTaskKind.ChopTrees => "Cut down trees",
         WorkerTaskKind.ChopHardwood => "Cut hardwood",
+        WorkerTaskKind.ClearDebris => "Clear debris",
         _ => idleLabel,
     };
 }

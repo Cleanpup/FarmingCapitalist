@@ -43,7 +43,18 @@ Assert(found && landing == new Point(3, 7), "Landing fallback should prioritize 
 found = WorkerDirectWarpPlanner.TryChooseLanding(new Point(6, 7), 2, _ => false, out landing);
 Assert(!found, "Warp planning must fail when no safe landing exists.");
 
-Console.WriteLine("Direct warp checks passed: real Forest exit, Standard Farm barriers, nearest reachable exit, and safe landing fallback.");
+Point crop = new(64, 20);
+found = WorkerDirectWarpPlanner.TryChooseLanding(crop, 2,
+    point => WorkerCropApproachPolicy.IsNearbyLanding(point, crop, cropStillEligible: true)
+        && point == new Point(63, 20), out landing);
+Assert(found && landing == new Point(63, 20)
+    && WorkerCropApproachPolicy.IsInWorkRange(landing, crop),
+    "A blocked crop tile must allow a safe adjacent landing while preserving the crop as the job target.");
+Assert(!WorkerCropApproachPolicy.IsNearbyLanding(new Point(63, 20), crop, cropStillEligible: false)
+    && !WorkerCropApproachPolicy.IsInWorkRange(new Point(62, 20), crop),
+    "A changed crop or distant landing must not authorize crop work.");
+
+Console.WriteLine("Direct warp checks passed: authored exits, nearest reachable warp, safe landings, and adjacent crop arrival.");
 
 static void Assert(bool condition, string message)
 {

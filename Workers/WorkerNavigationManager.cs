@@ -90,24 +90,89 @@ internal sealed class WorkerNavigationManager
         return true;
     }
 
-    public WorkerObstacleRoutePlanner? CreateObstacleRoutePlanner(NPC worker, IEnumerable<Point> targets)
+    public string GetLocalRouteDiagnostic(NPC worker, Point target)
+    {
+        if (worker.currentLocation is not GameLocation location)
+            return "local route unavailable (worker location missing)";
+
+        bool routeAvailable = this.TryGetLocalRouteLength(worker, target, out int routeLength);
+        Point[] tiles =
+        {
+            target,
+            new(target.X, target.Y - 1),
+            new(target.X + 1, target.Y),
+            new(target.X, target.Y + 1),
+            new(target.X - 1, target.Y),
+        };
+        string tileEvidence = string.Join(", ", tiles.Distinct().Select(tile =>
+        {
+            Vector2 position = tile.ToVector2();
+            int otherCharacters = location.characters.Count(character => character != worker && character.TilePoint == tile);
+            int farmers = location.farmers.Count(farmer => farmer.TilePoint == tile);
+            bool npcBarrier = location.isTileOnMap(position)
+                && location.doesTileHaveProperty(tile.X, tile.Y, "NPCBarrier", "Back") is not null;
+            return $"{tile}:{this.DescribePathfindingTile(location, worker, tile)}/passable={location.isTileOnMap(position) && location.isTilePassable(position)}/NPCBarrier={npcBarrier}/otherCharacters={otherCharacters}/farmers={farmers}";
+        }));
+        string route = routeAvailable ? $"available ({routeLength} steps)" : "unavailable";
+        return $"local route={route}; target and neighboring tile blockers=[{tileEvidence}]";
+    }
+
+    public WorkerObstacleRoutePlanner? CreateObstacleRoutePlanner(NPC worker, IEnumerable<Point> targets,
+        IReadOnlySet<Point>? excludedTiles = null)
     {
         if (!Context.IsWorldReady || !Context.IsMainPlayer || worker.currentLocation is not GameLocation location)
             return null;
 
         return new WorkerObstacleRoutePlanner(worker.TilePoint, targets,
-            tile => this.ClassifyObstacleRouteTile(location, worker, tile));
+            tile => excludedTiles?.Contains(tile) == true
+                ? WorkerRouteTileKind.Impassable
+                : this.ClassifyObstacleRouteTile(location, worker, tile));
     }
 
     public bool IsSmallRouteObstacle(NPC worker, Point tile)
         => Context.IsWorldReady && Context.IsMainPlayer && worker.currentLocation is GameLocation location
             && this.ClassifyObstacleRouteTile(location, worker, tile) == WorkerRouteTileKind.SmallDebris;
 
+    public bool IsWalkableWorkTile(GameLocation location, NPC worker, Point tile)
+    {
+        if (!Context.IsWorldReady || !location.isTileOnMap(tile.ToVector2()))
+            return false;
+
+        return WorkerWorkTilePolicy.CanStand(onMap: true,
+            movementBlocked: this.IsPathfindingCollision(location, worker, tile),
+            npcBarrier: location.doesTileHaveProperty(tile.X, tile.Y, "NPCBarrier", "Back") is not null,
+            occupied: this.IsOccupiedByOtherActor(location, worker, tile),
+            warp: location.warps.Any(warp => warp.X == tile.X && warp.Y == tile.Y));
+    }
+
+    private bool IsOccupiedByOtherActor(GameLocation location, NPC worker, Point tile)
+    {
+        Rectangle tileBox = new(tile.X * 64 + 1, tile.Y * 64 + 1, 62, 62);
+        return location.characters.Any(character => character != worker
+                && (character.TilePoint == tile || character.GetBoundingBox().Intersects(tileBox)))
+            || location.farmers.Any(farmer => farmer.TilePoint == tile || farmer.GetBoundingBox().Intersects(tileBox));
+    }
+
+    public WorkerObstacleRoutePlanner? CreateWarpAccessObstaclePlanner(NPC worker)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || worker.currentLocation is not GameLocation location)
+            return null;
+
+        Point[] approaches = this.GetPotentialWarpPoints(location, worker)
+            .SelectMany(warpPoint => this.GetWarpApproaches(location, warpPoint))
+            .Distinct()
+            .ToArray();
+        return new WorkerObstacleRoutePlanner(worker.TilePoint, approaches,
+            tile => this.ClassifyObstacleRouteTile(location, worker, tile));
+    }
+
     private WorkerRouteTileKind ClassifyObstacleRouteTile(GameLocation location, NPC worker, Point tile)
     {
         Vector2 position = tile.ToVector2();
         if (!location.isTileOnMap(position)
-            || location.warps.Any(warp => warp.X == tile.X && warp.Y == tile.Y))
+            || location.warps.Any(warp => warp.X == tile.X && warp.Y == tile.Y)
+            || location.doesTileHaveProperty(tile.X, tile.Y, "NPCBarrier", "Back") is not null
+            || this.IsOccupiedByOtherActor(location, worker, tile))
             return WorkerRouteTileKind.Impassable;
 
         if (!this.IsPathfindingCollision(location, worker, tile))
@@ -534,26 +599,7 @@ internal sealed class WorkerNavigationManager
         if (source is null)
             return false;
 
-        HashSet<Point> warpPoints = new();
-        foreach (Warp warp in source.warps)
-        {
-            if (!string.Equals(warp.TargetName, source.NameOrUniqueName, StringComparison.OrdinalIgnoreCase))
-                warpPoints.Add(new Point(warp.X, warp.Y));
-        }
-
-        // Farmhouse doors are building warps and don't always appear in location.warps.
-        string? doorDestination = source.NameOrUniqueName switch
-        {
-            "FarmHouse" => "Farm",
-            "Farm" => "FarmHouse",
-            _ => null,
-        };
-        if (doorDestination is not null)
-        {
-            Point door = source.getWarpPointTo(doorDestination, worker);
-            if (door != Point.Zero && this.TryResolveWarpTarget(source, doorDestination, door, worker, out _))
-                warpPoints.Add(door);
-        }
+        HashSet<Point> warpPoints = this.GetPotentialWarpPoints(source, worker);
 
         List<WorkerWarpOption<ReachableWarpLeg>> options = new();
         foreach (Point warpPoint in warpPoints)
@@ -590,15 +636,38 @@ internal sealed class WorkerNavigationManager
         return true;
     }
 
+    private HashSet<Point> GetPotentialWarpPoints(GameLocation source, NPC worker)
+    {
+        HashSet<Point> warpPoints = new();
+        foreach (Warp warp in source.warps)
+        {
+            if (!string.Equals(warp.TargetName, source.NameOrUniqueName, StringComparison.OrdinalIgnoreCase))
+                warpPoints.Add(new Point(warp.X, warp.Y));
+        }
+
+        // Farmhouse doors are building warps and don't always appear in location.warps.
+        string? doorDestination = source.NameOrUniqueName switch
+        {
+            "FarmHouse" => "Farm",
+            "Farm" => "FarmHouse",
+            _ => null,
+        };
+        if (doorDestination is not null)
+        {
+            Point door = source.getWarpPointTo(doorDestination, worker);
+            if (door != Point.Zero && this.TryResolveWarpTarget(source, doorDestination, door, worker, out _))
+                warpPoints.Add(door);
+        }
+
+        return warpPoints;
+    }
+
     private bool TryResolveSafeLanding(GameLocation destination, Point requested, NPC worker,
         Func<Point, bool>? landingValidator, out Point landing)
     {
         return WorkerDirectWarpPlanner.TryChooseLanding(requested, 8, point =>
-            destination.isTileOnMap(point.ToVector2())
-            && (landingValidator is null || landingValidator(point))
-            && !this.IsPathfindingCollision(destination, worker, point)
-            && !destination.IsTileBlockedBy(point.ToVector2(), CollisionMask.All, CollisionMask.Characters, useFarmerTile: true)
-            && !destination.warps.Any(warp => warp.X == point.X && warp.Y == point.Y), out landing);
+            this.IsWalkableWorkTile(destination, worker, point)
+            && (landingValidator is null || landingValidator(point)), out landing);
     }
 
     private bool TryBuildCollisionAwareWarpLeg(

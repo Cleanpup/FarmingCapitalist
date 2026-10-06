@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="DirectWarpChecks.cs" />
     <Compile Include="../Workers/Navigation/WorkerDirectWarpPlanner.cs" Link="WorkerDirectWarpPlanner.cs" />
+    <Compile Include="../Workers/Navigation/WorkerCropApproachPolicy.cs" Link="WorkerCropApproachPolicy.cs" />
     <Reference Include="MonoGame.Framework">
       <HintPath>$(GamePath)/MonoGame.Framework.dll</HintPath>
     </Reference>

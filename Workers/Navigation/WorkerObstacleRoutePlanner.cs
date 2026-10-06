@@ -16,6 +16,7 @@ internal enum WorkerObstaclePlanStatus
 {
     Searching,
     ClearSmallDebris,
+    ReachableClearRoute,
     BlockedByLargeObstacle,
     NoRoute,
     SearchLimitReached,
@@ -36,6 +37,8 @@ internal sealed class WorkerObstacleRoutePlanner
     private readonly HashSet<Point> visited = new();
     private PriorityQueue<Point, int> frontier = new();
     private bool allowLarge;
+
+    public Point? ReachedTarget { get; private set; }
 
     public WorkerObstacleRoutePlanner(Point start, IEnumerable<Point> targets, Func<Point, WorkerRouteTileKind> classify)
     {
@@ -71,11 +74,12 @@ internal sealed class WorkerObstacleRoutePlanner
 
             if (this.targets.Contains(point))
             {
+                this.ReachedTarget = point;
                 if (this.allowLarge)
                     return WorkerObstaclePlanStatus.BlockedByLargeObstacle;
 
                 clearance = this.FindFirstSmallDebris(point);
-                return clearance is null ? WorkerObstaclePlanStatus.NoRoute : WorkerObstaclePlanStatus.ClearSmallDebris;
+                return clearance is null ? WorkerObstaclePlanStatus.ReachableClearRoute : WorkerObstaclePlanStatus.ClearSmallDebris;
             }
 
             foreach (Point direction in Directions)
@@ -108,6 +112,7 @@ internal sealed class WorkerObstacleRoutePlanner
     private void StartPhase(bool allowLarge)
     {
         this.allowLarge = allowLarge;
+        this.ReachedTarget = null;
         this.frontier = new PriorityQueue<Point, int>();
         this.distances.Clear();
         this.parents.Clear();

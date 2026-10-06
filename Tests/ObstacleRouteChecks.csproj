@@ -9,12 +9,15 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="ObstacleRouteChecks.cs" />
+    <Compile Include="../Workers/Navigation/WorkerReturnFallbackPolicy.cs" Link="WorkerReturnFallbackPolicy.cs" />
     <Compile Include="../Workers/Navigation/WorkerObstacleRoutePlanner.cs" Link="WorkerObstacleRoutePlanner.cs" />
     <Compile Include="../Workers/Navigation/WorkerObstacleToolProgressPolicy.cs" Link="WorkerObstacleToolProgressPolicy.cs" />
     <Compile Include="../Workers/Storage/WorkerDebrisCapture.cs" Link="WorkerDebrisCapture.cs" />
     <Compile Include="../Workers/Model/WorkerObstacleReport.cs" Link="WorkerObstacleReport.cs" />
     <Compile Include="../Workers/Model/WorkerObstacleReportPolicy.cs" Link="WorkerObstacleReportPolicy.cs" />
     <Compile Include="../Workers/Model/WorkerTaskKind.cs" Link="WorkerTaskKind.cs" />
+    <Compile Include="../Workers/Model/WorkerProfession.cs" Link="WorkerProfession.cs" />
+    <Compile Include="../Workers/Jobs/WorkerTaskPolicy.cs" Link="WorkerTaskPolicy.cs" />
     <Reference Include="MonoGame.Framework">
       <HintPath>$(GamePath)/MonoGame.Framework.dll</HintPath>
     </Reference>

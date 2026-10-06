@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Workers/Navigation/WorkerWorkTilePolicy.cs" Link="WorkerWorkTilePolicy.cs" />
+    <Compile Include="../../Workers/Navigation/WorkerApproachTiles.cs" Link="WorkerApproachTiles.cs" />
+    <Compile Include="../../Workers/Navigation/WorkerObstacleRoutePlanner.cs" Link="WorkerObstacleRoutePlanner.cs" />
+    <Compile Include="../../Workers/Navigation/WorkerForagerApproachMatcher.cs" Link="WorkerForagerApproachMatcher.cs" />
+    <Compile Include="../../Workers/Navigation/WorkerDirectWarpPlanner.cs" Link="WorkerDirectWarpPlanner.cs" />
+    <Reference Include="MonoGame.Framework">
+      <HintPath>$(GamePath)/MonoGame.Framework.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

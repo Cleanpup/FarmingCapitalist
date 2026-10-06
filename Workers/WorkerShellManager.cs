@@ -225,6 +225,32 @@ internal sealed class WorkerShellManager
         return this.savedWorkers.Select(entry => entry.Clone()).ToArray();
     }
 
+    public WorkerSkillExperience GetWorkerExperience(string workerId)
+        => this.GetWorkerEntry(workerId)?.Experience?.Clone() ?? new WorkerSkillExperience();
+
+    /// <summary>Only the host can change persistent skill progress.</summary>
+    public bool TryAwardFarmingHarvestExperience(string workerId, bool confirmedCropChange, int itemsCollected)
+    {
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null || !WorkerExperiencePolicy.TryAwardFarmingHarvest(entry, Context.IsMainPlayer,
+                Context.IsWorldReady, confirmedCropChange, itemsCollected))
+            return false;
+
+        this.PersistRoster();
+        return true;
+    }
+
+    public bool TryAwardCompletedActionExperience(string workerId, WorkerExperienceAction action)
+    {
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null || !WorkerExperiencePolicy.TryAwardCompletedAction(entry, Context.IsMainPlayer,
+                Context.IsWorldReady, action))
+            return false;
+
+        this.PersistRoster();
+        return true;
+    }
+
     public WorkerTaskKind GetAssignedTask(string workerId)
     {
         return this.GetWorkerEntry(workerId)?.AssignedTask ?? WorkerTaskKind.Idle;
@@ -811,6 +837,7 @@ internal sealed class WorkerShellManager
             }
 
             WorkerRosterEntry normalized = entry.Clone();
+            normalized.Experience = entry.Experience?.Clone() ?? new WorkerSkillExperience();
             normalized.WorkerId = workerId;
             normalized.DisplayName = string.IsNullOrWhiteSpace(entry.DisplayName)
                 ? $"Worker {normalizedEntries.Count + 1}"

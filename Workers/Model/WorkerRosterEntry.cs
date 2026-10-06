@@ -22,6 +22,8 @@ internal sealed class WorkerRosterEntry
 
     public WorkerTaskKind AssignedTask { get; set; } = WorkerTaskKind.Idle;
 
+    public WorkerSkillExperience Experience { get; set; } = new();
+
     public int DailyWage { get; set; } = WorkerEmploymentTerms.DailyWage;
 
     /// <summary>The absolute game date covered by the last payment; -1 means no payment yet.</summary>
@@ -44,6 +46,7 @@ internal sealed class WorkerRosterEntry
             Profession = this.Profession,
             ForageLocationName = this.ForageLocationName,
             AssignedTask = this.AssignedTask,
+            Experience = this.Experience?.Clone() ?? new WorkerSkillExperience(),
             DailyWage = this.DailyWage,
             LastPaidDay = this.LastPaidDay,
             LastWageAttemptDay = this.LastWageAttemptDay,

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ExperienceTests.cs" />
+    <Compile Include="TestStubs.cs" />
+    <Compile Include="../Workers/Skills/WorkerSkillExperience.cs" Link="WorkerSkillExperience.cs" />
+    <Compile Include="../Workers/Skills/WorkerExperiencePolicy.cs" Link="WorkerExperiencePolicy.cs" />
+    <Compile Include="../Workers/Model/WorkerRosterEntry.cs" Link="WorkerRosterEntry.cs" />
+    <Compile Include="../Workers/Model/WorkerObstacleReport.cs" Link="WorkerObstacleReport.cs" />
+    <Compile Include="../Workers/Model/WorkerRosterSaveData.cs" Link="WorkerRosterSaveData.cs" />
+    <Compile Include="../Workers/Model/WorkerTaskKind.cs" Link="WorkerTaskKind.cs" />
+    <Compile Include="../Workers/Model/WorkerProfession.cs" Link="WorkerProfession.cs" />
+    <Compile Include="../Workers/Model/WorkerEmploymentTerms.cs" Link="WorkerEmploymentTerms.cs" />
+  </ItemGroup>
+</Project>

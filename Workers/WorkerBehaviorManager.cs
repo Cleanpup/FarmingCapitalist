@@ -369,6 +369,17 @@ internal sealed class WorkerBehaviorManager
         this.completedToday[workerId] = this.completedToday.GetValueOrDefault(workerId) + 1;
     }
 
+    // Vanilla object and tree tools need a Farmer as lastUser for drops. Scope
+    // their calls so gainExperience cannot change that farmer's skills or mastery.
+    private static T WithoutFarmerExperience<T>(Func<T> action)
+    {
+        using IDisposable scope = WorkerExperienceSuppression.BeginScope();
+        return action();
+    }
+
+    private static void WithoutFarmerExperience(Action action)
+        => WithoutFarmerExperience(() => { action(); return true; });
+
     private void UpdateReturnHome(NPC worker, string workerId, WorkerTravelPhase phase)
     {
         if (phase == WorkerTravelPhase.RestingAtFarmhouse)
@@ -668,7 +679,7 @@ internal sealed class WorkerBehaviorManager
             this.monitor.Log(
                 $"{worker.displayName} arrived at crop tile {target}; assignment={assignment}, resolved action={action}.",
                 LogLevel.Trace);
-            if (this.PerformJobAt(farm, target, action))
+            if (this.PerformJobAt(workerId, farm, target, action))
                 this.RecordCompletedWork(workerId);
             this.activeTargets.Remove(workerId);
             this.LogState(workerId, worker, $"finished action at target tile {target}; rescanning farm");
@@ -1108,7 +1119,7 @@ internal sealed class WorkerBehaviorManager
         bool toolActionCompleted;
         try
         {
-            toolActionCompleted = item.performToolAction(tool);
+            toolActionCompleted = WithoutFarmerExperience(() => item.performToolAction(tool));
         }
         catch (Exception ex)
         {
@@ -1135,8 +1146,9 @@ internal sealed class WorkerBehaviorManager
             if (toolActionCompleted)
             {
                 if (item.IsBreakableStone())
-                    clear.Location.OnStoneDestroyed(item.ItemId, clear.ObstacleTile.X, clear.ObstacleTile.Y, Game1.MasterPlayer);
-                item.performRemoveAction();
+                    WithoutFarmerExperience(() => clear.Location.OnStoneDestroyed(item.ItemId,
+                        clear.ObstacleTile.X, clear.ObstacleTile.Y, Game1.MasterPlayer));
+                WithoutFarmerExperience(() => item.performRemoveAction());
                 if (clear.Location.objects.TryGetValue(clear.ObstacleTile.ToVector2(), out StardewValley.Object? stillPresent)
                     && ReferenceEquals(stillPresent, item))
                     clear.Location.objects.Remove(clear.ObstacleTile.ToVector2());
@@ -1175,6 +1187,9 @@ internal sealed class WorkerBehaviorManager
         if (clear.IsAssignedDebrisJob)
         {
             this.RecordCompletedWork(workerId);
+            this.workerShellManager.TryAwardCompletedActionExperience(workerId,
+                item.IsBreakableStone() ? WorkerExperienceAction.ClearStone
+                : item.IsTwig() ? WorkerExperienceAction.ClearTwig : WorkerExperienceAction.ClearWeeds);
             this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Working",
                 $"Cleared debris at {clear.ObstacleTile}", 0, clear.ObstacleTile);
         }
@@ -1355,6 +1370,7 @@ internal sealed class WorkerBehaviorManager
                 location.Objects.Remove(target.ResourceTile.ToVector2());
                 bool chestOnly = WorkerItemStorage.Store(forage, this.workerShellManager.GetHarvestDestination(), this.monitor);
                 this.RecordCompletedWork(workerId);
+                this.workerShellManager.TryAwardCompletedActionExperience(workerId, WorkerExperienceAction.PickupForage);
                 this.monitor.Log(
                     $"Worker {worker.displayName} [{workerId}] {assignment} forage at {target.LocationName} {target.ResourceTile}: collected; "
                     + $"storage={(chestOnly ? "selected chest" : "shipping bin, wholly or partly")}.",
@@ -1415,9 +1431,9 @@ internal sealed class WorkerBehaviorManager
                 && feature is Tree tree && !tree.falling.Value
                 && (IsHardwoodTree(tree) == (action.Assignment == WorkerTaskKind.ChopHardwood));
         Axe axe = new() { UpgradeLevel = 4, lastUser = Game1.MasterPlayer };
-        bool finished = action.Target.Kind == ForagerTargetKind.HardwoodClump
+        bool finished = WithoutFarmerExperience(() => action.Target.Kind == ForagerTargetKind.HardwoodClump
             ? this.SwingAtHardwoodClump(location, action.Target, axe)
-            : this.SwingAtTree(location, action.Target, action.Assignment, axe);
+            : this.SwingAtTree(location, action.Target, action.Assignment, axe));
 
         this.monitor.Log(
             $"{worker.displayName} performed {action.Assignment} swing {action.SwingCount} at {action.Target.LocationName} {action.Target.ResourceTile}; finished={finished}.",
@@ -1425,7 +1441,12 @@ internal sealed class WorkerBehaviorManager
         if (finished)
         {
             if (resourcePresent)
+            {
                 this.RecordCompletedWork(workerId);
+                this.workerShellManager.TryAwardCompletedActionExperience(workerId,
+                    action.Target.Kind == ForagerTargetKind.HardwoodClump || action.Assignment == WorkerTaskKind.ChopHardwood
+                        ? WorkerExperienceAction.ChopHardwood : WorkerExperienceAction.ChopTree);
+            }
             string result = !resourcePresent ? "target unavailable"
                 : action.Target.Kind == ForagerTargetKind.HardwoodClump ? "clump removed"
                 : "tree chop completed";
@@ -1792,7 +1813,7 @@ internal sealed class WorkerBehaviorManager
         failed[target] = Game1.ticks + FailedCropRetryTicks;
     }
 
-    private bool PerformJobAt(Farm farm, Point tile, WorkerTaskKind task)
+    private bool PerformJobAt(string workerId, Farm farm, Point tile, WorkerTaskKind task)
     {
         if (!farm.terrainFeatures.TryGetValue(tile.ToVector2(), out TerrainFeature? feature) || feature is not HoeDirt dirt || dirt.crop is null)
         {
@@ -1809,12 +1830,16 @@ internal sealed class WorkerBehaviorManager
         if (task == WorkerTaskKind.HarvestCrops && IsHarvestable(dirt.crop))
         {
             Crop crop = dirt.crop;
+            int regrowDaysBefore = crop.dayOfCurrentPhase.Value;
             this.monitor.Log($"Worker reached crop tile {tile}; harvesting crop {crop.indexOfHarvest.Value} (regrows={crop.RegrowsAfterHarvest()}).", LogLevel.Trace);
             WorkerHarvestCollector collector = new(farm, tile, this.workerShellManager.GetHarvestDestination(), this.monitor);
             int shippingBinCountBefore = farm.getShippingBin(Game1.MasterPlayer).Count;
-            bool harvested = crop.harvest(tile.X, tile.Y, dirt, collector);
+            bool harvested = WithoutFarmerExperience(() => crop.harvest(tile.X, tile.Y, dirt, collector));
             int shippingBinCountAfter = farm.getShippingBin(Game1.MasterPlayer).Count;
             bool cropUnchanged = ReferenceEquals(dirt.crop, crop);
+            bool confirmedHarvest = WorkerExperiencePolicy.IsConfirmedCropHarvest(harvested,
+                crop.RegrowsAfterHarvest(), regrowDaysBefore, crop.dayOfCurrentPhase.Value,
+                collector.ItemsCollected);
 
             if (harvested)
             {
@@ -1835,6 +1860,7 @@ internal sealed class WorkerBehaviorManager
                 + $"items collected={collector.ItemsCollected}, chest deposits={collector.ChestDeposits}, "
                 + $"shipping bin count={shippingBinCountBefore}->{shippingBinCountAfter}.",
                 LogLevel.Trace);
+            this.workerShellManager.TryAwardFarmingHarvestExperience(workerId, confirmedHarvest, collector.ItemsCollected);
             return harvested || collector.ItemsCollected > 0;
         }
         return false;

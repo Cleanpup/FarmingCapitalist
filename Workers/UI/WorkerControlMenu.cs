@@ -18,6 +18,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     {
         Roster,
         Jobs,
+        Skills,
         Storage,
     }
 
@@ -32,6 +33,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private const int RosterTabId = 90007;
     private const int JobsTabId = 90008;
     private const int StorageTabId = 90009;
+    private const int SkillsTabId = 90024;
     private const int OrderIdBase = 90010;
     private const int DestinationDropdownId = 90020;
     private const int DestinationPreviousId = 90021;
@@ -65,6 +67,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private ClickableComponent rosterTabButton = null!;
     private ClickableComponent jobsTabButton = null!;
     private ClickableComponent storageTabButton = null!;
+    private ClickableComponent skillsTabButton = null!;
     private ClickableComponent destinationDropdownButton = null!;
     private ClickableComponent destinationPreviousButton = null!;
     private ClickableComponent destinationNextButton = null!;
@@ -248,6 +251,14 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.currentTab = WorkerMenuTab.Jobs;
             this.destinationDropdownOpen = false;
             this.RefreshClickableComponents(JobsTabId);
+            Game1.playSound("smallSelect");
+            return;
+        }
+        if (this.skillsTabButton.containsPoint(x, y))
+        {
+            this.currentTab = WorkerMenuTab.Skills;
+            this.destinationDropdownOpen = false;
+            this.RefreshClickableComponents(SkillsTabId);
             Game1.playSound("smallSelect");
             return;
         }
@@ -533,10 +544,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.ordersBounds = new Rectangle(detailLeft, this.detailsBounds.Bottom + Gap, detailWidth, Math.Max(1, bodyHeight - detailHeight - Gap));
         int hireWidth = Math.Min(240, this.headerBounds.Width / 3);
         this.hireButton = Button(HireId, new Rectangle(right - hireWidth, this.headerBounds.Y + 4, hireWidth, 56));
-        int tabWidth = Math.Min(160, Math.Max(106, (this.headerBounds.Width - hireWidth - Gap * 4 - 8) / 3));
+        int tabWidth = Math.Min(150, Math.Max(80, (this.headerBounds.Width - hireWidth - Gap * 5 - 8) / 4));
         this.rosterTabButton = Button(RosterTabId, new Rectangle(this.headerBounds.X + 4, this.headerBounds.Y + 4, tabWidth, 56));
         this.jobsTabButton = Button(JobsTabId, new Rectangle(this.rosterTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
-        this.storageTabButton = Button(StorageTabId, new Rectangle(this.jobsTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
+        this.skillsTabButton = Button(SkillsTabId, new Rectangle(this.jobsTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
+        this.storageTabButton = Button(StorageTabId, new Rectangle(this.skillsTabButton.bounds.Right + Gap, this.headerBounds.Y + 4, tabWidth, 56));
         int managementWidth = Math.Min(132, Math.Max(80, this.footerBounds.Width / 5));
         this.dismissButton = Button(DismissId, new Rectangle(right - managementWidth, this.footerBounds.Y + 4, managementWidth, 50));
         this.payButton = Button(PayId, new Rectangle(this.dismissButton.bounds.Left - managementWidth - Gap, this.footerBounds.Y + 4, managementWidth, 50));
@@ -613,6 +625,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         {
             this.allClickableComponents.Add(this.rosterTabButton);
             this.allClickableComponents.Add(this.jobsTabButton);
+            this.allClickableComponents.Add(this.skillsTabButton);
             this.allClickableComponents.Add(this.storageTabButton);
             this.allClickableComponents.AddRange(this.workerRows);
             this.allClickableComponents.Add(this.hireButton);
@@ -690,6 +703,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawPanel(b, this.headerBounds);
         this.DrawButton(b, this.rosterTabButton, "Roster", true, Color.White, WorkerMenuArt.Icon.Ledger, this.currentTab == WorkerMenuTab.Roster);
         this.DrawButton(b, this.jobsTabButton, "Jobs", true, Color.White, WorkerMenuArt.Icon.Sprout, this.currentTab == WorkerMenuTab.Jobs);
+        this.DrawButton(b, this.skillsTabButton, "Skills", true, Color.White, WorkerMenuArt.Icon.Ledger, this.currentTab == WorkerMenuTab.Skills);
         this.DrawButton(b, this.storageTabButton, "Storage", true, Color.White, WorkerMenuArt.Icon.Chest, this.currentTab == WorkerMenuTab.Storage);
         this.DrawButton(b, this.hireButton, $"Hire worker  {WorkerEmploymentTerms.HiringCost}g", Context.IsMainPlayer, Color.White, WorkerMenuArt.Icon.Coin);
         Rectangle title = new(this.storageTabButton.bounds.Right + 12, this.headerBounds.Y + 14, this.hireButton.bounds.Left - this.storageTabButton.bounds.Right - 24, 34);
@@ -742,10 +756,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
             return;
         }
         WorkerRuntimeSnapshot runtime = this.runtimeSnapshots[worker.WorkerId];
+        int farmingLevel = WorkerExperiencePolicy.GetFarmingLevel(this.workerShellManager.GetWorkerExperience(worker.WorkerId).Farming);
         string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
         if (this.detailsBounds.Height < 160)
         {
-            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)}\n{runtime.Status}\n{location} | Done: {runtime.CompletedToday}", content, Ink);
+            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)}\n{runtime.Status}\nFarming Lv. {farmingLevel} | {location} | Done: {runtime.CompletedToday}", content, Ink);
             return;
         }
         Rectangle portraitFrame = new(content.X, content.Y + 4, 74, 74);
@@ -753,12 +768,21 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawWorkerFace(b, worker.WorkerId, new Rectangle(portraitFrame.X + 11, portraitFrame.Y + 11, 52, 52));
         int infoX = portraitFrame.Right + 16;
         int infoWidth = Math.Max(1, content.Right - infoX);
-        this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}", new Rectangle(infoX, content.Y, infoWidth, 30), Ink);
-        this.DrawText(b, GetTaskLabel(runtime.AssignedTask), new Rectangle(infoX, content.Y + 34, infoWidth, 28), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
+        bool showFarmingBadge = this.currentTab == WorkerMenuTab.Roster && infoWidth >= 320;
+        int badgeWidth = showFarmingBadge ? Math.Min(270, infoWidth / 2) : 0;
+        int topLineWidth = showFarmingBadge ? infoWidth - badgeWidth - 16 : infoWidth;
+        this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}", new Rectangle(infoX, content.Y, topLineWidth, 30), Ink);
+        this.DrawText(b, GetTaskLabel(runtime.AssignedTask), new Rectangle(infoX, content.Y + 34, topLineWidth, 28), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
         string status = worker.Profession == WorkerProfession.Forager
             ? $"{runtime.Status} • {WorkerForageAreaCatalog.GetDisplayName(worker.ForageLocationName)}"
             : runtime.Status;
         this.DrawText(b, status, new Rectangle(infoX, content.Y + 56, infoWidth, 24), MutedInk);
+        if (showFarmingBadge)
+        {
+            Rectangle badge = new(content.Right - badgeWidth, content.Y + 4, badgeWidth, 42);
+            this.DrawCard(b, badge, Paper, false);
+            this.DrawText(b, $"Farming Lv. {farmingLevel}", new Rectangle(badge.X + 12, badge.Y + 6, badge.Width - 24, badge.Height - 12), Leaf, centered: true);
+        }
         int metricsY = this.detailsBounds.Bottom - 44;
         DrawRect(b, new Rectangle(this.detailsBounds.X + 20, metricsY - 8, this.detailsBounds.Width - 40, 2), PaperShade);
         this.DrawText(b, location, new Rectangle(this.detailsBounds.X + 22, metricsY, Math.Max(1, this.detailsBounds.Width - 215), 30), MutedInk);
@@ -771,6 +795,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
         if (this.currentTab == WorkerMenuTab.Storage)
         {
             this.DrawStoragePanel(b);
+            return;
+        }
+        if (this.currentTab == WorkerMenuTab.Skills)
+        {
+            this.DrawSkillsPanel(b);
             return;
         }
         if (this.currentTab != WorkerMenuTab.Jobs)
@@ -825,6 +854,57 @@ internal sealed class WorkerControlMenu : IClickableMenu
             bool selected = assigned == tasks[i];
             this.DrawOrderCard(b, button, tasks[i], enabled, selected);
         }
+    }
+
+    private void DrawSkillsPanel(SpriteBatch b)
+    {
+        this.DrawSectionHeading(b, this.ordersBounds, "WORKER SKILLS", string.Empty);
+        WorkerSummarySnapshot? selected = this.GetSelectedWorker();
+        if (selected is null)
+        {
+            this.DrawText(b, "Select a worker to view their skills.",
+                new Rectangle(this.ordersBounds.X + Padding, this.ordersBounds.Y + 75, this.ordersBounds.Width - Padding * 2, 35), MutedInk);
+            return;
+        }
+
+        WorkerSkillExperience experience = this.workerShellManager.GetWorkerExperience(selected.Value.WorkerId);
+        (string Name, int Experience)[] skills =
+        {
+            ("Farming", experience.Farming),
+            ("Mining", experience.Mining),
+            ("Fishing", experience.Fishing),
+            ("Foraging", experience.Foraging),
+            ("Combat", experience.Combat),
+        };
+        int top = this.ordersBounds.Y + (this.ordersBounds.Height < 220 ? 58 : 64);
+        int gap = this.ordersBounds.Height < 220 ? 4 : 8;
+        int available = Math.Max(1, this.ordersBounds.Bottom - top - 12);
+        int rowHeight = Math.Max(1, Math.Min(58, (available - gap * (skills.Length - 1)) / skills.Length));
+        for (int index = 0; index < skills.Length; index++)
+        {
+            Rectangle row = new(this.ordersBounds.X + 20, top + index * (rowHeight + gap),
+                this.ordersBounds.Width - 40, rowHeight);
+            this.DrawSkillRow(b, row, skills[index].Name, skills[index].Experience);
+        }
+    }
+
+    private void DrawSkillRow(SpriteBatch b, Rectangle row, string name, int experience)
+    {
+        this.DrawCard(b, row, Paper, false);
+        int level = WorkerExperiencePolicy.GetLevel(experience);
+        bool stacked = row.Height >= 42;
+        int labelWidth = stacked ? row.Width - 36 : Math.Min(180, row.Width / 2);
+        this.DrawText(b, $"{name}  Lv. {level}",
+            new Rectangle(row.X + 18, row.Y + (stacked ? 4 : 2), labelWidth, Math.Min(28, row.Height - 4)), Ink);
+        int low = WorkerExperiencePolicy.GetThreshold(level);
+        int high = level == WorkerExperiencePolicy.MaximumLevel ? low : WorkerExperiencePolicy.GetThreshold(level + 1);
+        float fraction = high == low ? 1f : Math.Clamp((float)(experience - low) / (high - low), 0f, 1f);
+        Rectangle bar = stacked
+            ? new Rectangle(row.X + 18, row.Bottom - 15, Math.Max(1, row.Width - 36), 8)
+            : new Rectangle(row.X + labelWidth + 30, row.Y + (row.Height - 8) / 2,
+                Math.Max(1, row.Width - labelWidth - 48), 8);
+        DrawRect(b, bar, PaperShade);
+        DrawRect(b, new Rectangle(bar.X, bar.Y, (int)(bar.Width * fraction), bar.Height), Leaf);
     }
 
     private void DrawStoragePanel(SpriteBatch b)

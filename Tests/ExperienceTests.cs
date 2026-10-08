@@ -120,6 +120,16 @@ Check(!WorkerCombatTargetPolicy.IsExposedDuggy(false, 4),
     "emerging Duggy cannot be targeted before its damaging frames");
 Check(WorkerCombatTargetPolicy.IsExposedDuggy(false, 8),
     "exposed Duggy can be targeted");
+Check(!WorkerCombatTargetPolicy.ShouldTriggerDuggy(false, 0, true, true),
+    "visible Duggy is not retriggered");
+Check(!WorkerCombatTargetPolicy.ShouldTriggerDuggy(true, 4, true, true),
+    "emerging Duggy is not reset to its first frame");
+Check(!WorkerCombatTargetPolicy.ShouldTriggerDuggy(true, 0, false, true),
+    "distant worker does not trigger Duggy");
+Check(!WorkerCombatTargetPolicy.ShouldTriggerDuggy(true, 0, true, false),
+    "Duggy does not emerge on an invalid tile");
+Check(WorkerCombatTargetPolicy.ShouldTriggerDuggy(true, 0, true, true),
+    "nearby worker triggers an underground Duggy on valid ground");
 object currentMonster = new();
 object attackingMonster = new();
 Check(ReferenceEquals(attackingMonster, WorkerCombatTargetPolicy.TargetAfterContact(

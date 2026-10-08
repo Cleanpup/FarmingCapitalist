@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Extensions;
 using StardewValley.Locations;
 using StardewValley.Monsters;
 
@@ -644,8 +645,24 @@ internal sealed class WorkerCombatManager
         Point workerTile = worker.TilePoint;
         foreach (Monster monster in location.characters.OfType<Monster>())
         {
-            if (monster.Health <= 0 || !this.CanDealContactDamage(monster)
+            if (monster.Health <= 0
                 || this.lastAggroTick.GetValueOrDefault(monster) == Game1.ticks)
+                continue;
+
+            // Vanilla Duggies only watch the nearest Farmer. Give an on-duty
+            // worker the same proximity trigger, then let the vanilla animation
+            // and damage frames run normally. Emerging Duggies are not moved or
+            // targeted until their exposed frames.
+            if (monster is Duggy duggy && this.TryTriggerDuggyForWorker(duggy, worker, location))
+            {
+                this.lastAggroTick[monster] = Game1.ticks;
+                continue;
+            }
+
+            // Don't pull a monster which the worker cannot actually fight.
+            // In particular, armored bugs require a player's Bug Killer
+            // enchantment and reject this worker's farmer-free damage call.
+            if (!this.IsRevealedTarget(monster))
                 continue;
 
             Point monsterTile = monster.TilePoint;
@@ -687,6 +704,37 @@ internal sealed class WorkerCombatManager
                     this.MoveMonsterToward(monster, location, dx, horizontal: true);
             }
         }
+    }
+
+    private bool TryTriggerDuggyForWorker(Duggy duggy, NPC worker, GameLocation location)
+    {
+        if (duggy.Sprite is null)
+            return false;
+
+        int frame = duggy.Sprite.CurrentFrame;
+        Rectangle triggerArea = duggy.GetBoundingBox();
+        triggerArea.Inflate(128, 128);
+        bool workerInRange = triggerArea.Contains(worker.StandingPixel);
+
+        Point workerTile = worker.TilePoint;
+        bool validTile = false;
+        if (location.isTileOnMap(workerTile.ToVector2()))
+        {
+            xTile.Tiles.Tile? tile = location.map.RequireLayer("Back").Tiles[workerTile.X, workerTile.Y];
+            validTile = tile is not null
+                && !tile.Properties.ContainsKey("NPCBarrier")
+                && (tile.TileIndex == 0 || tile.TileIndexProperties.ContainsKey("Diggable"));
+        }
+
+        if (!WorkerCombatTargetPolicy.ShouldTriggerDuggy(
+                duggy.IsInvisible, frame, workerInRange, validTile))
+            return false;
+
+        duggy.Position = worker.Tile * 64f;
+        duggy.IsInvisible = false;
+        duggy.Sprite.interval = 100f;
+        location.localSound("Duggy");
+        return true;
     }
 
     private static int DistanceSquared(Point a, Point b)
@@ -799,7 +847,8 @@ internal sealed class WorkerCombatManager
 
     private void Strike(NPC worker, string workerId, CombatState state, GameLocation location, Monster target)
     {
-        if (target.Health <= 0 || !location.characters.Contains(target) || target.isInvincible())
+        if (target.Health <= 0 || !location.characters.Contains(target) || target.isInvincible()
+            || !this.IsRevealedTarget(target))
             return;
         // The farmer-free Monster overload bypasses RockCrab.takeDamage's
         // shell immunity. Match its visible vulnerable state before striking.

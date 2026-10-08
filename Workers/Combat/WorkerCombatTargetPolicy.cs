@@ -11,6 +11,9 @@ internal static class WorkerCombatTargetPolicy
     public static bool IsExposedDuggy(bool invisible, int frame)
         => !invisible && frame is 8 or 9;
 
+    public static bool ShouldTriggerDuggy(bool invisible, int frame, bool workerInRange, bool validEmergenceTile)
+        => invisible && frame < 4 && workerInRange && validEmergenceTile;
+
     public static T? TargetAfterContact<T>(T? current, T attacker, bool attackerEligible)
         where T : class
         => attackerEligible ? attacker : current;

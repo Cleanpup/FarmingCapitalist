@@ -129,6 +129,7 @@ internal sealed class WorkerBehaviorManager
     private readonly IMonitor monitor;
     private readonly WorkerNavigationManager navigationManager;
     private readonly WorkerShellManager workerShellManager;
+    private readonly WorkerCombatManager combatManager;
     private readonly Dictionary<string, WorkerRuntimeSnapshot> snapshots = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> completedToday = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Point> activeTargets = new(System.StringComparer.OrdinalIgnoreCase);
@@ -153,6 +154,8 @@ internal sealed class WorkerBehaviorManager
     {
         this.navigationManager = navigationManager;
         this.workerShellManager = workerShellManager;
+        this.combatManager = new WorkerCombatManager(workerShellManager, navigationManager, monitor,
+            this.RecordCompletedWork);
         this.monitor = monitor;
     }
 
@@ -181,6 +184,11 @@ internal sealed class WorkerBehaviorManager
             this.HandleWorkerInitialized(worker, triggerReason);
     }
 
+    public void HandleHostWarp() => this.combatManager.HandleHostWarp(workerId =>
+        this.activePhases.GetValueOrDefault(workerId, WorkerTravelPhase.None)
+            is not (WorkerTravelPhase.ReturningToFarmhouse or WorkerTravelPhase.RestingAtFarmhouse
+                or WorkerTravelPhase.CheckingHomeRoute or WorkerTravelPhase.BlockedAtLocation));
+
     public void Update()
     {
         this.navigationManager.Update();
@@ -204,6 +212,19 @@ internal sealed class WorkerBehaviorManager
         {
             if (!this.workerShellManager.TryGetWorkerId(worker, out string workerId))
             {
+                continue;
+            }
+
+            if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.CombatWorker)
+                this.combatManager.EnsureHealth(worker, workerId);
+
+            if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.CombatWorker
+                && WorkerCombatPolicy.MustBeHomeNow(Game1.timeOfDay) && this.combatManager.EnsureHomeByMidnight(worker))
+            {
+                this.activePhases[workerId] = WorkerTravelPhase.RestingAtFarmhouse;
+                this.ClearActiveJobState(workerId);
+                this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
+                    "Idle", "Home for the night", 0, null);
                 continue;
             }
 
@@ -262,6 +283,7 @@ internal sealed class WorkerBehaviorManager
         this.lastHarvestReadinessStates.Clear();
         this.blockedHarvestTiles.Clear();
         this.navigationManager.Reset();
+        this.combatManager.Reset();
     }
 
     public bool TryAssignTask(string workerId, WorkerTaskKind task, out string message)
@@ -284,6 +306,9 @@ internal sealed class WorkerBehaviorManager
             return false;
         }
         this.navigationManager.StopTravel(worker);
+        this.combatManager.Stop(workerId);
+        if (task == WorkerTaskKind.Idle)
+            this.combatManager.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetCombatArea(workerId));
         if (!this.navigationManager.HasForeignController(worker))
         {
             this.navigationManager.StopWorker(worker);
@@ -326,6 +351,7 @@ internal sealed class WorkerBehaviorManager
         this.lastCropFallbackTargets.Remove(workerId);
         this.activePhases.Remove(workerId);
         this.completedToday.Remove(workerId);
+        this.combatManager.Stop(workerId);
     }
 
     private void ClearActiveJobState(string workerId)
@@ -356,6 +382,25 @@ internal sealed class WorkerBehaviorManager
         return true;
     }
 
+    public bool TrySetCombatArea(string workerId, string area, out string message)
+    {
+        if (!this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
+        {
+            message = $"Worker '{workerId}' was not found.";
+            return false;
+        }
+        string previousArea = this.workerShellManager.GetCombatArea(workerId);
+        if (!this.workerShellManager.TrySetCombatArea(workerId, area, out message))
+            return false;
+        this.navigationManager.StopWorker(worker);
+        this.combatManager.ExitGeneratedFloorForReturn(worker, previousArea);
+        this.combatManager.Stop(workerId);
+        this.ClearActiveJobState(workerId);
+        this.activePhases[workerId] = WorkerTravelPhase.None;
+        this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
+        return true;
+    }
+
     public WorkerRuntimeSnapshot GetRuntimeSnapshot(string workerId)
     {
         WorkerRuntimeSnapshot current = this.snapshots.TryGetValue(workerId, out WorkerRuntimeSnapshot snapshot)
@@ -363,6 +408,12 @@ internal sealed class WorkerBehaviorManager
             : new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId), "Idle", "Waiting for an assignment", 0, null);
         return current with { CompletedToday = this.completedToday.GetValueOrDefault(workerId) };
     }
+
+    public bool TryGetCombatHealth(string workerId, out int health, out int maxHealth)
+        => this.combatManager.TryGetHealth(workerId, out health, out maxHealth);
+
+    public void DrawCombatHealthBars(Microsoft.Xna.Framework.Graphics.SpriteBatch batch)
+        => this.combatManager.DrawHealthBars(batch);
 
     private void RecordCompletedWork(string workerId)
     {
@@ -647,6 +698,17 @@ internal sealed class WorkerBehaviorManager
 
     private void UpdateAssignedWork(NPC worker, string workerId, WorkerTaskKind assignment)
     {
+        if (assignment == WorkerTaskKind.SlayMonsters)
+        {
+            if (this.combatManager.Update(worker, workerId, out WorkerRuntimeSnapshot combatSnapshot))
+            {
+                this.combatManager.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetCombatArea(workerId));
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            }
+            else
+                this.snapshots[workerId] = combatSnapshot;
+            return;
+        }
         if (assignment == WorkerTaskKind.ClearDebris
             || this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Forager)
         {

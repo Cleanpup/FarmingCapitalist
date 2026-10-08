@@ -357,6 +357,23 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 }
                 return;
             }
+            if (selectedWorker is { Profession: WorkerProfession.CombatWorker } combat && this.forageAreaButton.containsPoint(x, y))
+            {
+                if (this.EnsureSelectedHostWorker())
+                {
+                    IReadOnlyList<string> areas = WorkerCombatAreaCatalog.GetAreas();
+                    int current = -1;
+                    for (int i = 0; i < areas.Count; i++)
+                        if (areas[i] == combat.CombatArea)
+                            current = i;
+                    string next = areas[(current + 1 + areas.Count) % areas.Count];
+                    bool success = this.workerBehaviorManager.TrySetCombatArea(combat.WorkerId, next, out string message);
+                    this.SetFeedback(message, !success);
+                    this.RefreshSnapshots();
+                    this.RebuildLayout(ForageAreaId);
+                }
+                return;
+            }
 
             IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
             for (int index = 0; index < this.orderButtons.Count; index++)
@@ -567,7 +584,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.workerRows.Add(Button(WorkerRowIdBase + i, new Rectangle(this.rosterBounds.X + 14, rowsTop + (i - this.firstVisibleWorker) * (rowHeight + 6), this.rosterBounds.Width - 28, rowHeight)));
         }
         this.orderButtons.Clear();
-        bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager };
+        bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker };
         int ordersTop = this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 56 : 12) + (showForageArea ? 58 : 0);
         int cardGap = 8;
         int cardColumns = this.ordersBounds.Height < 220 ? 3 : 2;
@@ -632,7 +649,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             if (this.currentTab == WorkerMenuTab.Jobs)
             {
                 this.allClickableComponents.AddRange(this.orderButtons);
-                if (this.GetSelectedWorker() is { Profession: WorkerProfession.Forager })
+                if (this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker })
                     this.allClickableComponents.Add(this.forageAreaButton);
             }
             if (this.currentTab == WorkerMenuTab.Storage)
@@ -756,11 +773,24 @@ internal sealed class WorkerControlMenu : IClickableMenu
             return;
         }
         WorkerRuntimeSnapshot runtime = this.runtimeSnapshots[worker.WorkerId];
-        int farmingLevel = WorkerExperiencePolicy.GetFarmingLevel(this.workerShellManager.GetWorkerExperience(worker.WorkerId).Farming);
+        WorkerSkillExperience experience = this.workerShellManager.GetWorkerExperience(worker.WorkerId);
+        string skillName = worker.Profession switch
+        {
+            WorkerProfession.Forager => "Foraging",
+            WorkerProfession.CombatWorker => "Combat",
+            _ => "Farming",
+        };
+        int skillExperience = worker.Profession switch
+        {
+            WorkerProfession.Forager => experience.Foraging,
+            WorkerProfession.CombatWorker => experience.Combat,
+            _ => experience.Farming,
+        };
+        int skillLevel = WorkerExperiencePolicy.GetLevel(skillExperience);
         string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
         if (this.detailsBounds.Height < 160)
         {
-            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)}\n{runtime.Status}\nFarming Lv. {farmingLevel} | {location} | Done: {runtime.CompletedToday}", content, Ink);
+            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)}\n{runtime.Status}\n{skillName} Lv. {skillLevel} | {location} | Done: {runtime.CompletedToday}", content, Ink);
             return;
         }
         Rectangle portraitFrame = new(content.X, content.Y + 4, 74, 74);
@@ -768,20 +798,34 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawWorkerFace(b, worker.WorkerId, new Rectangle(portraitFrame.X + 11, portraitFrame.Y + 11, 52, 52));
         int infoX = portraitFrame.Right + 16;
         int infoWidth = Math.Max(1, content.Right - infoX);
-        bool showFarmingBadge = this.currentTab == WorkerMenuTab.Roster && infoWidth >= 320;
+        bool showFarmingBadge = (this.currentTab == WorkerMenuTab.Roster || worker.Profession == WorkerProfession.CombatWorker)
+            && infoWidth >= 320;
         int badgeWidth = showFarmingBadge ? Math.Min(270, infoWidth / 2) : 0;
         int topLineWidth = showFarmingBadge ? infoWidth - badgeWidth - 16 : infoWidth;
         this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}", new Rectangle(infoX, content.Y, topLineWidth, 30), Ink);
         this.DrawText(b, GetTaskLabel(runtime.AssignedTask), new Rectangle(infoX, content.Y + 34, topLineWidth, 28), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
         string status = worker.Profession == WorkerProfession.Forager
             ? $"{runtime.Status} • {WorkerForageAreaCatalog.GetDisplayName(worker.ForageLocationName)}"
+            : worker.Profession == WorkerProfession.CombatWorker
+                ? $"{runtime.Status} • {WorkerCombatAreaCatalog.GetLabel(worker.CombatArea)}"
             : runtime.Status;
         this.DrawText(b, status, new Rectangle(infoX, content.Y + 56, infoWidth, 24), MutedInk);
         if (showFarmingBadge)
         {
             Rectangle badge = new(content.Right - badgeWidth, content.Y + 4, badgeWidth, 42);
             this.DrawCard(b, badge, Paper, false);
-            this.DrawText(b, $"Farming Lv. {farmingLevel}", new Rectangle(badge.X + 12, badge.Y + 6, badge.Width - 24, badge.Height - 12), Leaf, centered: true);
+            if (worker.Profession == WorkerProfession.CombatWorker
+                && this.workerBehaviorManager.TryGetCombatHealth(worker.WorkerId, out int health, out int maxHealth))
+            {
+                this.DrawText(b, $"Combat Lv. {skillLevel}   HP {health}/{maxHealth}",
+                    new Rectangle(badge.X + 8, badge.Y + 3, badge.Width - 16, 25), Leaf, centered: true);
+                Rectangle hpBar = new(badge.X + 12, badge.Bottom - 11, badge.Width - 24, 5);
+                DrawRect(b, hpBar, Color.DarkRed);
+                DrawRect(b, new Rectangle(hpBar.X, hpBar.Y,
+                    (int)(hpBar.Width * (long)Math.Clamp(health, 0, maxHealth) / maxHealth), hpBar.Height), Leaf);
+            }
+            else
+                this.DrawText(b, $"{skillName} Lv. {skillLevel}", new Rectangle(badge.X + 12, badge.Y + 6, badge.Width - 24, badge.Height - 12), Leaf, centered: true);
         }
         int metricsY = this.detailsBounds.Bottom - 44;
         DrawRect(b, new Rectangle(this.detailsBounds.X + 20, metricsY - 8, this.detailsBounds.Width - 40, 2), PaperShade);
@@ -846,6 +890,12 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.DrawButton(b, this.forageAreaButton,
                 $"Forage area: {WorkerForageAreaCatalog.GetDisplayName(forager.ForageLocationName)}  >",
                 enabled, Color.White, WorkerMenuArt.Icon.Sprout);
+        }
+        if (selectedWorker is { Profession: WorkerProfession.CombatWorker } combat)
+        {
+            this.DrawButton(b, this.forageAreaButton,
+                $"Combat area: {WorkerCombatAreaCatalog.GetLabel(combat.CombatArea)}  >",
+                enabled, Color.White, WorkerMenuArt.Icon.Ledger);
         }
         IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
         for (int i = 0; i < this.orderButtons.Count; i++)
@@ -1026,6 +1076,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerTaskKind.ChopTrees => WorkerMenuArt.Icon.Tend,
             WorkerTaskKind.ChopHardwood => WorkerMenuArt.Icon.Ledger,
             WorkerTaskKind.ClearDebris => WorkerMenuArt.Icon.Tend,
+            WorkerTaskKind.SlayMonsters => WorkerMenuArt.Icon.Ledger,
             _ => WorkerMenuArt.Icon.Home,
         };
         if (button.bounds.Height < 90)
@@ -1056,6 +1107,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 WorkerTaskKind.ChopTrees => "Fell ordinary trees",
                 WorkerTaskKind.ChopHardwood => "Clear hardwood sources",
                 WorkerTaskKind.ClearDebris => "Remove small litter",
+                WorkerTaskKind.SlayMonsters => "Fight monsters in selected area",
                 _ => "Return to the house",
             };
             this.DrawText(b, description, new Rectangle(button.bounds.X + 18, button.bounds.Y + 75, button.bounds.Width - 36, Math.Max(1, button.bounds.Height - 88)), enabled ? MutedInk : MutedInk * 0.7f);
@@ -1258,6 +1310,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.ChopTrees => "Walk to the nearest reachable ordinary tree in the selected area, cut it down, and store its drops.",
         WorkerTaskKind.ChopHardwood => "Walk to the nearest reachable hardwood source, including mahogany trees and large stumps or logs.",
         WorkerTaskKind.ClearDebris => "Clear loose stones, weeds, and small fallen wood. Foragers work in their selected outdoor area; Farmers work on the farm.",
+        WorkerTaskKind.SlayMonsters => "Fight monsters in the selected area. Mines and Skull Cavern follow the host farmer; independent exploration is planned for later.",
         _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",
     };
 }

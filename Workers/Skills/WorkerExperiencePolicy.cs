@@ -44,6 +44,16 @@ internal static class WorkerExperiencePolicy
         return true;
     }
 
+    public static bool TryAwardCombatKill(WorkerRosterEntry worker, bool isHost, bool isWorldReady,
+        bool confirmedWorkerKill, int monsterExperience)
+    {
+        if (!isHost || !isWorldReady || !confirmedWorkerKill || monsterExperience <= 0)
+            return false;
+        worker.Experience ??= new WorkerSkillExperience();
+        worker.Experience.Combat = AddExperience(worker.Experience.Combat, monsterExperience);
+        return true;
+    }
+
     public static bool TryAwardCompletedAction(WorkerRosterEntry worker, bool isHost, bool isWorldReady,
         WorkerExperienceAction action)
     {

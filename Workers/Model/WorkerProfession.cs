@@ -5,4 +5,5 @@ internal enum WorkerProfession
 {
     Farmer = 0,
     Forager = 1,
+    CombatWorker = 2,
 }

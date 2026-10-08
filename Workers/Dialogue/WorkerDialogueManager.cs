@@ -101,12 +101,17 @@ internal sealed class WorkerDialogueManager
         }
 
         WorkerTaskKind task = this.workerShellManager.GetAssignedTask(workerId);
+        bool blockedMonster = task == WorkerTaskKind.SlayMonsters
+            && worker.modData.TryGetValue(WorkerCombatManager.BlockedMonsterDataKey, out string? blockedLocation)
+            && string.Equals(blockedLocation, location.NameOrUniqueName, StringComparison.Ordinal);
         WorkerObstacleReport? report = this.workerShellManager.GetPendingObstacleReport(workerId);
         if (report is not null && this.locallyAcknowledgedReports.Contains(report.Id))
             report = null;
-        (string key, string text) = report is not null
-            ? ($"ObstacleReport:{report.Id}", report.Message)
-            : this.GetDialogueLine(workerId, task);
+        (string key, string text) = blockedMonster
+            ? ("BlockedMonster", "I see a monster but I can't get to it!")
+            : report is not null
+                ? ($"ObstacleReport:{report.Id}", report.Message)
+                : this.GetDialogueLine(workerId, task);
         string resolvedText = text
             .Replace("{{workerName}}", worker.displayName, StringComparison.Ordinal)
             .Replace("{{task}}", WorkerTaskPolicy.GetTaskLabel(task), StringComparison.Ordinal);
@@ -115,7 +120,7 @@ internal sealed class WorkerDialogueManager
         worker.CurrentDialogue.Clear();
         worker.CurrentDialogue.Push(dialogue);
         Game1.drawDialogue(worker);
-        if (report is not null)
+        if (report is not null && !blockedMonster)
         {
             this.locallyAcknowledgedReports.Add(report.Id);
             if (Context.IsMainPlayer)

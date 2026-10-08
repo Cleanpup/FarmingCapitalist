@@ -39,6 +39,117 @@ Equal(0, first.Experience.Fishing, "no fishing task XP");
 Equal(0, first.Experience.Combat, "no combat task XP");
 Equal(0, second.Experience.Foraging, "other worker foraging independent");
 Equal(0, second.Experience.Mining, "other worker mining independent");
+Check(WorkerExperiencePolicy.TryAwardCombatKill(first, true, true, true, 17), "confirmed worker kill awards vanilla combat XP");
+Equal(17, first.Experience.Combat, "combat XP only to killer");
+Equal(0, second.Experience.Combat, "other worker combat XP independent");
+Check(!WorkerExperiencePolicy.TryAwardCombatKill(first, false, true, true, 17), "client kill cannot award XP");
+Check(!WorkerExperiencePolicy.TryAwardCombatKill(first, true, true, false, 17), "unconfirmed kill cannot award XP");
+Check(!WorkerExperiencePolicy.TryAwardCombatKill(first, true, true, true, 0), "zero XP kill cannot award XP");
+Equal(17, first.Experience.Combat, "rejected combat awards leave XP unchanged");
+Equal(2, (int)WorkerProfession.CombatWorker, "profession save enum stable");
+Equal(8, (int)WorkerTaskKind.SlayMonsters, "combat task save enum stable");
+Check(WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.CombatWorker, WorkerTaskKind.SlayMonsters), "combat job allowed");
+Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Farmer, WorkerTaskKind.SlayMonsters), "farmer cannot slay");
+Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.CombatWorker, WorkerTaskKind.ClearDebris), "combat worker only slays");
+Check(WorkerCombatAreaCatalog.IsValid(WorkerCombatAreaCatalog.IslandFarm), "island farm allowed");
+Check(WorkerCombatAreaCatalog.IsValid(WorkerCombatAreaCatalog.VolcanoEntrance), "volcano entrance area allowed");
+Check(!WorkerCombatAreaCatalog.IsValid("VolcanoDungeon"), "volcano dungeon not offered");
+Check(!WorkerCombatPolicy.ShouldBeginReturn(2150), "combat can work before return buffer");
+Check(WorkerCombatPolicy.ShouldBeginReturn(2200), "return starts before midnight");
+Check(!WorkerCombatPolicy.MustBeHomeNow(2350), "deadline is not 11:50 PM");
+Check(WorkerCombatPolicy.MustBeHomeNow(2400), "midnight is home deadline");
+Check(WorkerCombatPolicy.IsMatchingMineFloor(WorkerCombatAreaCatalog.Mines, 1), "regular mine floor follows");
+Check(!WorkerCombatPolicy.IsMatchingMineFloor(WorkerCombatAreaCatalog.Mines, 121), "Skull Cavern not regular mine");
+Check(WorkerCombatPolicy.IsMatchingMineFloor(WorkerCombatAreaCatalog.SkullCavern, 121), "Skull Cavern floor follows");
+Check(!WorkerCombatPolicy.IsMatchingMineFloor(WorkerCombatAreaCatalog.SkullCavern, 77377), "quarry side branch excluded");
+Check(!WorkerCombatPolicy.ShouldFollowOnHostWarp(false, false, true), "worker first stages in entrance cave");
+Check(WorkerCombatPolicy.ShouldFollowOnHostWarp(true, false, true), "staged worker follows later host floor warp");
+Check(WorkerCombatPolicy.ShouldFollowOnHostWarp(false, true, true), "worker follows host floor transition");
+Check(!WorkerCombatPolicy.ShouldFollowOnHostWarp(true, false, false), "unmatched floor does not pull worker in");
+Check(!WorkerShellLifecyclePolicy.ShouldRecoverCachedWorker(true, true, true), "worker attached to active generated floor remains available for floor transition");
+Check(WorkerShellLifecyclePolicy.ShouldRecoverCachedWorker(true, false, true), "worker on unloaded generated floor must be recovered");
+Check(WorkerShellLifecyclePolicy.ShouldRecoverCachedWorker(true, true, false), "worker removed from an active floor must be recovered");
+Check(!WorkerShellLifecyclePolicy.ShouldRecoverCachedWorker(false, false, true), "ordinary attached worker is retained");
+Equal(0, WorkerCombatPolicy.HealthAfterContact(3, 4), "contact damage depletes HP");
+Equal(9, WorkerCombatPolicy.HealthAfterContact(10, 0), "contact damage has minimum one");
+Equal(100, WorkerCombatPolicy.MaxHealth, "combat worker maximum is fixed at 100 HP");
+Equal(100, WorkerCombatPolicy.ClampHealth(200), "combat health cannot exceed 100");
+Equal(0, WorkerCombatPolicy.ClampHealth(-2), "negative combat health clamps to zero");
+Equal(99, WorkerCombatPolicy.HealthAfterContact(200, 1), "contact clamps legacy overfull HP before damage");
+Equal(100, WorkerCombatPolicy.NormalizeHealth(200, 200), "legacy full health becomes 100");
+Equal(75, WorkerCombatPolicy.NormalizeHealth(150, 200), "legacy missing health retains its fraction");
+Equal(37, WorkerCombatPolicy.NormalizeHealth(73, 200), "legacy partial health rounds up safely");
+Equal(1, WorkerCombatPolicy.NormalizeHealth(1, 200), "living worker is not killed by migration rounding");
+Equal(0, WorkerCombatPolicy.NormalizeHealth(0, 200), "defeated worker remains at zero");
+Equal(100, WorkerCombatPolicy.NormalizeHealth(300, 200), "legacy overfull save clamps to 100");
+Equal(100, WorkerCombatPolicy.NormalizeHealth(200, 0), "invalid legacy maximum cannot exceed 100");
+first.CombatHealth = 73;
+first.CombatMaxHealth = 200;
+first.LastCombatHealthDay = 4;
+WorkerRosterEntry persistedCombatHealth = first.Clone();
+Equal(73, persistedCombatHealth.CombatHealth, "worker current HP survives roster cloning");
+Equal(200, persistedCombatHealth.CombatMaxHealth, "worker maximum HP survives roster cloning");
+Equal(4, persistedCombatHealth.LastCombatHealthDay, "worker HP day survives roster cloning");
+Check(WorkerCombatPolicy.ShouldAggroWorker(16, 25), "nearer worker attracts monster");
+Check(!WorkerCombatPolicy.ShouldAggroWorker(25, 16), "closer farmer keeps monster attention");
+Check(!WorkerCombatPolicy.ShouldAggroWorker(81, int.MaxValue), "distant worker does not attract monster");
+Check(!WorkerCombatPolicy.IsUsefulPatrolOffset(0, 0), "patrol does not choose current tile");
+Check(!WorkerCombatPolicy.IsUsefulPatrolOffset(1, 1), "patrol step is visibly longer than one tile");
+Check(WorkerCombatPolicy.IsUsefulPatrolOffset(4, -2), "nearby bounded patrol offset allowed");
+Check(!WorkerCombatPolicy.IsUsefulPatrolOffset(9, 0), "patrol does not range too far");
+Check(WorkerCombatTilePolicy.IsSafeTile(true, true, true, true), "mapped passable cave floor may be used");
+Check(!WorkerCombatTilePolicy.IsSafeTile(true, false, true, true), "blank map border is not a combat route tile");
+Check(!WorkerCombatTilePolicy.IsSafeTile(true, true, false, true), "building wall is not a combat route tile");
+Check(!WorkerCombatTilePolicy.IsSafeTile(true, true, true, false), "occupied or collision-blocked tile is rejected");
+Check(WorkerCombatTilePolicy.IsSafeRouteStep(true, true, true, false, false),
+    "a map-passable grounded mine step stays valid even if a moving actor occupies it");
+Check(!WorkerCombatTilePolicy.IsSafeRouteStep(false, true, true, false, false), "route cannot leave the map");
+Check(!WorkerCombatTilePolicy.IsSafeRouteStep(true, false, true, false, false), "route cannot cross blank ground");
+Check(!WorkerCombatTilePolicy.IsSafeRouteStep(true, true, false, false, false), "route cannot cross a solid wall");
+Check(!WorkerCombatTilePolicy.IsSafeRouteStep(true, true, true, true, false), "route respects NPC barriers");
+Check(!WorkerCombatTilePolicy.IsSafeRouteStep(true, true, true, false, true), "route cannot activate a warp");
+Check(!WorkerCombatTargetPolicy.IsRevealedCrab(false),
+    "stationary stone crab is ignored");
+Check(WorkerCombatTargetPolicy.IsRevealedCrab(true),
+    "moving stone crab can be targeted");
+Check(!WorkerCombatTargetPolicy.CanTargetBug(true), "armored bug is not a worker target");
+Check(WorkerCombatTargetPolicy.CanTargetBug(false), "unarmored bug can be a worker target");
+Check(!WorkerCombatTargetPolicy.IsExposedDuggy(true, 8),
+    "invisible Duggy cannot be targeted during retaliation");
+Check(!WorkerCombatTargetPolicy.IsExposedDuggy(false, 4),
+    "emerging Duggy cannot be targeted before its damaging frames");
+Check(WorkerCombatTargetPolicy.IsExposedDuggy(false, 8),
+    "exposed Duggy can be targeted");
+object currentMonster = new();
+object attackingMonster = new();
+Check(ReferenceEquals(attackingMonster, WorkerCombatTargetPolicy.TargetAfterContact(
+    currentMonster, attackingMonster, true)), "damage source takes priority over current target");
+Check(ReferenceEquals(currentMonster, WorkerCombatTargetPolicy.TargetAfterContact(
+    currentMonster, attackingMonster, false)), "hidden or untargetable attacker keeps current target");
+Check(ReferenceEquals(currentMonster, WorkerCombatTargetPolicy.TargetAfterContact(
+    currentMonster, currentMonster, true)), "current attacker remains the target");
+Check(WorkerCombatTargetPolicy.ShouldOfferBlockedMonsterDialogue(true, true, true, true, true),
+    "live unreachable monster can prompt dialogue");
+Check(!WorkerCombatTargetPolicy.ShouldOfferBlockedMonsterDialogue(true, true, false, true, true),
+    "dead monster cannot leave stale blocked dialogue");
+Check(!WorkerCombatTargetPolicy.ShouldOfferBlockedMonsterDialogue(true, true, true, false, true),
+    "unloaded monster cannot leave stale blocked dialogue");
+Check(!WorkerCombatTargetPolicy.ShouldOfferBlockedMonsterDialogue(true, false, true, true, true),
+    "restored route clears blocked dialogue");
+Check(!WorkerCombatTargetPolicy.ShouldOfferBlockedMonsterDialogue(false, true, true, true, true),
+    "idle order clears blocked dialogue");
+Check(!WorkerCombatTargetPolicy.CanDamageCrabNow(false, false, false),
+    "worker cannot bypass a disguised stone crab's shell immunity");
+HashSet<(int, int)> isolatedLadderPockets = new() { (3, 2), (5, 2), (5, 3) };
+Check(!WorkerCombatTilePolicy.TryChooseConnectedLanding(2, 2, 8,
+    (x, y) => isolatedLadderPockets.Contains((x, y)), out _), "isolated ladder pocket with no escape is rejected");
+HashSet<(int, int)> connectedFloor = new() { (3, 2), (4, 2), (5, 2), (5, 3) };
+Check(WorkerCombatTilePolicy.TryChooseConnectedLanding(2, 2, 8,
+    (x, y) => connectedFloor.Contains((x, y)), out var connectedLanding), "connected floor with an exit is accepted");
+Equal((3, 2), connectedLanding, "landing stays beside the farmer on connected floor");
+HashSet<(int, int)> separatedFloor = new() { (4, 2), (5, 2), (5, 3) };
+Check(!WorkerCombatTilePolicy.TryChooseConnectedLanding(2, 2, 8,
+    (x, y) => separatedFloor.Contains((x, y)), out _), "floor across a wall is not a landing");
 Check(!WorkerExperiencePolicy.TryAwardCompletedAction(first, true, true, WorkerExperienceAction.None), "route clearance gives no award");
 Check(!WorkerExperiencePolicy.TryAwardCompletedAction(first, false, true, WorkerExperienceAction.ChopTree), "client cannot award");
 Check(!WorkerExperiencePolicy.TryAwardCompletedAction(first, true, false, WorkerExperienceAction.ClearStone), "unloaded world cannot award");
@@ -64,6 +175,9 @@ first.Experience.Mining = 11;
 first.Experience.Fishing = 12;
 first.Experience.Foraging = 13;
 first.Experience.Combat = 14;
+first.Profession = WorkerProfession.CombatWorker;
+first.CombatArea = WorkerCombatAreaCatalog.IslandFarm;
+first.LastDefeatedDay = 42;
 var save = new WorkerRosterSaveData { Workers = new() { first, second } };
 var loaded = JsonSerializer.Deserialize<WorkerRosterSaveData>(JsonSerializer.Serialize(save))!;
 Equal(380, loaded.Workers[0].Experience.Farming, "saved XP round trip");
@@ -71,6 +185,9 @@ Equal(11, loaded.Workers[0].Experience.Mining, "mining XP round trip");
 Equal(12, loaded.Workers[0].Experience.Fishing, "fishing XP round trip");
 Equal(13, loaded.Workers[0].Experience.Foraging, "foraging XP round trip");
 Equal(14, loaded.Workers[0].Experience.Combat, "combat XP round trip");
+Equal(WorkerProfession.CombatWorker, loaded.Workers[0].Profession, "combat profession round trip");
+Equal(WorkerCombatAreaCatalog.IslandFarm, loaded.Workers[0].CombatArea, "combat area round trip");
+Equal(42, loaded.Workers[0].LastDefeatedDay, "defeat day survives save");
 Equal(0, loaded.Workers[1].Experience.Farming, "independent saved XP");
 var clone = loaded.Workers[0].Clone();
 clone.Experience.Farming = 500;
@@ -83,6 +200,8 @@ Equal(0, legacy.Experience.Mining, "legacy mining defaults zero");
 Equal(0, legacy.Experience.Fishing, "legacy fishing defaults zero");
 Equal(0, legacy.Experience.Foraging, "legacy foraging defaults zero");
 Equal(0, legacy.Experience.Combat, "legacy combat defaults zero");
+Equal(WorkerCombatAreaCatalog.Farm, legacy.CombatArea, "legacy combat area defaults to farm");
+Equal(-1, legacy.LastDefeatedDay, "legacy worker not defeated");
 var corrupt = JsonSerializer.Deserialize<WorkerRosterEntry>("{\"WorkerId\":\"old\",\"Experience\":{\"Farming\":-4}}")!;
 Equal(0, corrupt.Clone().Experience.Farming, "negative XP normalized on clone");
 var missing = JsonSerializer.Deserialize<WorkerRosterEntry>("{\"WorkerId\":\"null\",\"Experience\":null}")!;

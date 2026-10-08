@@ -20,6 +20,9 @@ internal sealed class WorkerRosterEntry
 
     public string ForageLocationName { get; set; } = WorkerForageAreaCatalog.DefaultLocationName;
 
+    public string CombatArea { get; set; } = WorkerCombatAreaCatalog.Farm;
+
+
     public WorkerTaskKind AssignedTask { get; set; } = WorkerTaskKind.Idle;
 
     public WorkerSkillExperience Experience { get; set; } = new();
@@ -31,6 +34,16 @@ internal sealed class WorkerRosterEntry
 
     /// <summary>Prevents duplicate day-start events from retrying an unaffordable payment.</summary>
     public int LastWageAttemptDay { get; set; } = -1;
+
+    /// <summary>Absolute game day when this worker lost all combat HP.</summary>
+    public int LastDefeatedDay { get; set; } = -1;
+
+    /// <summary>Current combat HP is saved so a same-day reload cannot heal a worker.</summary>
+    public int CombatHealth { get; set; } = -1;
+
+    public int CombatMaxHealth { get; set; }
+
+    public int LastCombatHealthDay { get; set; } = -1;
 
     public WorkerObstacleReport? PendingObstacleReport { get; set; }
 
@@ -45,11 +58,16 @@ internal sealed class WorkerRosterEntry
             Appearance = this.Appearance?.Clone() ?? WorkerAppearanceData.CreateDefault(),
             Profession = this.Profession,
             ForageLocationName = this.ForageLocationName,
+            CombatArea = this.CombatArea,
             AssignedTask = this.AssignedTask,
             Experience = this.Experience?.Clone() ?? new WorkerSkillExperience(),
             DailyWage = this.DailyWage,
             LastPaidDay = this.LastPaidDay,
             LastWageAttemptDay = this.LastWageAttemptDay,
+            LastDefeatedDay = this.LastDefeatedDay,
+            CombatHealth = this.CombatHealth,
+            CombatMaxHealth = this.CombatMaxHealth,
+            LastCombatHealthDay = this.LastCombatHealthDay,
             PendingObstacleReport = this.PendingObstacleReport?.Clone(),
         };
     }

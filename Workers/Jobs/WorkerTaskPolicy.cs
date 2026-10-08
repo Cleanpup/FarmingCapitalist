@@ -15,6 +15,8 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.ClearDebris, WorkerTaskKind.Idle,
     };
 
+    private static readonly WorkerTaskKind[] CombatTasks = { WorkerTaskKind.SlayMonsters, WorkerTaskKind.Idle };
+
     public const int WorkDayEndsAt = 2200;
 
     public static bool IsWithinWorkHours(int timeOfDay) => timeOfDay >= 600 && timeOfDay < WorkDayEndsAt;
@@ -40,7 +42,12 @@ internal static class WorkerTaskPolicy
     }
 
     public static IReadOnlyList<WorkerTaskKind> GetTasks(WorkerProfession profession)
-        => profession == WorkerProfession.Forager ? ForagerTasks : FarmerTasks;
+        => profession switch
+        {
+            WorkerProfession.Forager => ForagerTasks,
+            WorkerProfession.CombatWorker => CombatTasks,
+            _ => FarmerTasks,
+        };
 
     public static bool IsTaskAllowed(WorkerProfession profession, WorkerTaskKind task)
     {
@@ -54,7 +61,12 @@ internal static class WorkerTaskPolicy
     }
 
     public static string GetProfessionLabel(WorkerProfession profession)
-        => profession == WorkerProfession.Forager ? "Forager" : "Farmer";
+        => profession switch
+        {
+            WorkerProfession.Forager => "Forager",
+            WorkerProfession.CombatWorker => "Combat Worker",
+            _ => "Farmer",
+        };
 
     public static string GetTaskLabel(WorkerTaskKind task, string idleLabel = "Idle") => task switch
     {
@@ -65,6 +77,7 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.ChopTrees => "Cut down trees",
         WorkerTaskKind.ChopHardwood => "Cut hardwood",
         WorkerTaskKind.ClearDebris => "Clear debris",
+        WorkerTaskKind.SlayMonsters => "Slay monsters",
         _ => idleLabel,
     };
 }

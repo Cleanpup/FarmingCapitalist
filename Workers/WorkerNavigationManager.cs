@@ -35,6 +35,10 @@ internal sealed class WorkerNavigationManager
 
         public Func<Point, bool>? LandingValidator { get; init; }
 
+        public Func<Point, bool>? StepValidator { get; init; }
+
+        public bool RetryBlockedRoute { get; init; } = true;
+
         public Action<WorkerNavigationTarget>? OnWarpArrival { get; init; }
 
         public string TriggerReason { get; init; } = string.Empty;
@@ -198,7 +202,8 @@ internal sealed class WorkerNavigationManager
 
     public bool TryStartTravel(NPC worker, WorkerNavigationTarget target, string triggerReason,
         out WorkerNavigationTarget resolvedTarget, Func<Point, bool>? landingValidator = null,
-        Action<WorkerNavigationTarget>? onWarpArrival = null)
+        Action<WorkerNavigationTarget>? onWarpArrival = null, Func<Point, bool>? stepValidator = null,
+        bool retryBlockedRoute = true)
     {
         resolvedTarget = target;
         if (!Context.IsWorldReady || !Context.IsMainPlayer || this.HasForeignController(worker))
@@ -291,6 +296,41 @@ internal sealed class WorkerNavigationManager
             return false;
         }
 
+        Point? rejectedStep = null;
+        if (stepValidator is not null)
+        {
+            foreach (Point step in routeDescription!.route)
+            {
+                if (stepValidator(step))
+                    continue;
+                rejectedStep = step;
+                break;
+            }
+        }
+        if (rejectedStep is Point unsafeStep)
+        {
+            string diagnosticKey = $"{workerId}:unsafe-step:{worker.currentLocation.NameOrUniqueName}:{triggerReason}";
+            if (!this.nextRouteDiagnosticTick.TryGetValue(diagnosticKey, out int nextTick) || Game1.ticks >= nextTick)
+            {
+                this.nextRouteDiagnosticTick[diagnosticKey] = Game1.ticks + RouteDiagnosticCooldownTicks;
+                GameLocation stepLocation = worker.currentLocation == destination ? destination : worker.currentLocation;
+                bool onMap = stepLocation.isTileOnMap(unsafeStep.ToVector2());
+                this.monitor.Log($"{worker.displayName} rejected a {triggerReason} route at {stepLocation.NameOrUniqueName} "
+                    + $"tile {unsafeStep} while heading to {target.Tile}: "
+                    + (onMap
+                        ? $"ground={stepLocation.hasTileAt(unsafeStep.X, unsafeStep.Y, "Back")}, "
+                          + $"front={stepLocation.hasTileAt(unsafeStep.X, unsafeStep.Y, "Front")}, "
+                          + $"buildings={stepLocation.hasTileAt(unsafeStep.X, unsafeStep.Y, "Buildings")}, "
+                          + $"mapPassable={stepLocation.isTilePassable(unsafeStep.ToVector2())}, "
+                          + $"npcBarrier={stepLocation.doesTileHaveProperty(unsafeStep.X, unsafeStep.Y, "NPCBarrier", "Back") is not null}, "
+                          + $"warp={stepLocation.warps.Any(warp => warp.X == unsafeStep.X && warp.Y == unsafeStep.Y)}, "
+                          + $"pathCollision={this.IsPathfindingCollision(stepLocation, worker, unsafeStep)}, "
+                          + $"actorOccupied={this.IsOccupiedByOtherActor(stepLocation, worker, unsafeStep)}."
+                        : "off map."), LogLevel.Trace);
+            }
+            return false;
+        }
+
         if (planningTime.ElapsedMilliseconds >= 100)
         {
             this.monitor.Log(
@@ -323,6 +363,8 @@ internal sealed class WorkerNavigationManager
             Target = resolvedTarget,
             RequestedTarget = target,
             LandingValidator = landingValidator,
+            StepValidator = stepValidator,
+            RetryBlockedRoute = retryBlockedRoute,
             OnWarpArrival = onWarpArrival,
             TriggerReason = triggerReason,
             LastObservedLocationName = worker.currentLocation.NameOrUniqueName,
@@ -485,9 +527,10 @@ internal sealed class WorkerNavigationManager
     private void TryRecoverRoute(NPC worker, string workerId, ActiveWorkerRoute previous)
     {
         this.StopTravel(worker);
-        if (previous.RetryCount < MaxRouteRetries
+        if (previous.RetryBlockedRoute && previous.RetryCount < MaxRouteRetries
             && this.TryStartTravel(worker, previous.RequestedTarget, "replanning blocked route", out _,
-                previous.LandingValidator, previous.OnWarpArrival))
+                previous.LandingValidator, previous.OnWarpArrival, previous.StepValidator,
+                previous.RetryBlockedRoute))
         {
             if (this.activeRoutes.TryGetValue(workerId, out ActiveWorkerRoute? replacement))
             {

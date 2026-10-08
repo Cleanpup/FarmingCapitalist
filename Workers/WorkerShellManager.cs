@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Locations;
 
 namespace FarmingCapitalist.Workers;
 
@@ -20,6 +21,7 @@ internal sealed class WorkerShellManager
     private readonly WorkerSpriteSheetBuilder spriteSheetBuilder;
     private readonly List<WorkerRosterEntry> savedWorkers = new();
     private readonly Dictionary<string, Texture2D> generatedSpriteSheets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, NPC> runtimeWorkers = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly List<(NPC Worker, GameLocation Location)> detachedWorkers = new();
     private readonly Dictionary<string, NPC> clientAppearanceWorkers = new(StringComparer.OrdinalIgnoreCase);
@@ -151,6 +153,7 @@ internal sealed class WorkerShellManager
             Appearance = appearance.Clone(),
             Profession = Enum.IsDefined(typeof(WorkerProfession), profession) ? profession : WorkerProfession.Farmer,
             ForageLocationName = WorkerForageAreaCatalog.DefaultLocationName,
+            CombatArea = WorkerCombatAreaCatalog.Farm,
             LastPaidDay = Game1.Date.TotalDays,
             LastWageAttemptDay = Game1.Date.TotalDays,
         };
@@ -214,6 +217,7 @@ internal sealed class WorkerShellManager
         bool hadRosterEntries = this.savedWorkers.Count > 0;
         this.savedWorkers.Clear();
         this.detachedWorkers.Clear();
+        this.runtimeWorkers.Clear();
         this.PersistRoster();
         this.helper.Data.WriteSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey, null);
         this.DisposeAllGeneratedSpriteSheets();
@@ -251,6 +255,16 @@ internal sealed class WorkerShellManager
         return true;
     }
 
+    public bool TryAwardCombatKillExperience(string workerId, int monsterExperience)
+    {
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null || !WorkerExperiencePolicy.TryAwardCombatKill(entry, Context.IsMainPlayer,
+                Context.IsWorldReady, confirmedWorkerKill: true, monsterExperience))
+            return false;
+        this.PersistRoster();
+        return true;
+    }
+
     public WorkerTaskKind GetAssignedTask(string workerId)
     {
         return this.GetWorkerEntry(workerId)?.AssignedTask ?? WorkerTaskKind.Idle;
@@ -264,6 +278,60 @@ internal sealed class WorkerShellManager
     public string GetForageLocationName(string workerId)
     {
         return this.GetWorkerEntry(workerId)?.ForageLocationName ?? WorkerForageAreaCatalog.DefaultLocationName;
+    }
+
+    public string GetCombatArea(string workerId)
+        => this.GetWorkerEntry(workerId)?.CombatArea ?? WorkerCombatAreaCatalog.Farm;
+
+    public bool WasDefeatedToday(string workerId)
+        => Context.IsWorldReady && this.GetWorkerEntry(workerId)?.LastDefeatedDay == Game1.Date.TotalDays;
+
+    public bool TryGetCombatHealthToday(string workerId, out int health, out int maxHealth)
+    {
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (Context.IsWorldReady && entry is not null && entry.LastCombatHealthDay == Game1.Date.TotalDays
+            && entry.CombatMaxHealth > 0 && entry.CombatHealth >= 0)
+        {
+            health = entry.CombatHealth;
+            maxHealth = entry.CombatMaxHealth;
+            return true;
+        }
+        health = maxHealth = 0;
+        return false;
+    }
+
+    public void RecordCombatHealth(string workerId, int health)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry)
+            return;
+        entry.CombatHealth = WorkerCombatPolicy.ClampHealth(health);
+        entry.CombatMaxHealth = WorkerCombatPolicy.MaxHealth;
+        entry.LastCombatHealthDay = Game1.Date.TotalDays;
+    }
+
+    public void MarkDefeatedToday(string workerId)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry)
+            return;
+        entry.LastDefeatedDay = Game1.Date.TotalDays;
+        this.PersistRoster();
+    }
+
+    public bool TrySetCombatArea(string workerId, string area, out string message)
+    {
+        if (!this.CanManageWorkers(out message))
+            return false;
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null || entry.Profession != WorkerProfession.CombatWorker || !WorkerCombatAreaCatalog.IsValid(area))
+        {
+            message = "That combat area is not available for this worker.";
+            return false;
+        }
+        entry.CombatArea = area;
+        entry.AssignedTask = WorkerTaskKind.Idle;
+        this.PersistRoster();
+        message = $"{entry.DisplayName} will work in {WorkerCombatAreaCatalog.GetLabel(area)}. Choose a new order to begin.";
+        return true;
     }
 
     public WorkerObstacleReport? GetPendingObstacleReport(string workerId)
@@ -464,6 +532,9 @@ internal sealed class WorkerShellManager
             return;
         }
 
+        foreach (WorkerRosterEntry entry in this.savedWorkers)
+            this.FindWorkerById(entry.WorkerId);
+
         Utility.ForEachLocation(location =>
         {
             for (int i = location.characters.Count - 1; i >= 0; i--)
@@ -477,7 +548,7 @@ internal sealed class WorkerShellManager
             }
 
             return true;
-        });
+        }, includeGenerated: true);
     }
 
     public void RestoreWorkersAfterSaving()
@@ -492,8 +563,13 @@ internal sealed class WorkerShellManager
             if (this.TryGetWorkerId(worker, out string workerId) && this.GetWorkerEntry(workerId) is not null
                 && this.FindWorkerById(workerId) is null)
             {
-                worker.currentLocation = location;
-                location.addCharacter(worker);
+                if (location is MineShaft mine && !MineShaft.activeMines.Contains(mine))
+                    this.TryRecoverInactiveMineWorker(worker);
+                else
+                {
+                    worker.currentLocation = location;
+                    location.addCharacter(worker);
+                }
             }
         }
 
@@ -603,10 +679,12 @@ internal sealed class WorkerShellManager
         }
 
         worker = this.FindWorkerById(workerId);
+        if (worker is null && Context.IsMainPlayer && this.GetWorkerEntry(workerId) is WorkerRosterEntry entry)
+            worker = this.EnsureWorkerPresent(entry, respawnAtSpawn: false);
         return worker is not null;
     }
 
-    public IReadOnlyList<NPC> GetSpawnedWorkers()
+    public IReadOnlyList<NPC> GetSpawnedWorkers(bool recoverStale = true)
     {
         if (!Context.IsWorldReady || this.savedWorkers.Count == 0)
         {
@@ -616,7 +694,7 @@ internal sealed class WorkerShellManager
         List<NPC> workers = new(this.savedWorkers.Count);
         foreach (WorkerRosterEntry entry in this.savedWorkers)
         {
-            NPC? worker = this.FindWorkerById(entry.WorkerId);
+            NPC? worker = this.FindWorkerById(entry.WorkerId, recoverStale);
             if (worker is not null)
             {
                 workers.Add(worker);
@@ -725,6 +803,7 @@ internal sealed class WorkerShellManager
                 entry.DisplayName,
                 entry.Profession,
                 entry.ForageLocationName,
+                entry.CombatArea,
                 IsConfigured: true,
                 IsSpawned: worker is not null,
                 CurrentLocationName: worker?.currentLocation?.NameOrUniqueName,
@@ -769,6 +848,7 @@ internal sealed class WorkerShellManager
         this.savedWorkers.Clear();
         this.detachedWorkers.Clear();
         this.clientAppearanceWorkers.Clear();
+        this.runtimeWorkers.Clear();
         this.lastMirrorPayload = null;
         this.harvestDestination = null;
         this.nextWorkerNumber = 1;
@@ -858,6 +938,9 @@ internal sealed class WorkerShellManager
             {
                 normalized.ForageLocationName = WorkerForageAreaCatalog.DefaultLocationName;
             }
+            if (!WorkerCombatAreaCatalog.IsValid(normalized.CombatArea))
+                normalized.CombatArea = WorkerCombatAreaCatalog.Farm;
+            normalized.LastDefeatedDay = Math.Clamp(normalized.LastDefeatedDay, -1, Game1.Date.TotalDays);
 
             // Employment prices aren't save-editable contracts yet; normalize corrupt/older values.
             normalized.DailyWage = WorkerEmploymentTerms.DailyWage;
@@ -957,6 +1040,7 @@ internal sealed class WorkerShellManager
 
             worker = this.CreateWorkerShell(entry, targetLocation, spawnTile.ToVector2());
             targetLocation.addCharacter(worker);
+            this.runtimeWorkers[entry.WorkerId] = worker;
             return worker;
         }
 
@@ -1050,7 +1134,7 @@ internal sealed class WorkerShellManager
         }
     }
 
-    private NPC? FindWorkerById(string workerId)
+    private NPC? FindWorkerById(string workerId, bool recoverStale = true)
     {
         NPC? found = null;
         Utility.ForEachLocation(location =>
@@ -1065,8 +1149,47 @@ internal sealed class WorkerShellManager
             }
 
             return true;
-        });
-        return found;
+        }, includeGenerated: true);
+        if (found is not null)
+        {
+            this.runtimeWorkers[workerId] = found;
+            return found;
+        }
+
+        if (!Context.IsMainPlayer || !this.runtimeWorkers.TryGetValue(workerId, out NPC? cached)
+            || this.detachedWorkers.Any(item => item.Worker == cached))
+            return null;
+
+        // Generated floors are discarded after the farmer leaves. Keep the same
+        // NPC shell and move it back into the live world before it can disappear
+        // from menu commands or cause a duplicate shell to be created.
+        bool onGeneratedFloor = cached.currentLocation is MineShaft;
+        bool floorIsActive = cached.currentLocation is MineShaft currentMine && MineShaft.activeMines.Contains(currentMine);
+        bool attachedToLocation = cached.currentLocation?.characters.Contains(cached) == true;
+        if (recoverStale && WorkerShellLifecyclePolicy.ShouldRecoverCachedWorker(onGeneratedFloor, floorIsActive, attachedToLocation))
+            this.TryRecoverInactiveMineWorker(cached);
+        return cached;
+    }
+
+    private bool TryRecoverInactiveMineWorker(NPC worker)
+    {
+        WorkerNavigationTarget? home = this.GetWorkerReturnTargets(worker).FirstOrDefault();
+        if (home is null)
+            return false;
+        worker.controller = null;
+        worker.temporaryController = null;
+        worker.Halt();
+        try
+        {
+            Game1.warpCharacter(worker, home.LocationName, home.Tile);
+            this.monitor.Log($"Recovered {worker.displayName} from an unloaded mine floor at home.", LogLevel.Info);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            this.monitor.Log($"Could not recover {worker.displayName} from an unloaded mine floor: {ex.Message}", LogLevel.Warn);
+            return false;
+        }
     }
 
     private bool IsManagedWorker(NPC npc, string? workerId = null)
@@ -1106,7 +1229,11 @@ internal sealed class WorkerShellManager
             }
 
             return true;
-        });
+        }, includeGenerated: true);
+        if (workerId is null)
+            this.runtimeWorkers.Clear();
+        else
+            this.runtimeWorkers.Remove(workerId);
         return removedAny;
     }
 
@@ -1133,7 +1260,7 @@ internal sealed class WorkerShellManager
             }
 
             return true;
-        });
+        }, includeGenerated: true);
     }
 
     private AnimatedSprite CreateWorkerSprite(string workerId)

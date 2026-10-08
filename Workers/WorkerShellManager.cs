@@ -24,7 +24,6 @@ internal sealed class WorkerShellManager
     private readonly List<(NPC Worker, GameLocation Location)> detachedWorkers = new();
     private readonly Dictionary<string, NPC> clientAppearanceWorkers = new(StringComparer.OrdinalIgnoreCase);
     private string? lastMirrorPayload;
-    private WorkerHarvestDestination? harvestDestination;
     private int nextWorkerNumber = 1;
 
     public WorkerShellManager(IModHelper helper, IManifest manifest, IMonitor monitor)
@@ -60,12 +59,20 @@ internal sealed class WorkerShellManager
         return this.savedWorkers.Count;
     }
 
-    public WorkerHarvestDestination? GetHarvestDestination() => this.harvestDestination?.Clone();
+    public WorkerHarvestDestination? GetHarvestDestination(string workerId)
+        => this.GetWorkerEntry(workerId)?.HarvestDestination?.Clone();
 
-    public bool TrySetHarvestDestination(WorkerHarvestDestination? destination, out string message)
+    public bool TrySetHarvestDestination(string workerId, WorkerHarvestDestination? destination, out string message)
     {
         if (!this.CanManageWorkers(out message))
             return false;
+
+        WorkerRosterEntry? worker = this.GetWorkerEntry(workerId);
+        if (worker is null)
+        {
+            message = "That worker is no longer employed.";
+            return false;
+        }
 
         if (destination is not null && !WorkerChestCatalog.TryGetChest(destination, out _))
         {
@@ -73,13 +80,13 @@ internal sealed class WorkerShellManager
             return false;
         }
 
-        this.harvestDestination = destination?.Clone();
+        worker.HarvestDestination = destination?.Clone();
         this.PersistRoster();
         WorkerChestOption? selected = destination is null
             ? null
             : WorkerChestCatalog.GetAvailableChests().FirstOrDefault(option => option.LocationName == destination.LocationName && option.Tile == destination.Tile);
-        message = selected is null ? "Workers will place harvested items in the shipping bin."
-            : $"Workers will place harvested items in the chest at {selected.Label}.";
+        message = selected is null ? $"{worker.DisplayName} will place gathered items in the shipping bin."
+            : $"{worker.DisplayName} will place gathered items in the chest at {selected.Label}.";
         return true;
     }
 
@@ -506,7 +513,7 @@ internal sealed class WorkerShellManager
         {
             SchemaVersion = WorkerEmploymentTerms.RosterSchemaVersion,
             NextWorkerNumber = this.nextWorkerNumber,
-            HarvestDestination = this.harvestDestination?.Clone(),
+            HarvestDestination = null,
             Workers = this.savedWorkers.Select(entry => entry.Clone()).ToList(),
         };
     }
@@ -520,7 +527,12 @@ internal sealed class WorkerShellManager
 
         this.savedWorkers.Clear();
         this.savedWorkers.AddRange(this.NormalizeRosterEntries(snapshot.Workers ?? new List<WorkerRosterEntry>(), migrateEmployment: false));
-        this.harvestDestination = snapshot.HarvestDestination?.Clone();
+        WorkerRosterMigration.ApplySharedHarvestDestination(new WorkerRosterSaveData
+        {
+            SchemaVersion = snapshot.SchemaVersion,
+            HarvestDestination = snapshot.HarvestDestination?.Clone(),
+            Workers = this.savedWorkers,
+        });
         this.clientAppearanceWorkers.Clear();
         this.RebuildAllGeneratedSpriteSheets();
         this.RefreshClientAppearances();
@@ -770,7 +782,6 @@ internal sealed class WorkerShellManager
         this.detachedWorkers.Clear();
         this.clientAppearanceWorkers.Clear();
         this.lastMirrorPayload = null;
-        this.harvestDestination = null;
         this.nextWorkerNumber = 1;
         this.DisposeAllGeneratedSpriteSheets();
     }
@@ -781,16 +792,20 @@ internal sealed class WorkerShellManager
         // An explicitly empty roster wins over any stale legacy appearance so dismissed workers stay dismissed.
         if (rosterData is not null)
         {
-            this.harvestDestination = rosterData.HarvestDestination?.Clone();
             List<WorkerRosterEntry> entries = this.NormalizeRosterEntries(rosterData.Workers ?? new List<WorkerRosterEntry>(),
                 migrateEmployment: rosterData.SchemaVersion <= 0);
+            WorkerRosterMigration.ApplySharedHarvestDestination(new WorkerRosterSaveData
+            {
+                SchemaVersion = rosterData.SchemaVersion,
+                HarvestDestination = rosterData.HarvestDestination?.Clone(),
+                Workers = entries,
+            });
             this.nextWorkerNumber = Math.Max(Math.Max(1, rosterData.NextWorkerNumber), this.GetNextWorkerNumber(entries));
             this.helper.Data.WriteSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey, null);
             return entries;
         }
 
         WorkerAppearanceData? legacyAppearance = this.helper.Data.ReadSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey);
-        this.harvestDestination = null;
         if (legacyAppearance is null)
         {
             return new List<WorkerRosterEntry>();

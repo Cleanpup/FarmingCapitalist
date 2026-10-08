@@ -14,6 +14,7 @@ static void Check(bool value, string scenario)
 
 var first = new WorkerRosterEntry { WorkerId = "first" };
 var second = new WorkerRosterEntry { WorkerId = "second" };
+first.HarvestDestination = new WorkerHarvestDestination { LocationName = "Farm", TileX = 5, TileY = 7 };
 Check(WorkerExperiencePolicy.IsConfirmedCropHarvest(true, false, 0, 0, 1), "ordinary harvest confirmed");
 Check(WorkerExperiencePolicy.IsConfirmedCropHarvest(false, true, 0, 4, 1), "regrowing harvest confirmed");
 Check(!WorkerExperiencePolicy.IsConfirmedCropHarvest(false, false, 0, 0, 1), "failed nonregrowing harvest rejected");
@@ -66,6 +67,16 @@ first.Experience.Foraging = 13;
 first.Experience.Combat = 14;
 var save = new WorkerRosterSaveData { Workers = new() { first, second } };
 var loaded = JsonSerializer.Deserialize<WorkerRosterSaveData>(JsonSerializer.Serialize(save))!;
+Equal("Farm", loaded.Workers[0].HarvestDestination?.LocationName, "worker destination round trip");
+Equal(5, loaded.Workers[0].HarvestDestination?.TileX, "worker destination X round trip");
+Check(loaded.Workers[1].HarvestDestination is null, "unassigned worker keeps shipping-bin default");
+var legacyRoster = JsonSerializer.Deserialize<WorkerRosterSaveData>("""
+    {"SchemaVersion":2,"HarvestDestination":{"LocationName":"Farm","TileX":5,"TileY":7},
+     "Workers":[{"WorkerId":"one"},{"WorkerId":"two"}]}
+    """)!;
+WorkerRosterMigration.ApplySharedHarvestDestination(legacyRoster);
+Check(legacyRoster.Workers.All(worker => worker.HarvestDestination?.LocationName == "Farm"),
+    "legacy shared chest choice migrates to every worker");
 Equal(380, loaded.Workers[0].Experience.Farming, "saved XP round trip");
 Equal(11, loaded.Workers[0].Experience.Mining, "mining XP round trip");
 Equal(12, loaded.Workers[0].Experience.Fishing, "fishing XP round trip");
@@ -73,6 +84,8 @@ Equal(13, loaded.Workers[0].Experience.Foraging, "foraging XP round trip");
 Equal(14, loaded.Workers[0].Experience.Combat, "combat XP round trip");
 Equal(0, loaded.Workers[1].Experience.Farming, "independent saved XP");
 var clone = loaded.Workers[0].Clone();
+clone.HarvestDestination!.TileX = 99;
+Equal(5, loaded.Workers[0].HarvestDestination!.TileX, "worker destination clone does not alias another worker");
 clone.Experience.Farming = 500;
 clone.Experience.Mining = 500;
 Equal(380, loaded.Workers[0].Experience.Farming, "clone does not alias XP");

@@ -14,6 +14,7 @@
     <Compile Include="../Workers/Model/WorkerRosterEntry.cs" Link="WorkerRosterEntry.cs" />
     <Compile Include="../Workers/Model/WorkerObstacleReport.cs" Link="WorkerObstacleReport.cs" />
     <Compile Include="../Workers/Model/WorkerRosterSaveData.cs" Link="WorkerRosterSaveData.cs" />
+    <Compile Include="../Workers/Model/WorkerRosterMigration.cs" Link="WorkerRosterMigration.cs" />
     <Compile Include="../Workers/Model/WorkerTaskKind.cs" Link="WorkerTaskKind.cs" />
     <Compile Include="../Workers/Model/WorkerProfession.cs" Link="WorkerProfession.cs" />
     <Compile Include="../Workers/Model/WorkerEmploymentTerms.cs" Link="WorkerEmploymentTerms.cs" />

@@ -49,10 +49,12 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         public ClickableTextureComponent RightButton { get; }
     }
 
-    private readonly Action<WorkerAppearanceData, WorkerProfession> onSave;
+    private readonly Action<WorkerAppearanceData, WorkerProfession, string> onSave;
     private readonly Action? onClosed;
     private readonly string title;
     private WorkerAppearanceData? acceptedAppearance;
+    private string? acceptedName;
+    private string nameError = string.Empty;
     private bool sessionCompleted;
     private readonly Farmer previewFarmer;
     private readonly List<int> previewDirections = new() { 2, 1, 0, 3 };
@@ -66,6 +68,8 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     private ClickableTextureComponent femaleButton = null!;
     private ClickableTextureComponent randomButton = null!;
     private ClickableTextureComponent okButton = null!;
+    private readonly TextBox nameBox;
+    private Rectangle nameBoxBounds;
     private ColorPicker hairColorPicker = null!;
     private ColorPicker eyeColorPicker = null!;
     private ColorPicker pantsColorPicker = null!;
@@ -89,7 +93,8 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     public WorkerAppearanceMenu(
         WorkerAppearanceData initialAppearance,
         WorkerProfession initialProfession,
-        Action<WorkerAppearanceData, WorkerProfession> onSave,
+        string initialName,
+        Action<WorkerAppearanceData, WorkerProfession, string> onSave,
         Action? onClosed = null,
         string title = "Worker Appearance")
         : base(
@@ -106,6 +111,14 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
             ? initialProfession
             : WorkerProfession.Farmer;
         this.exitFunction = this.CompleteSession;
+        this.nameBox = new TextBox(Game1.content.Load<Texture2D>("LooseSprites\\textBox"), null,
+            Game1.smallFont, Game1.textColor)
+        {
+            Height = 48,
+            textLimit = WorkerNamePolicy.MaximumLength,
+            TitleText = "Worker name",
+        };
+        this.nameBox.OnEnterPressed += box => box.Selected = false;
 
         this.previewFarmer = new Farmer
         {
@@ -122,6 +135,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.previewDirectionIndex = 0;
 
         this.RebuildLayout();
+        this.nameBox.Text = initialName;
         this.RefreshPreviewFarmer();
     }
 
@@ -136,6 +150,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     {
         if (this.professionDropdownBounds.Contains(x, y))
         {
+            this.nameBox.Selected = false;
             this.professionDropdownOpen = !this.professionDropdownOpen;
             Game1.playSound("smallSelect");
             return;
@@ -182,10 +197,27 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
             return;
         }
 
+        if (this.nameBoxBounds.Contains(x, y))
+        {
+            this.nameError = string.Empty;
+            this.nameBox.Update();
+            this.nameBox.SelectMe();
+            return;
+        }
+        this.nameBox.Selected = false;
+
         if (this.okButton.containsPoint(x, y))
         {
+            if (!WorkerNamePolicy.TryNormalize(this.nameBox.Text, out string name))
+            {
+                this.nameError = $"Enter a name (1–{WorkerNamePolicy.MaximumLength} characters).";
+                Game1.playSound("bigDeSelect");
+                this.nameBox.SelectMe();
+                return;
+            }
             Game1.playSound("smallSelect");
             this.acceptedAppearance = WorkerAppearanceData.FromFarmer(this.previewFarmer);
+            this.acceptedName = name;
             this.exitThisMenu();
             return;
         }
@@ -299,6 +331,8 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     public override void performHoverAction(int x, int y)
     {
         this.randomButton.tryHover(x, y, 0.25f);
+        if (!this.professionDropdownOpen)
+            this.nameBox.Hover(x, y);
         base.performHoverAction(x, y);
     }
 
@@ -351,6 +385,15 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         b.End();
         b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
 
+        if (!this.professionDropdownOpen)
+        {
+            Utility.drawTextWithShadow(b, "Worker name", Game1.smallFont,
+                new Vector2(this.nameBoxBounds.X, this.nameBoxBounds.Y - 29), Game1.textColor);
+            this.nameBox.Draw(b);
+            if (this.nameError.Length > 0)
+                Utility.drawTextWithShadow(b, this.nameError, Game1.smallFont,
+                    new Vector2(this.nameBoxBounds.X, this.nameBoxBounds.Bottom + 3), Color.Red);
+        }
         // Draw the expanded list above the color controls and character preview.
         this.DrawProfessionSelector(b);
         this.drawMouse(b);
@@ -414,7 +457,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
                 64,
                 64),
             null,
-            "Save worker appearance",
+            "Hire worker with this name and appearance",
             Game1.mouseCursors,
             Game1.getSourceRectForStandardTileSheet(Game1.mouseCursors, 46),
             1f);
@@ -444,6 +487,11 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.combatProfessionBounds = new Rectangle(professionX, this.foragerProfessionBounds.Bottom + 2, professionWidth, 48);
         this.minerProfessionBounds = new Rectangle(professionX, this.combatProfessionBounds.Bottom + 2, professionWidth, 48);
         this.fisherProfessionBounds = new Rectangle(professionX, this.minerProfessionBounds.Bottom + 2, professionWidth, 48);
+        this.nameBoxBounds = new Rectangle(professionX, this.professionDropdownBounds.Bottom + 42, professionWidth, 48);
+        this.nameBox.X = this.nameBoxBounds.X;
+        this.nameBox.Y = this.nameBoxBounds.Y;
+        this.nameBox.Width = this.nameBoxBounds.Width;
+        this.nameBox.Height = this.nameBoxBounds.Height;
         this.SyncColorPickersFromPreview();
     }
 
@@ -455,11 +503,12 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         }
 
         this.sessionCompleted = true;
+        this.nameBox.Selected = false;
         try
         {
-            if (this.acceptedAppearance is not null)
+            if (this.acceptedAppearance is not null && this.acceptedName is not null)
             {
-                this.onSave(this.acceptedAppearance, this.selectedProfession);
+                this.onSave(this.acceptedAppearance, this.selectedProfession, this.acceptedName);
             }
         }
         finally

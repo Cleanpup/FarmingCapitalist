@@ -123,11 +123,23 @@ internal sealed class WorkerShellManager
     public bool TryHireWorker(WorkerAppearanceData appearance, out NPC? worker, out string message)
         => this.TryHireWorker(appearance, WorkerProfession.Farmer, out worker, out message);
 
+    public string GetSuggestedWorkerName()
+        => WorkerNamePolicy.ChooseDefault(this.savedWorkers.Select(entry => entry.DisplayName), Random.Shared);
+
     public bool TryHireWorker(WorkerAppearanceData appearance, WorkerProfession profession, out NPC? worker, out string message)
+        => this.TryHireWorker(appearance, profession, this.GetSuggestedWorkerName(), out worker, out message);
+
+    public bool TryHireWorker(WorkerAppearanceData appearance, WorkerProfession profession, string displayName, out NPC? worker, out string message)
     {
         worker = null;
         if (!this.CanManageWorkers(out message))
         {
+            return false;
+        }
+
+        if (!WorkerNamePolicy.TryNormalize(displayName, out string name))
+        {
+            message = $"Enter a worker name of 1–{WorkerNamePolicy.MaximumLength} characters.";
             return false;
         }
 
@@ -154,7 +166,7 @@ internal sealed class WorkerShellManager
         WorkerRosterEntry entry = new()
         {
             WorkerId = workerNumber == 1 ? TestWorkerDefinition.WorkerId : $"worker-{workerNumber}",
-            DisplayName = $"Worker {workerNumber}",
+            DisplayName = name,
             SpawnTileX = spawnTile.X,
             SpawnTileY = spawnTile.Y,
             Appearance = appearance.Clone(),

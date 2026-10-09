@@ -1517,7 +1517,7 @@ internal sealed class WorkerShellManager
         try
         {
             newSheet = this.spriteSheetBuilder.BuildSheet(entry.Appearance);
-            newPortrait = this.spriteSheetBuilder.BuildPortrait(newSheet);
+            newPortrait = this.spriteSheetBuilder.BuildPortrait(newSheet, entry.Profession);
         }
         catch (Exception ex)
         {

@@ -157,25 +157,56 @@ internal sealed class WorkerSpriteSheetBuilder
         return spriteSheet;
     }
 
-    public Texture2D BuildPortrait(Texture2D spriteSheet)
+    public Texture2D BuildPortrait(Texture2D spriteSheet, WorkerProfession profession)
     {
         const int faceSize = 16;
         const int portraitSize = 64;
         Color[] sheetPixels = new Color[spriteSheet.Width * spriteSheet.Height];
         spriteSheet.GetData(sheetPixels);
         Color[] portraitPixels = new Color[portraitSize * portraitSize];
-        Color background = new(104, 70, 48);
 
         for (int y = 0; y < portraitSize; y++)
         for (int x = 0; x < portraitSize; x++)
         {
-            Color facePixel = sheetPixels[(y / (portraitSize / faceSize)) * spriteSheet.Width + x / (portraitSize / faceSize)];
+            int pixelX = x / (portraitSize / faceSize);
+            int pixelY = y / (portraitSize / faceSize);
+            Color background = GetPortraitBackground(profession, pixelX, pixelY);
+            Color facePixel = sheetPixels[pixelY * spriteSheet.Width + pixelX];
             portraitPixels[y * portraitSize + x] = Color.Lerp(background, facePixel, facePixel.A / 255f);
         }
 
         Texture2D portrait = new(Game1.graphics.GraphicsDevice, portraitSize, portraitSize);
         portrait.SetData(portraitPixels);
         return portrait;
+    }
+
+    private static Color GetPortraitBackground(WorkerProfession profession, int x, int y)
+    {
+        return profession switch
+        {
+            WorkerProfession.Farmer when y >= 11 => new Color(109, 138, 63),
+            WorkerProfession.Farmer when (x <= 2 || x >= 13) && y >= 6 => new Color(206, 168, 70),
+            WorkerProfession.Farmer when x >= 12 && y <= 3 => new Color(246, 211, 111),
+            WorkerProfession.Farmer => new Color(152, 192, 167),
+
+            WorkerProfession.Forager when y <= 4 && (x <= 5 || x >= 10) => new Color(46, 104, 69),
+            WorkerProfession.Forager when (x <= 2 || x >= 13) && y >= 5 => new Color(93, 68, 44),
+            WorkerProfession.Forager => new Color(104, 150, 107),
+
+            WorkerProfession.CombatWorker when (x <= 2 || x >= 13) && y >= 5 => new Color(117, 58, 56),
+            WorkerProfession.CombatWorker when y >= 12 => new Color(70, 53, 75),
+            WorkerProfession.CombatWorker => new Color(91, 73, 104),
+
+            WorkerProfession.Miner when (x + y) % 7 == 0 && (x <= 3 || x >= 12) => new Color(190, 155, 88),
+            WorkerProfession.Miner when y >= 11 => new Color(69, 76, 85),
+            WorkerProfession.Miner => new Color(105, 115, 124),
+
+            WorkerProfession.Fisher when y >= 9 && y % 3 == 0 => new Color(158, 206, 210),
+            WorkerProfession.Fisher when y >= 8 => new Color(55, 124, 165),
+            WorkerProfession.Fisher => new Color(150, 195, 199),
+
+            _ => new Color(104, 70, 48),
+        };
     }
 
     private void DrawFrame(SpriteBatch spriteBatch, Farmer renderWorker, GeneratedFrameSpec frame,

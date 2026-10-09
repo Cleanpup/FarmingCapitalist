@@ -20,9 +20,11 @@ internal sealed class WorkerIdleMovementManager
     private readonly Random random = new();
     private readonly Dictionary<string, int> nextMoveTicks = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Point> destinations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Point> outboundLandings = new(StringComparer.OrdinalIgnoreCase);
     private Farm? cachedFarm;
     private Point cachedDoor;
     private List<Point>? cachedFarmTiles;
+    private HashSet<Point>? cachedFarmTileSet;
     private int cachedDay = -1;
     private int cachedUntilTick;
 
@@ -37,14 +39,17 @@ internal sealed class WorkerIdleMovementManager
     {
         this.nextMoveTicks.Clear();
         this.destinations.Clear();
+        this.outboundLandings.Clear();
         this.cachedFarm = null;
         this.cachedFarmTiles = null;
+        this.cachedFarmTileSet = null;
     }
 
     public void Stop(string workerId)
     {
         this.nextMoveTicks.Remove(workerId);
         this.destinations.Remove(workerId);
+        this.outboundLandings.Remove(workerId);
     }
 
     /// <summary>Each morning starts outdoors; saved farmhouse tiles remain the workers' home targets.</summary>
@@ -100,24 +105,47 @@ internal sealed class WorkerIdleMovementManager
         if (worker.currentLocation is not Farm farm)
         {
             this.destinations.Remove(workerId);
+            if (!this.navigation.HasActiveRoute(workerId) && worker.controller is null)
+                this.outboundLandings.Remove(workerId);
             if (!this.navigation.HasActiveRoute(workerId) && worker.controller is null && this.Ready(workerId)
                 && this.TryGetFarmEntranceRegion(worker, out Farm destination, out Point door, out List<Point> tiles))
             {
-                Point[] choices = tiles.Where(tile => Distance(tile, door) >= 3 && Distance(tile, door) <= 8
-                        && this.IsAvailable(destination, worker, tile))
-                    .OrderBy(_ => this.random.Next()).Take(4).ToArray();
+                Point[] choices = tiles.Where(tile => Distance(tile, door) >= 3 && Distance(tile, door) <= 16
+                        && this.IsSeparated(destination, worker, workerId, tile, 5))
+                    .OrderBy(_ => this.random.Next()).Take(30)
+                    .Where(tile => this.IsAvailable(destination, worker, tile)).Take(8).ToArray();
                 HashSet<Point> allowed = choices.ToHashSet();
                 bool started = false;
                 foreach (Point choice in choices)
                 {
                     if (!this.navigation.TryStartTravel(worker,
                             new WorkerNavigationTarget(destination.NameOrUniqueName, choice, 2),
-                            "idle walk to Farm", out _, allowed.Contains, retryBlockedRoute: false))
+                            "idle walk to Farm", out WorkerNavigationTarget resolved,
+                            allowed.Contains, retryBlockedRoute: false))
                         continue;
+                    this.outboundLandings[workerId] = resolved.Tile;
                     started = true;
                     break;
                 }
                 this.nextMoveTicks[workerId] = Game1.ticks + (started ? 90 : RetryDelayTicks);
+            }
+            return new WorkerRuntimeSnapshot(WorkerTaskKind.Idle, "Traveling", "Heading out to the Farm", 0, null);
+        }
+
+        this.outboundLandings.Remove(workerId);
+
+        bool hasFarmRegion = this.TryGetFarmEntranceRegion(worker, out _, out Point farmDoor, out List<Point> reachable);
+        if (hasFarmRegion && this.cachedFarmTileSet?.Contains(worker.TilePoint) == false
+            && Distance(worker.TilePoint, farmDoor) <= 5)
+        {
+            if (!this.navigation.HasActiveRoute(workerId) && worker.controller is null && this.Ready(workerId))
+            {
+                WorkerNavigationTarget? home = this.shells.GetWorkerReturnTargets(worker).FirstOrDefault();
+                bool leavingPorch = home is not null && this.navigation.TryStartTravel(worker, home,
+                    "idle leave farmhouse porch", out _, retryBlockedRoute: false);
+                if (leavingPorch)
+                    this.monitor.Log($"{worker.displayName} is leaving the isolated Farmhouse porch through the door before choosing a Farm idle destination.", LogLevel.Trace);
+                this.nextMoveTicks[workerId] = Game1.ticks + (leavingPorch ? 90 : RetryDelayTicks);
             }
             return new WorkerRuntimeSnapshot(WorkerTaskKind.Idle, "Traveling", "Heading out to the Farm", 0, null);
         }
@@ -140,7 +168,7 @@ internal sealed class WorkerIdleMovementManager
         if (!this.Ready(workerId))
             return new WorkerRuntimeSnapshot(WorkerTaskKind.Idle, "Idle", "Looking around the Farm", 0, null);
 
-        if (!this.TryGetFarmEntranceRegion(worker, out _, out Point farmDoor, out List<Point> reachable))
+        if (!hasFarmRegion)
         {
             this.nextMoveTicks[workerId] = Game1.ticks + RetryDelayTicks;
             return new WorkerRuntimeSnapshot(WorkerTaskKind.Idle, "Idle", "Looking around the Farm", 0, null);
@@ -192,54 +220,20 @@ internal sealed class WorkerIdleMovementManager
         if (door == Point.Zero)
             return false;
 
-        Point start = Point.Zero;
-        foreach (Point tile in new[]
-        {
-            new Point(door.X, door.Y + 2), new Point(door.X, door.Y + 1),
-            new Point(door.X - 1, door.Y + 1), new Point(door.X + 1, door.Y + 1),
-            new Point(door.X - 2, door.Y + 2), new Point(door.X + 2, door.Y + 2),
-        })
-        {
-            if (!this.navigation.IsTraversableWorkTile(farm, worker, tile))
-                continue;
-            start = tile;
-            break;
-        }
-        if (start == Point.Zero)
+        Farm farmLocation = farm;
+        if (!WorkerIdleRegionPolicy.TryFindLargest(door,
+                tile => this.navigation.IsTraversableWorkTile(farmLocation, worker, tile),
+                MaximumFarmSearchTiles, out Point start, out tiles))
             return false;
 
-        tiles = this.GetConnectedTiles(farm, worker, start);
         this.cachedFarm = farm;
         this.cachedDoor = door;
         this.cachedFarmTiles = tiles;
+        this.cachedFarmTileSet = tiles.ToHashSet();
         this.cachedDay = Game1.Date.TotalDays;
         this.cachedUntilTick = Game1.ticks + FarmRegionRefreshTicks;
         this.monitor.Log($"Idle Farm reachability from {start}: {tiles.Count} connected tiles (Farmhouse door {door}).", LogLevel.Trace);
         return tiles.Count > 0;
-    }
-
-    private List<Point> GetConnectedTiles(Farm farm, NPC worker, Point start)
-    {
-        Queue<Point> pending = new();
-        HashSet<Point> seen = new() { start };
-        List<Point> connected = new();
-        pending.Enqueue(start);
-        while (pending.Count > 0 && connected.Count < MaximumFarmSearchTiles)
-        {
-            Point tile = pending.Dequeue();
-            connected.Add(tile);
-            foreach (Point neighbor in new[]
-            {
-                new Point(tile.X, tile.Y - 1), new Point(tile.X + 1, tile.Y),
-                new Point(tile.X, tile.Y + 1), new Point(tile.X - 1, tile.Y),
-            })
-            {
-                if (!seen.Add(neighbor) || !this.navigation.IsTraversableWorkTile(farm, worker, neighbor))
-                    continue;
-                pending.Enqueue(neighbor);
-            }
-        }
-        return connected;
     }
 
     private bool IsAvailable(Farm farm, NPC worker, Point tile)
@@ -261,6 +255,12 @@ internal sealed class WorkerIdleMovementManager
         {
             if (!string.Equals(otherId, workerId, StringComparison.OrdinalIgnoreCase)
                 && Distance(tile, destination) < minimumDistance)
+                return false;
+        }
+        foreach ((string otherId, Point landing) in this.outboundLandings)
+        {
+            if (!string.Equals(otherId, workerId, StringComparison.OrdinalIgnoreCase)
+                && Distance(tile, landing) < minimumDistance)
                 return false;
         }
         return true;

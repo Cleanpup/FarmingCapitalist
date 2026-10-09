@@ -213,32 +213,69 @@ internal sealed class WorkerFishingManager
                 || !WorkerFishingPolicy.IsWithinWorkHours(Game1.timeOfDay) || !worker.modData.TryGetValue(VisualKey, out string? value)) continue;
             string[] fields = value.Split(',');
             if (fields.Length != 3 || !int.TryParse(fields[0], out int x) || !int.TryParse(fields[1], out int y)
-                || !int.TryParse(fields[2], out int phase)) continue;
-            Vector2 hand = worker.Position + new Vector2(32, -4);
-            Vector2 bobber = new Vector2(x * 64 + 32, y * 64 + 32);
-            Vector2 direction = Vector2.Normalize(bobber - (worker.Position + new Vector2(32, 32)));
+                || !int.TryParse(fields[2], out int phase) || phase is < 0 or >= 360) continue;
+            Vector2 bobber = new(x * 64 + 32, y * 64 + 32);
+            Point shore = worker.TilePoint;
+            int facing = y < shore.Y ? 0 : x > shore.X ? 1 : y > shore.Y ? 2 : 3;
             float cast = Math.Clamp(phase / 45f, 0f, 1f);
             if (phase > 315) cast = Math.Clamp((360 - phase) / 45f, 0f, 1f);
-            Vector2 tip = hand + direction * 48 + new Vector2(0, -24);
-            hand = Game1.GlobalToLocal(Game1.viewport, hand);
-            tip = Game1.GlobalToLocal(Game1.viewport, tip);
-            bobber = Game1.GlobalToLocal(Game1.viewport, bobber);
-            DrawLine(batch, hand, tip, new Color(139, 90, 43), 4);
-            Vector2 end = Vector2.Lerp(tip, bobber, cast);
-            DrawLine(batch, tip, end, Color.White * 0.85f, 1);
-            if (cast > 0.9f)
+            DrawNativeRod(batch, worker, facing, phase);
+            if (cast <= 0f) continue;
+
+            // FishingRod.draw's bobber asset and curved line, rendered from saved
+            // visual state only. Its draw method also plays sounds and adds sprites.
+            Vector2 tip = worker.Position + (facing switch
             {
-                float bob = phase % 24 < 12 ? 0 : 2;
-                batch.Draw(Game1.staminaRect, new Rectangle((int)end.X - 3, (int)(end.Y + bob) - 4, 6, 8), Color.Red);
-                batch.Draw(Game1.staminaRect, new Rectangle((int)end.X - 3, (int)(end.Y + bob), 6, 4), Color.White);
-            }
+                0 => new Vector2(28, -76),
+                1 => new Vector2(120, -48),
+                2 => new Vector2(28, 52),
+                _ => new Vector2(-56, -48),
+            });
+            Vector2 floatPosition = Vector2.Lerp(tip, bobber, cast);
+            if (cast > 0.9f && phase % 24 >= 12) floatPosition.Y += 2f;
+            Vector2 lineStart = Game1.GlobalToLocal(Game1.viewport, tip);
+            Vector2 lineEnd = Game1.GlobalToLocal(Game1.viewport, floatPosition + new Vector2(0, -10));
+            DrawNativeLine(batch, lineStart, lineEnd, cast > 0.9f,
+                floatPosition.Y / 10000f + 0.005f);
+
+            Rectangle bobberSource = Game1.getSourceRectForStandardTileSheet(Game1.bobbersTexture, 0, 16, 32);
+            bobberSource.Y += 16;
+            bobberSource.Height = 16;
+            batch.Draw(Game1.bobbersTexture, Game1.GlobalToLocal(Game1.viewport, floatPosition), bobberSource,
+                Color.White, 0f, new Vector2(8, 8), 4f,
+                facing == 1 ? SpriteEffects.FlipHorizontally : SpriteEffects.None, floatPosition.Y / 10000f);
         }
     }
 
-    private static void DrawLine(SpriteBatch batch, Vector2 start, Vector2 end, Color color, int width)
+    private static void DrawNativeRod(SpriteBatch batch, NPC worker, int facing, int phase)
     {
-        Vector2 delta = end - start;
-        batch.Draw(Game1.staminaRect, start, null, color, MathF.Atan2(delta.Y, delta.X), Vector2.Zero,
-            new Vector2(delta.Length(), width), SpriteEffects.None, 1f);
+        // Game1.drawTool uses these 48x48 frames from the rod's tool texture.
+        // We draw the asset directly so no FishingRod callbacks can alter gameplay.
+        int frame = phase < 45 ? Math.Clamp(phase / 9, 0, 4) : phase <= 315 ? 5 : 6;
+        int sourceY = facing is 1 or 3 ? (phase > 315 ? 240 : 288) : 336;
+        Rectangle source = new(frame * 48, sourceY, 48, 48);
+        Texture2D texture = ItemRegistry.GetData("(T)BambooPole")?.GetTexture() ?? Game1.toolSpriteSheet;
+        if (source.Right > texture.Width || source.Bottom > texture.Height) return;
+        Vector2 position = worker.Position + (facing is 1 or 3
+            ? new Vector2(-64, -160) : new Vector2(facing == 0 ? -48 : -64, -124));
+        batch.Draw(texture, Game1.GlobalToLocal(Game1.viewport, position), source,
+            Color.Goldenrod, 0f, Vector2.Zero, 4f,
+            facing == 3 ? SpriteEffects.FlipHorizontally : SpriteEffects.None,
+            worker.StandingPixel.Y / 10000f + 0.003f);
+    }
+
+    private static void DrawNativeLine(SpriteBatch batch, Vector2 start, Vector2 end, bool held, float depth)
+    {
+        Vector2 p1 = new(start.X + (end.X - start.X) / 3f, start.Y + (end.Y - start.Y) * 2f / 3f);
+        Vector2 p2 = new(start.X + (end.X - start.X) * 2f / 3f,
+            start.Y + (end.Y - start.Y) * (held ? 6f : 2f) / 5f);
+        Vector2 previous = start;
+        for (int i = 1; i <= 40; i++)
+        {
+            Vector2 next = Utility.GetCurvePoint(i / 40f, start, p1, p2, end);
+            Utility.drawLineWithScreenCoordinates((int)previous.X, (int)previous.Y,
+                (int)next.X, (int)next.Y, batch, Color.White * 0.5f, depth);
+            previous = next;
+        }
     }
 }

@@ -14,6 +14,6 @@ If every fish roll fails, the attempt produces nothing. This preserves bite fail
 
 All ten legendary/Legendary II IDs (159, 160, 163, 682, 775, 898–902) are excluded by a conservative species whitelist. Algae, jelly, trash and position-specific Forest Goby are excluded. Forest pond fish never enter the river pool. IslandSouth has no distinct fish-area ID and uses its all-season ocean entries.
 
-Body sprites bake raw vanilla cast/held frames (up 76/38/63/62/63/76, right 48/49/50/51/52/72, down 66/67/68/69/70/74, left mirrors right). A mirrored transient host phase chooses the cast, held and reversed reel poses. Rod/line/bobber drawing is read-only. Vanilla rod `beginUsing`, casting callbacks and `FishingRod.draw` are never called. Generated textures and runtime shoreline/cast state are rebuilt, never saved.
+Body sprites bake raw vanilla cast/held frames (up 76/38/63/62/63/76, right 48/49/50/51/52/72, down 66/67/68/69/70/74, left mirrors right). A mirrored transient host phase chooses the cast, held and reversed reel poses. Read-only rendering uses the game's Bamboo Pole rod frames and bobber sprites, with its curved line geometry and rod-tip anchors. Vanilla rod `beginUsing`, casting callbacks and `FishingRod.draw` are never called. Generated textures and runtime shoreline/cast state are rebuilt, never saved.
 
 Automated checks: `dotnet run --project Tests/FishingChecks.csproj`. Manual checks: TESTING.md 76–79. Build success and policy checks do not establish an in-game playtest.

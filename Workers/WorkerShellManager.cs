@@ -1420,8 +1420,7 @@ internal sealed class WorkerShellManager
         Texture2D newSheet;
         try
         {
-            newSheet = this.spriteSheetBuilder.BuildSheet(entry.Appearance,
-                includeCombatFrames: entry.Profession == WorkerProfession.CombatWorker);
+            newSheet = this.spriteSheetBuilder.BuildSheet(entry.Appearance);
         }
         catch (Exception ex)
         {

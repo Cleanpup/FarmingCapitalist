@@ -493,7 +493,11 @@ foreach (WorkerWorkAnimationKind kind in Enum.GetValues<WorkerWorkAnimationKind>
     Equal(WorkerWorkAnimationPolicy.PoseCount(kind) - 1, WorkerWorkAnimationPolicy.PoseAt(kind, 999), "late pose never walks outside generated sheet");
     for (int facing = 0; facing < 4; facing++)
         if (kind == WorkerWorkAnimationKind.Scythe)
-            Equal(gatherAnimations[facing], WorkerWorkAnimationPolicy.NativeAnimation(kind, facing), "weed clearing uses a gathering/sweep body rather than sword metadata");
+            {
+            Equal(WorkerCombatSwingPolicy.SwordAnimation(facing), WorkerWorkAnimationPolicy.NativeAnimation(kind, facing), "scythe shares sword body metadata");
+            for (int pose = 0; pose < WorkerCombatSwingPolicy.PoseCount; pose++)
+                Equal(WorkerCombatSwingPolicy.SheetFrame(facing, pose), WorkerWorkAnimationPolicy.SheetFrame(kind, facing, pose), "scythe uses exact sword sprites in every direction");
+        }
         else if (kind == WorkerWorkAnimationKind.Pickaxe)
             Equal(overheadAnimations[facing], WorkerWorkAnimationPolicy.NativeAnimation(kind, facing), "pickaxe retains overhead direction independently of walking/swords");
 }

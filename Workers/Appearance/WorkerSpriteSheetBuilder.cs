@@ -39,7 +39,7 @@ internal sealed class WorkerSpriteSheetBuilder
         this.monitor = monitor;
     }
 
-    public Texture2D BuildSheet(WorkerAppearanceData appearance, bool includeCombatFrames = false)
+    public Texture2D BuildSheet(WorkerAppearanceData appearance)
     {
         GraphicsDevice graphicsDevice = Game1.graphics.GraphicsDevice;
         int outputWidth = FrameWidth * FramesPerRow;
@@ -85,7 +85,7 @@ internal sealed class WorkerSpriteSheetBuilder
                 this.DrawFrame(spriteBatch, renderWorker, frame);
             }
 
-            if (includeCombatFrames)
+            // Every profession needs these shared slash poses for scythe actions.
             {
                 for (int facing = 0; facing < 4; facing++)
                 {

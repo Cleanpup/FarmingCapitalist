@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Tools;
 
 namespace FarmingCapitalist.Workers;
 
@@ -101,7 +102,7 @@ internal sealed class WorkerWorkAnimationManager
                 else if (passing) work.Elapsed += Game1.currentGameTime.ElapsedGameTime.TotalMilliseconds;
                 // Retain completed signals to avoid replaying a delayed host update.
                 if (work.LocationName == worker.currentLocation?.NameOrUniqueName && Vector2.DistanceSquared(work.Position, worker.Position) < 4 && this.IsActive(worker)) this.ApplyPose(worker, work);
-                else if (worker.Sprite?.CurrentFrame >= WorkerWorkAnimationPolicy.FirstSheetFrame)
+                else if (worker.Sprite?.CurrentFrame >= (work.Kind == WorkerWorkAnimationKind.Scythe ? WorkerCombatSwingPolicy.FirstSheetFrame : WorkerWorkAnimationPolicy.FirstSheetFrame))
                     worker.Sprite.CurrentFrame = WorkerCombatSwingPolicy.DirectionRow(work.Facing) * 4;
             }
             return;
@@ -142,16 +143,6 @@ internal sealed class WorkerWorkAnimationManager
             || Vector2.DistanceSquared(work.Position, worker.Position) >= 4 || !this.IsActive(worker)) return;
         this.ApplyPose(worker, work);
         if (work.Kind == WorkerWorkAnimationKind.Gather) return;
-        if (work.Kind == WorkerWorkAnimationKind.Scythe)
-        {
-            var data = ItemRegistry.GetDataOrErrorItem("(W)47");
-            Vector2 origin = worker.getLocalPosition(Game1.viewport) + new Vector2(32, 32);
-            Vector2 forward = work.Facing switch { 0 => new(0, -1), 1 => new(1, 0), 2 => new(0, 1), _ => new(-1, 0) };
-            float angle = MathF.Atan2(forward.Y, forward.X) + (float)(work.Elapsed / WorkerWorkAnimationPolicy.DurationMilliseconds - .5) * MathF.PI;
-            batch.Draw(data.GetTexture(), origin + forward * 20, data.GetSourceRect(), Color.White * alpha,
-                angle + MathF.PI / 4, new Vector2(0, 16), 4f, SpriteEffects.None, worker.StandingPixel.Y / 10000f + .0001f);
-            return;
-        }
         // Native drawing operates only on this private proxy/tool. It never calls
         // beginUsing/endUsing/DoFunction or animation callbacks, nor touches a farmer.
         if (batch != Game1.spriteBatch) return;
@@ -162,6 +153,13 @@ internal sealed class WorkerWorkAnimationManager
         proxy.Position = worker.Position;
         proxy.Position += new Vector2(0, worker.StandingPixel.Y - proxy.StandingPixel.Y);
         proxy.FacingDirection = work.Facing;
+        if (work.Kind == WorkerWorkAnimationKind.Scythe)
+        {
+            // Use the same native slash placement and poses as combat, with the scythe blade.
+            MeleeWeapon.drawDuringUse(WorkerCombatSwingPolicy.PoseAt(work.Elapsed), work.Facing, batch,
+                worker.getLocalPosition(Game1.viewport) + new Vector2(0, 16), proxy, "(W)47", 3, false);
+            return;
+        }
         string toolId = work.Kind switch { WorkerWorkAnimationKind.Water => "(T)WateringCan", WorkerWorkAnimationKind.Axe => "(T)Axe", _ => "(T)Pickaxe" };
         if (proxy.CurrentTool?.QualifiedItemId != toolId) proxy.Items[0] = ItemRegistry.Create(toolId);
         proxy.CurrentToolIndex = 0;

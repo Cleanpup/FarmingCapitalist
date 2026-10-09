@@ -2,7 +2,7 @@ namespace FarmingCapitalist.Workers;
 
 internal enum WorkerWorkAnimationKind { Water, Gather, Axe, Pickaxe, Scythe }
 
-/// <summary>Work poses use the native farmer tool/pickup metadata, never combat sword poses.</summary>
+/// <summary>Work poses use the native farmer tool/pickup metadata, with scythes sharing the combat sword poses.</summary>
 internal static class WorkerWorkAnimationPolicy
 {
     public const int FirstSheetFrame = 40; // leaves existing walking and sword frames unchanged
@@ -17,15 +17,15 @@ internal static class WorkerWorkAnimationPolicy
         WorkerWorkAnimationKind.Axe or WorkerWorkAnimationKind.Pickaxe => 2,
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
-    public static int PoseCount(WorkerWorkAnimationKind kind) => BodyKind(kind) == 2 ? 5 : 4;
+    public static int PoseCount(WorkerWorkAnimationKind kind) => kind == WorkerWorkAnimationKind.Scythe ? WorkerCombatSwingPolicy.PoseCount : BodyKind(kind) == 2 ? 5 : 4;
     public static int PoseAt(WorkerWorkAnimationKind kind, double elapsed)
-        => Math.Clamp((int)(elapsed / DurationMilliseconds * PoseCount(kind)), 0, PoseCount(kind) - 1);
+        => kind == WorkerWorkAnimationKind.Scythe ? WorkerCombatSwingPolicy.PoseAt(elapsed) : Math.Clamp((int)(elapsed / DurationMilliseconds * PoseCount(kind)), 0, PoseCount(kind) - 1);
     public static double ImpactMilliseconds(WorkerWorkAnimationKind kind)
-        => DurationMilliseconds / PoseCount(kind) * (BodyKind(kind) == 2 || kind == WorkerWorkAnimationKind.Water ? 2 : 1);
+        => kind == WorkerWorkAnimationKind.Scythe ? WorkerCombatSwingPolicy.ImpactMilliseconds : DurationMilliseconds / PoseCount(kind) * (BodyKind(kind) == 2 || kind == WorkerWorkAnimationKind.Water ? 2 : 1);
     public static int SheetFrame(WorkerWorkAnimationKind kind, int facing, int pose)
-        => FirstSheetFrame + (BodyKind(kind) * 4 + WorkerCombatSwingPolicy.DirectionRow(facing)) * FramesPerDirection + pose;
+        => kind == WorkerWorkAnimationKind.Scythe ? WorkerCombatSwingPolicy.SheetFrame(facing, pose) : FirstSheetFrame + (BodyKind(kind) * 4 + WorkerCombatSwingPolicy.DirectionRow(facing)) * FramesPerDirection + pose;
     public static int NativeAnimation(WorkerWorkAnimationKind kind, int facing)
-        => BodyKind(kind) switch
+        => kind == WorkerWorkAnimationKind.Scythe ? WorkerCombatSwingPolicy.SwordAnimation(facing) : BodyKind(kind) switch
         {
             0 => facing switch { 2 => 164, 1 => 172, 0 => 180, 3 => 188, _ => throw new ArgumentOutOfRangeException(nameof(facing)) },
             1 => facing switch { 2 => 281, 1 => 280, 0 => 279, 3 => 282, _ => throw new ArgumentOutOfRangeException(nameof(facing)) },

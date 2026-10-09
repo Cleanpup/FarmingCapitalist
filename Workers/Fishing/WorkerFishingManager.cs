@@ -15,6 +15,7 @@ internal sealed class WorkerFishingManager
     private readonly Dictionary<string, (GameLocation Location, Point Shore, Point Water)> stationed = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> retryAfter = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<NPC> posed = new();
+    private readonly HashSet<string> reportedBlockedShores = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> castTicks = new(StringComparer.OrdinalIgnoreCase);
 
     public WorkerFishingManager(WorkerShellManager shell, WorkerNavigationManager navigation, IMonitor monitor)
@@ -27,12 +28,12 @@ internal sealed class WorkerFishingManager
         foreach (NPC worker in this.posed)
             if (worker.Sprite is not null) worker.Sprite.CurrentFrame = WorkerCombatSwingPolicy.DirectionRow(worker.FacingDirection) * 4;
         this.posed.Clear();
-        this.stationed.Clear(); this.retryAfter.Clear(); this.castTicks.Clear();
+        this.stationed.Clear(); this.retryAfter.Clear(); this.castTicks.Clear(); this.reportedBlockedShores.Clear();
     }
 
     public void Stop(string workerId)
     {
-        this.stationed.Remove(workerId); this.retryAfter.Remove(workerId); this.castTicks.Remove(workerId);
+        this.stationed.Remove(workerId); this.retryAfter.Remove(workerId); this.castTicks.Remove(workerId); this.reportedBlockedShores.Remove(workerId);
         if (this.shell.TryGetWorker(workerId, out NPC? worker) && worker is not null && Context.IsMainPlayer)
         {
             worker.modData.Remove(VisualKey);
@@ -87,13 +88,17 @@ internal sealed class WorkerFishingManager
             worker.modData.Remove(VisualKey);
             if (WorkerFishingPolicy.ObserveClock(progress, Game1.Date.TotalDays, Game1.timeOfDay, accrue: false))
                 this.shell.RecordFishingProgress(workerId, progress);
+            // Preserve the reason throughout the retry cooldown instead of replacing it with Preparing.
+            snapshot = snapshot with { Status = "Waiting for clear fishable shoreline" };
             if (this.retryAfter.GetValueOrDefault(workerId) > Game1.ticks) return false;
             this.retryAfter[workerId] = Game1.ticks + 120;
             if (!this.TryChooseShore(location, worker, area, out Point shore, out Point water))
             {
-                snapshot = snapshot with { Status = "Waiting for clear fishable shoreline" };
+                if (this.reportedBlockedShores.Add(workerId))
+                    this.monitor.Log($"{worker.displayName} is waiting for clear fishable shoreline in {location.NameOrUniqueName} near {WorkerFishingAreaCatalog.Anchor(area)}; no safe shore/cast pair within 12 tiles.", LogLevel.Info);
                 return false;
             }
+            this.reportedBlockedShores.Remove(workerId);
             this.navigation.StopWorker(worker);
             Game1.warpCharacter(worker, location.NameOrUniqueName, shore);
             this.navigation.ApplyIdlePose(worker);
@@ -131,11 +136,20 @@ internal sealed class WorkerFishingManager
             && (checkActors ? this.navigation.IsWalkableWorkTile(location, worker, shore) : this.navigation.IsTraversableWorkTile(location, worker, shore))
             && !location.isWaterTile(shore.X, shore.Y)
             && location.isTileFishable(water.X, water.Y)
+            && WorkerFishingShorePolicy.IsContinuousWaterCast(shore.X, shore.Y, water.X, water.Y,
+                (x, y) => IsWaterForCast(location, x, y))
             && !location.warps.Any(warp => Math.Abs(warp.X - shore.X) + Math.Abs(warp.Y - shore.Y) <= 1)
             && location.doesTileHaveProperty(shore.X, shore.Y, "TouchAction", "Back") is null
             && new[] { new Point(0, -1), new Point(1, 0), new Point(0, 1), new Point(-1, 0) }
                 .Any(offset => checkActors ? this.navigation.IsWalkableWorkTile(location, worker, shore + offset)
                     : this.navigation.IsTraversableWorkTile(location, worker, shore + offset));
+
+    private static bool IsWaterForCast(GameLocation location, int x, int y)
+        => location.hasTileAt(x, y, "Back") && (location.isWaterTile(x, y) || location.isTileFishable(x, y));
+
+    private static bool IsEligibleFishableWater(GameLocation location, string area, int x, int y)
+        => location.isTileFishable(x, y) && (area != WorkerFishingAreaCatalog.Forest
+            || (location.TryGetFishAreaForTile(new Vector2(x, y), out string fishArea, out _) && fishArea == "River"));
 
     private bool TryChooseShore(GameLocation location, NPC worker, string area, out Point shore, out Point water)
     {
@@ -150,11 +164,13 @@ internal sealed class WorkerFishingManager
             Point candidate = new(anchor.X + dx, anchor.Y + dy);
             foreach (Point offset in offsets)
             {
-                Point cast = candidate + offset;
+                // Vanilla often draws a nonfishable border in the Buildings layer over
+                // the first water tile. Cast beyond that border without crossing land.
+                if (!WorkerFishingShorePolicy.TryFindCast(candidate.X, candidate.Y, offset.X, offset.Y,
+                    (x, y) => IsWaterForCast(location, x, y),
+                    (x, y) => IsEligibleFishableWater(location, area, x, y), out var castTile)) continue;
+                Point cast = new(castTile.X, castTile.Y);
                 if (!this.IsSafeShore(location, worker, candidate, cast)) continue;
-                // Use Forest river, never the pond's distinct fish pool.
-                if (area == WorkerFishingAreaCatalog.Forest
-                    && (!location.TryGetFishAreaForTile(cast.ToVector2(), out string fishArea, out _) || fishArea != "River")) continue;
                 shore = candidate; water = cast; return true;
             }
         }

@@ -15,7 +15,7 @@ internal static class WorkerFishingAreaCatalog
     };
     public static Point Anchor(string area) => area switch
     {
-        Forest => new(66, 50), Mountain => new(49, 20), Town => new(52, 76), Beach => new(30, 30),
+        Forest => new(66, 50), Mountain => new(49, 20), Town => new(69, 81), Beach => new(30, 30),
         Island => new(19, 35), _ => Point.Zero,
     };
     public static string? AccessReason(string area) => !IsValid(area) ? "Unknown fishing area"

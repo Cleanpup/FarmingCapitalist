@@ -122,13 +122,13 @@ internal sealed class WorkerNavigationManager
     }
 
     public WorkerObstacleRoutePlanner? CreateObstacleRoutePlanner(NPC worker, IEnumerable<Point> targets,
-        IReadOnlySet<Point>? excludedTiles = null)
+        IReadOnlySet<Point>? excludedTiles = null, Func<Point, bool>? stepValidator = null)
     {
         if (!Context.IsWorldReady || !Context.IsMainPlayer || worker.currentLocation is not GameLocation location)
             return null;
 
         return new WorkerObstacleRoutePlanner(worker.TilePoint, targets,
-            tile => excludedTiles?.Contains(tile) == true
+            tile => excludedTiles?.Contains(tile) == true || stepValidator?.Invoke(tile) == false
                 ? WorkerRouteTileKind.Impassable
                 : this.ClassifyObstacleRouteTile(location, worker, tile));
     }

@@ -21,7 +21,7 @@ internal sealed class WorkerRosterEntry
     public string ForageLocationName { get; set; } = WorkerForageAreaCatalog.DefaultLocationName;
 
     public string CombatArea { get; set; } = WorkerCombatAreaCatalog.Farm;
-    public string MiningArea { get; set; } = WorkerMiningPolicy.Farm;
+    public string MiningArea { get; set; } = WorkerMiningPolicy.DefaultArea;
     public string ExplorationArea { get; set; } = WorkerExplorationAreaCatalog.Mines;
     public WorkerExplorationProgress Exploration { get; set; } = new();
 

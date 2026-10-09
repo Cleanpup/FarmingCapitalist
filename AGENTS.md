@@ -10,7 +10,7 @@
 - `ModEntry.cs`: event wiring, console commands, lifecycle.
 - `Workers/WorkerShellManager.cs`: roster, spawning, identity, persistence and hiring.
 - `Workers/WorkerBehaviorManager.cs`: task selection and execution; `WorkerNavigationManager.cs`: routes/recovery.
-- `Workers/Jobs/WorkerMiningPolicy.cs` and `WorkerMiningAreaCatalog.cs`: initial Miner Farm/Quarry areas, authored quarry bounds, bridge gate and steel tool tier. Physical Mine rocks shares the object-work/navigation/drop pipeline; it never enters generated dungeon floors.
+- `Workers/Jobs/WorkerMiningPolicy.cs` and `WorkerMiningAreaCatalog.cs`: Miner areas/jobs, mineral node selection, quarry bounds, access gates and vanilla ladder/shaft detection. Physical mining shares the object-work/drop pipeline. `Workers/Navigation/WorkerDungeonTravelManager.cs`: shared Combat/Miner entrance staging, active-floor following and safe landing geometry (including Volcano lava).
 - `Workers/Combat/WorkerCombatManager.cs`: physical Slay monsters; `WorkerExplorationManager.cs` and `WorkerExplorationPolicy.cs`: entrance-only Explore Area simulation/timing; `WorkerExplorationLootCatalog.cs`: source-backed hourly loot tiers and gates. `WorkerExplorationProgress` persists progress and pending loot; delivery uses each worker's saved chest or shipping fallback (schema 4).
 - `Workers/WorkerControlMenu*.cs`: management UI and input; `WorkerCustomizationManager.cs`: appearance workflow.
 - `Workers/Appearance/WorkerWorkAnimationManager.cs` and `WorkerWorkAnimationPolicy.cs`: transient Farmer/Forager tool and gathering poses, host impact callbacks, and client visuals. Work motions retain a captured target-relative facing and never execute actions in draw hooks.

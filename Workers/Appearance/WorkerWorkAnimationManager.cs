@@ -163,7 +163,7 @@ internal sealed class WorkerWorkAnimationManager
         bool mining = work.Kind == WorkerWorkAnimationKind.Pickaxe
             && this.shell.TryGetWorkerId(worker, out string workerId)
             && this.shell.GetWorkerProfession(workerId) == WorkerProfession.Miner
-            && this.shell.GetAssignedTask(workerId) == WorkerTaskKind.MineRocks;
+            && WorkerMiningPolicy.IsMiningTask(this.shell.GetAssignedTask(workerId));
         string toolId = work.Kind switch { WorkerWorkAnimationKind.Water => "(T)WateringCan", WorkerWorkAnimationKind.Axe => "(T)Axe",
             _ => mining ? "(T)SteelPickaxe" : "(T)Pickaxe" };
         if (proxy.CurrentTool?.QualifiedItemId != toolId) proxy.Items[0] = ItemRegistry.Create(toolId);

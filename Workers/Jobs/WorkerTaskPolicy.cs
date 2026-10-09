@@ -16,7 +16,7 @@ internal static class WorkerTaskPolicy
     };
 
     private static readonly WorkerTaskKind[] CombatTasks = { WorkerTaskKind.SlayMonsters, WorkerTaskKind.ExploreArea, WorkerTaskKind.Idle };
-    private static readonly WorkerTaskKind[] MinerTasks = { WorkerTaskKind.MineRocks, WorkerTaskKind.Idle };
+    private static readonly WorkerTaskKind[] MinerTasks = { WorkerTaskKind.MineOreGems, WorkerTaskKind.FindLadder, WorkerTaskKind.MineRocks, WorkerTaskKind.Idle };
 
     public const int WorkDayEndsAt = 2200;
 
@@ -82,7 +82,9 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.ClearDebris => "Clear debris",
         WorkerTaskKind.SlayMonsters => "Slay monsters",
         WorkerTaskKind.ExploreArea => "Explore Area",
-        WorkerTaskKind.MineRocks => "Mine rocks",
+        WorkerTaskKind.MineRocks => "Mine any stone",
+        WorkerTaskKind.MineOreGems => "Mine ores/gems",
+        WorkerTaskKind.FindLadder => "Find ladder",
         _ => idleLabel,
     };
 }

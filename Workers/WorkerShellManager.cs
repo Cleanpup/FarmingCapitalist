@@ -309,7 +309,7 @@ internal sealed class WorkerShellManager
         => this.GetWorkerEntry(workerId)?.CombatArea ?? WorkerCombatAreaCatalog.Farm;
 
     public string GetMiningArea(string workerId)
-        => this.GetWorkerEntry(workerId)?.MiningArea ?? WorkerMiningPolicy.Farm;
+        => this.GetWorkerEntry(workerId)?.MiningArea ?? WorkerMiningPolicy.DefaultArea;
 
     public bool TrySetMiningArea(string workerId, string area, out string message)
     {
@@ -328,7 +328,7 @@ internal sealed class WorkerShellManager
         entry.MiningArea = area;
         entry.AssignedTask = WorkerTaskKind.Idle;
         this.PersistRoster();
-        message = $"{entry.DisplayName} will mine in {area}. Choose Mine rocks to begin.";
+        message = $"{entry.DisplayName} will mine in {WorkerMiningPolicy.GetLabel(area)}. Choose a mining job to begin.";
         return true;
     }
 
@@ -666,7 +666,7 @@ internal sealed class WorkerShellManager
             if (this.TryGetWorkerId(worker, out string workerId) && this.GetWorkerEntry(workerId) is not null
                 && this.FindWorkerById(workerId) is null)
             {
-                if (location is MineShaft mine && !MineShaft.activeMines.Contains(mine))
+                if (WorkerDungeonTravelManager.IsGeneratedFloor(location) && !WorkerDungeonTravelManager.IsActiveFloor(location))
                     this.TryRecoverInactiveMineWorker(worker);
                 else
                 {
@@ -1054,7 +1054,7 @@ internal sealed class WorkerShellManager
             if (!WorkerCombatAreaCatalog.IsValid(normalized.CombatArea))
                 normalized.CombatArea = WorkerCombatAreaCatalog.Farm;
             if (!WorkerMiningPolicy.IsValid(normalized.MiningArea))
-                normalized.MiningArea = WorkerMiningPolicy.Farm;
+                normalized.MiningArea = WorkerMiningPolicy.DefaultArea;
             if (!WorkerExplorationAreaCatalog.IsValid(normalized.ExplorationArea))
                 normalized.ExplorationArea = WorkerExplorationAreaCatalog.Mines;
             normalized.Exploration ??= new();
@@ -1287,8 +1287,8 @@ internal sealed class WorkerShellManager
         // Generated floors are discarded after the farmer leaves. Keep the same
         // NPC shell and move it back into the live world before it can disappear
         // from menu commands or cause a duplicate shell to be created.
-        bool onGeneratedFloor = cached.currentLocation is MineShaft;
-        bool floorIsActive = cached.currentLocation is MineShaft currentMine && MineShaft.activeMines.Contains(currentMine);
+        bool onGeneratedFloor = WorkerDungeonTravelManager.IsGeneratedFloor(cached.currentLocation);
+        bool floorIsActive = WorkerDungeonTravelManager.IsActiveFloor(cached.currentLocation);
         bool attachedToLocation = cached.currentLocation?.characters.Contains(cached) == true;
         if (recoverStale && WorkerShellLifecyclePolicy.ShouldRecoverCachedWorker(onGeneratedFloor, floorIsActive, attachedToLocation))
             this.TryRecoverInactiveMineWorker(cached);

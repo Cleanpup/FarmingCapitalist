@@ -127,9 +127,9 @@ internal sealed class ModEntry : Mod
                 $"Press B or use 'workers' to manage your crew. Hire: {WorkerEmploymentTerms.HiringCost}g including today's wage; later {WorkerEmploymentTerms.DailyWage}g/day.\n"
                 + "workers status — list IDs, orders, activity and location\n"
                 + "workers hire [default] — hire with custom or default appearance\n"
-                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|mine|slay|explore|idle> — assign a job\n"
+                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|ores|ladder|mine|slay|explore|idle> — assign a job\n"
                 + "workers combat-area <id> <farm|mines|skull|islandfarm|volcanoentrance> — set a combat worker's area\n"
-                + "workers mining-area <id> <farm|quarry> — set physical mining area\n"
+                + "workers mining-area <id> <quarry|mines|skull|volcano> — set physical mining area\n"
                 + "workers explore-area <id> <mines|skull|volcano> — set simulated exploration area\n"
                 + "workers dismiss <id> — dismiss one worker\n"
                 + "workers pay — retry unpaid wages without charging paid workers again\n"
@@ -162,15 +162,17 @@ internal sealed class ModEntry : Mod
                     "trees" or "choptrees" => WorkerTaskKind.ChopTrees,
                     "hardwood" or "chophardwood" => WorkerTaskKind.ChopHardwood,
                     "debris" or "cleardebris" => WorkerTaskKind.ClearDebris,
-                    "mine" or "mining" or "minerocks" => WorkerTaskKind.MineRocks,
+                    "mine" or "mining" or "minerocks" or "allstone" => WorkerTaskKind.MineRocks,
                     "slay" or "combat" or "slaymonsters" => WorkerTaskKind.SlayMonsters,
+                    "ores" or "gems" or "ore" => WorkerTaskKind.MineOreGems,
+                    "ladder" or "findladder" => WorkerTaskKind.FindLadder,
                     "explore" or "explorearea" => WorkerTaskKind.ExploreArea,
                     "idle" or "stop" => WorkerTaskKind.Idle,
                     _ => null,
                 };
                 if (task is null)
                 {
-                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, debris, mine, slay, explore, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
+                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, debris, ores, ladder, mine, slay, explore, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
                     return;
                 }
                 bool assigned = this.workerBehaviorManager.TryAssignTask(args[1], task.Value, out string assignmentMessage);
@@ -182,11 +184,14 @@ internal sealed class ModEntry : Mod
                 {
                     "farm" => WorkerMiningPolicy.Farm,
                     "quarry" => WorkerMiningPolicy.Quarry,
+                    "mines" or "mine" => WorkerMiningPolicy.Mines,
+                    "skull" or "skullcavern" => WorkerMiningPolicy.SkullCavern,
+                    "volcano" => WorkerMiningPolicy.Volcano,
                     _ => null,
                 };
                 if (miningArea is null)
                 {
-                    this.Monitor.Log("Choose farm or quarry.", LogLevel.Info);
+                    this.Monitor.Log("Choose quarry, mines, skull, or volcano.", LogLevel.Info);
                     return;
                 }
                 bool miningChanged = this.workerBehaviorManager.TrySetMiningArea(args[1], miningArea, out string miningMessage);

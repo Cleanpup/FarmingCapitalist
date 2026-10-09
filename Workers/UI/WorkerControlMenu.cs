@@ -363,7 +363,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
             {
                 if (this.EnsureSelectedHostWorker())
                 {
-                    string next = miner.MiningArea == WorkerMiningPolicy.Farm ? WorkerMiningPolicy.Quarry : WorkerMiningPolicy.Farm;
+                    int current = WorkerMiningPolicy.Areas.ToList().IndexOf(miner.MiningArea);
+                    string next = WorkerMiningPolicy.Areas[(current + 1) % WorkerMiningPolicy.Areas.Count];
                     bool success = this.workerBehaviorManager.TrySetMiningArea(miner.WorkerId, next, out string message);
                     this.SetFeedback(message, !success);
                     this.RefreshSnapshots();
@@ -934,7 +935,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         if (selectedWorker is { Profession: WorkerProfession.Miner } miner)
         {
-            this.DrawButton(b, this.forageAreaButton, $"Mining area: {miner.MiningArea}  >",
+            this.DrawButton(b, this.forageAreaButton, $"Mining area: {WorkerMiningPolicy.GetLabel(miner.MiningArea)}  >",
                 enabled, Color.White, WorkerMenuArt.Icon.Tend);
         }
         if (selectedWorker is { Profession: WorkerProfession.CombatWorker } combat)
@@ -1131,7 +1132,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerTaskKind.ChopTrees => WorkerMenuArt.Icon.Tend,
             WorkerTaskKind.ChopHardwood => WorkerMenuArt.Icon.Ledger,
             WorkerTaskKind.ClearDebris => WorkerMenuArt.Icon.Tend,
-            WorkerTaskKind.MineRocks => WorkerMenuArt.Icon.Tend,
+            WorkerTaskKind.MineRocks or WorkerTaskKind.MineOreGems or WorkerTaskKind.FindLadder => WorkerMenuArt.Icon.Tend,
             WorkerTaskKind.SlayMonsters => WorkerMenuArt.Icon.Ledger,
             WorkerTaskKind.ExploreArea => WorkerMenuArt.Icon.Ledger,
             _ => WorkerMenuArt.Icon.Home,
@@ -1164,7 +1165,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 WorkerTaskKind.ChopTrees => "Fell ordinary trees",
                 WorkerTaskKind.ChopHardwood => "Clear hardwood sources",
                 WorkerTaskKind.ClearDebris => "Remove small litter",
-                WorkerTaskKind.MineRocks => "Break rocks and ore nodes",
+                WorkerTaskKind.MineRocks => "Mine all rocks on this floor",
+                WorkerTaskKind.MineOreGems => "Mine resources, then find a ladder",
+                WorkerTaskKind.FindLadder => "Break stones until an exit appears",
                 WorkerTaskKind.SlayMonsters => "Fight monsters in selected area",
                 WorkerTaskKind.ExploreArea => "Explore for loot each hour",
                 _ => "Return to the house",
@@ -1369,7 +1372,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.ChopTrees => "Walk to the nearest reachable ordinary tree in the selected area, cut it down, and store its drops.",
         WorkerTaskKind.ChopHardwood => "Walk to the nearest reachable hardwood source, including mahogany trees and large stumps or logs.",
         WorkerTaskKind.ClearDebris => "Clear loose stones, weeds, and small fallen wood. Foragers work in their selected outdoor area; Farmers work on the farm.",
-        WorkerTaskKind.MineRocks => "Walk to real rocks, ore, and gem nodes on the Farm or unlocked Quarry and break them with a steel pickaxe. Drops go to this worker's storage; each completed rock grants 1 Mining XP. Large boulders and dungeon floors are excluded.",
+        WorkerTaskKind.MineRocks => "Mine all reachable rocks and resource nodes on the current floor with a steel pickaxe. Dungeon Miners appear at the selected entrance and follow the host through active floors. Real drops use this worker's storage; completed rocks grant 1 Mining XP. Large boulders are excluded.",
+        WorkerTaskKind.MineOreGems => "Mine ore, gems, coal, geodes and cinder-shard nodes. Once these resources are exhausted in Mines or Skull Cavern, break stones to find a ladder or shaft, then wait for the host to descend. Quarry has no deeper floor. Volcano uses fixed exits and player-operated gates and lava crossings; it has no hidden ladders.",
+        WorkerTaskKind.FindLadder => "Break stones until a real ladder or shaft is available in Mines or Skull Cavern, then follow when the host descends. Infested floors require the player to defeat monsters; terminal floors, Quarry and Volcano have no hidden ladder to uncover. Workers never create stairs, open gates or advance alone.",
         WorkerTaskKind.SlayMonsters => "Fight real monsters in the combat area. Mines and Skull Cavern follow the host farmer onto active floors.",
         WorkerTaskKind.ExploreArea => "Teleport to the selected dungeon entrance and explore independently for loot every in-game hour, from 6:00 to 22:00. Exploration is simulated; the worker stays at the entrance. Loot goes to this worker's selected chest or shipping-bin fallback. Completed runs grant this worker 5 Combat XP; only monster drops are collected, with stone excluded.",
         _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",

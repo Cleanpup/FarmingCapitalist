@@ -5,6 +5,7 @@ using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Characters;
 using StardewValley.Objects;
+using StardewValley.Locations;
 using StardewValley.TerrainFeatures;
 using StardewValley.Tools;
 
@@ -43,6 +44,7 @@ internal sealed class WorkerBehaviorManager
     private sealed record DropCollectionZone(
         GameLocation Location, Point Tile, HashSet<Debris> ExistingDebris, int CollectAfterTick, int ExpiresAtTick,
         string WorkerId, string WorkerName, WorkerTaskKind Assignment, ForagerTargetKind Kind,
+        WorkerHarvestDestination? Destination,
         HashSet<Debris>? CapturedDebris = null)
     {
         public int ChestOnlyStacks { get; set; }
@@ -130,6 +132,10 @@ internal sealed class WorkerBehaviorManager
     private readonly WorkerNavigationManager navigationManager;
     private readonly WorkerShellManager workerShellManager;
     private readonly WorkerCombatManager combatManager;
+    private readonly WorkerDungeonTravelManager dungeonTravel;
+    private readonly Dictionary<string, GameLocation> miningLocations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> miningTransitionRetry = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, WorkerMiningWorkMode> miningModes = new(StringComparer.OrdinalIgnoreCase);
     private readonly WorkerExplorationManager explorationManager;
     private readonly WorkerWorkAnimationManager workAnimations;
     private readonly Dictionary<string, WorkerRuntimeSnapshot> snapshots = new(System.StringComparer.OrdinalIgnoreCase);
@@ -156,8 +162,9 @@ internal sealed class WorkerBehaviorManager
     {
         this.navigationManager = navigationManager;
         this.workerShellManager = workerShellManager;
+        this.dungeonTravel = new(navigationManager, monitor);
         this.combatManager = new WorkerCombatManager(workerShellManager, navigationManager, monitor,
-            this.RecordCompletedWork);
+            this.RecordCompletedWork, this.dungeonTravel);
         this.explorationManager = new(workerShellManager, navigationManager, monitor);
         this.workAnimations = new(workerShellManager, monitor);
         this.monitor = monitor;
@@ -188,10 +195,28 @@ internal sealed class WorkerBehaviorManager
             this.HandleWorkerInitialized(worker, triggerReason);
     }
 
-    public void HandleHostWarp() => this.combatManager.HandleHostWarp(workerId =>
+    private bool MayFollowDungeon(string workerId) =>
         this.activePhases.GetValueOrDefault(workerId, WorkerTravelPhase.None)
             is not (WorkerTravelPhase.ReturningToFarmhouse or WorkerTravelPhase.RestingAtFarmhouse
-                or WorkerTravelPhase.CheckingHomeRoute or WorkerTravelPhase.BlockedAtLocation));
+                or WorkerTravelPhase.CheckingHomeRoute or WorkerTravelPhase.BlockedAtLocation);
+
+    public void HandleHostWarp()
+    {
+        this.combatManager.HandleHostWarp(this.MayFollowDungeon);
+        if (!Context.IsWorldReady || !Context.IsMainPlayer) return;
+        foreach (NPC worker in this.workerShellManager.GetSpawnedWorkers(recoverStale: false))
+        {
+            if (!this.workerShellManager.TryGetWorkerId(worker, out string workerId)
+                || !WorkerMiningPolicy.IsMiningTask(this.workerShellManager.GetAssignedTask(workerId))
+                || !this.workerShellManager.CanWorkerWorkToday(workerId)
+                || !WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay) || !this.MayFollowDungeon(workerId)) continue;
+            string area = this.workerShellManager.GetMiningArea(workerId);
+            if (!WorkerMiningPolicy.IsDungeon(area) || WorkerMiningAreaCatalog.AccessReason(area) is not null) continue;
+            this.navigationManager.StopWorker(worker);
+            this.ClearMiningFloorState(workerId);
+            this.dungeonTravel.FollowHostWarp(worker, area, () => this.ClearMiningFloorState(workerId));
+        }
+    }
 
     public void Update()
     {
@@ -228,7 +253,7 @@ internal sealed class WorkerBehaviorManager
                     this.explorationManager.DeliverPendingLoot(workerId);
             }
 
-            if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.CombatWorker
+            if (this.workerShellManager.GetWorkerProfession(workerId) is WorkerProfession.CombatWorker or WorkerProfession.Miner
                 && WorkerCombatPolicy.MustBeHomeNow(Game1.timeOfDay) && this.combatManager.EnsureHomeByMidnight(worker))
             {
                 this.activePhases[workerId] = WorkerTravelPhase.RestingAtFarmhouse;
@@ -237,6 +262,11 @@ internal sealed class WorkerBehaviorManager
                     "Idle", "Home for the night", 0, null);
                 continue;
             }
+
+            WorkerTaskKind currentAssignment = this.workerShellManager.GetAssignedTask(workerId);
+            if (WorkerMiningPolicy.IsMiningTask(currentAssignment) && this.MayFollowDungeon(workerId)
+                && this.workerShellManager.CanWorkerWorkToday(workerId)
+                && this.PrepareMiningWork(worker, workerId, currentAssignment)) continue;
 
             if (this.workAnimations.IsActive(worker)) continue;
 
@@ -300,6 +330,9 @@ internal sealed class WorkerBehaviorManager
         this.combatManager.Reset();
         this.explorationManager.Reset();
         this.workAnimations.Reset();
+        this.miningTransitionRetry.Clear();
+        this.miningLocations.Clear();
+        this.miningModes.Clear();
     }
 
     public bool TryAssignTask(string workerId, WorkerTaskKind task, out string message)
@@ -322,7 +355,7 @@ internal sealed class WorkerBehaviorManager
             message = reason + ".";
             return false;
         }
-        if (task == WorkerTaskKind.MineRocks && Context.IsMainPlayer
+        if (WorkerMiningPolicy.IsMiningTask(task) && Context.IsMainPlayer
             && WorkerMiningAreaCatalog.AccessReason(this.workerShellManager.GetMiningArea(workerId)) is string miningReason)
         {
             message = miningReason + ".";
@@ -336,7 +369,9 @@ internal sealed class WorkerBehaviorManager
         this.navigationManager.StopTravel(worker);
         this.combatManager.Stop(workerId);
         this.explorationManager.Stop(workerId);
-        if (task == WorkerTaskKind.Idle)
+        if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Miner && task == WorkerTaskKind.Idle)
+            this.dungeonTravel.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetMiningArea(workerId));
+        else if (task == WorkerTaskKind.Idle)
             this.combatManager.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetCombatArea(workerId));
         if (!this.navigationManager.HasForeignController(worker))
         {
@@ -344,6 +379,9 @@ internal sealed class WorkerBehaviorManager
         }
         this.activePhases[workerId] = WorkerTravelPhase.None;
         this.ClearActiveJobState(workerId);
+        this.miningLocations.Remove(workerId);
+        this.miningModes.Remove(workerId);
+        this.miningTransitionRetry.Remove(workerId);
         this.returnTargets.Remove(workerId);
         this.returnReasons.Remove(workerId);
         this.retryAfterTicks.Remove(workerId);
@@ -372,6 +410,9 @@ internal sealed class WorkerBehaviorManager
         if (this.workerShellManager.TryGetWorker(workerId, out NPC? worker) && worker is not null)
             this.navigationManager.StopWorker(worker);
         this.ClearActiveJobState(workerId);
+        this.miningLocations.Remove(workerId);
+        this.miningModes.Remove(workerId);
+        this.miningTransitionRetry.Remove(workerId);
         this.returnTargets.Remove(workerId);
         this.returnReasons.Remove(workerId);
         this.retryAfterTicks.Remove(workerId);
@@ -441,7 +482,9 @@ internal sealed class WorkerBehaviorManager
             message = $"Worker '{workerId}' was not found.";
             return false;
         }
+        string previousArea = this.workerShellManager.GetMiningArea(workerId);
         if (!this.workerShellManager.TrySetMiningArea(workerId, area, out message)) return false;
+        this.dungeonTravel.ExitGeneratedFloorForReturn(worker, previousArea);
         this.navigationManager.StopWorker(worker);
         this.ClearActiveJobState(workerId);
         this.failedWorkDebris.Remove(workerId);
@@ -507,7 +550,8 @@ internal sealed class WorkerBehaviorManager
         this.navigationManager.StopWorker(worker);
         this.workAnimations.Start(worker, kind, target,
             () => this.workerShellManager.GetAssignedTask(workerId) == assignment
-                && (profession != WorkerProfession.CombatWorker || !WorkerCombatPolicy.MustBeHomeNow(Game1.timeOfDay))
+                && (profession is not (WorkerProfession.CombatWorker or WorkerProfession.Miner) || !WorkerCombatPolicy.MustBeHomeNow(Game1.timeOfDay))
+                && (!WorkerMiningPolicy.IsMiningTask(assignment) || !requirePaidWork || this.IsMiningImpactAllowed(worker, workerId, assignment))
                 && (!requirePaidWork || (this.workerShellManager.CanWorkerWorkToday(workerId)
                     && WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay)))
                 && !this.navigationManager.HasActiveRoute(workerId), impact);
@@ -595,6 +639,9 @@ internal sealed class WorkerBehaviorManager
 
     private void BeginReturnHome(NPC worker, string workerId, ReturnHomeReason reason)
     {
+        if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Miner)
+            this.dungeonTravel.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetMiningArea(workerId),
+                () => this.ClearMiningFloorState(workerId));
         if (!this.activePhases.TryGetValue(workerId, out WorkerTravelPhase previousPhase)
             || previousPhase != WorkerTravelPhase.ReturningToFarmhouse)
             this.nextReturnCandidateIndex.Remove(workerId);
@@ -907,6 +954,135 @@ internal sealed class WorkerBehaviorManager
         this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
     }
 
+    private void ClearMiningFloorState(string workerId)
+    {
+        this.ClearActiveJobState(workerId);
+        this.miningModes.Remove(workerId);
+        this.miningLocations.Remove(workerId);
+        this.failedWorkDebris.Remove(workerId);
+        this.retryAfterTicks.Remove(workerId);
+        this.miningTransitionRetry.Remove(workerId);
+    }
+
+    private WorkerMiningWorkMode ResolveMiningMode(string workerId, WorkerTaskKind assignment, GameLocation location)
+    {
+        if (assignment == WorkerTaskKind.MineRocks) return WorkerMiningWorkMode.AllStone;
+        string area = this.workerShellManager.GetMiningArea(workerId);
+        bool hasResources = assignment == WorkerTaskKind.MineOreGems && location.objects.Pairs.Any(pair =>
+            WorkerRouteObstacleClassifier.IsSmallLitter(pair.Value) && pair.Value.IsBreakableStone()
+            && WorkerMiningPolicy.ContainsTile(area, (int)pair.Key.X, (int)pair.Key.Y)
+            && WorkerMiningPolicy.IsOreGemOrCoal(pair.Value.ItemId));
+        if (hasResources) return WorkerMiningWorkMode.Ores;
+        MineShaft? mine = location as MineShaft;
+        return WorkerMiningPolicy.SelectMode(assignment, hasResources, mine is not null,
+            mine is not null && WorkerMiningAreaCatalog.HasMineExit(mine),
+            mine?.mustKillAllMonstersToAdvance() == true, mine?.shouldCreateLadderOnThisLevel() == true);
+    }
+
+    private bool IsMiningImpactAllowed(NPC worker, string workerId, WorkerTaskKind assignment)
+    {
+        string area = this.workerShellManager.GetMiningArea(workerId);
+        if (WorkerMiningAreaCatalog.AccessReason(area) is not null || worker.currentLocation is not GameLocation location)
+            return false;
+        if (WorkerMiningPolicy.IsDungeon(area) && (Game1.player.currentLocation != location
+            || !WorkerDungeonTravelManager.IsMatchingActiveFloor(area, location))) return false;
+        return this.ResolveMiningMode(workerId, assignment, location) != WorkerMiningWorkMode.None;
+    }
+
+    // True means this update is spent staging/waiting/returning rather than mining.
+    private bool PrepareMiningWork(NPC worker, string workerId, WorkerTaskKind assignment)
+    {
+        if (!WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay))
+        {
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return true;
+        }
+        string area = this.workerShellManager.GetMiningArea(workerId);
+        if (WorkerMiningAreaCatalog.AccessReason(area) is string reason)
+        {
+            this.ClearActiveJobState(workerId);
+            this.snapshots[workerId] = new(assignment, "Unavailable", reason, 0, null);
+            return true;
+        }
+        GameLocation? location;
+        if (WorkerMiningPolicy.IsDungeon(area))
+        {
+            bool alreadyWorking = Game1.player.currentLocation == worker.currentLocation
+                && WorkerDungeonTravelManager.IsMatchingActiveFloor(area, worker.currentLocation);
+            if (alreadyWorking) location = worker.currentLocation;
+            else
+            {
+                if (this.miningLocations.ContainsKey(workerId) && WorkerDungeonTravelManager.IsGeneratedFloor(worker.currentLocation))
+                {
+                    this.navigationManager.StopWorker(worker);
+                    this.ClearMiningFloorState(workerId);
+                }
+                if (this.miningTransitionRetry.GetValueOrDefault(workerId) > Game1.ticks) return true;
+                location = this.dungeonTravel.ResolveWorkLocation(area, worker, followStaged: true,
+                    beforeTransition: () => this.ClearMiningFloorState(workerId));
+                if (location is not null && worker.currentLocation != location
+                    && !WorkerDungeonTravelManager.IsGeneratedFloor(worker.currentLocation))
+                    this.dungeonTravel.TryFollowTransition(worker, location, nearFarmer: false,
+                        beforeTransition: () => this.ClearMiningFloorState(workerId));
+                this.miningTransitionRetry[workerId] = Game1.ticks + 120;
+            }
+            if (location is null || worker.currentLocation != location
+                || !WorkerDungeonTravelManager.IsMatchingActiveFloor(area, location))
+            {
+                this.snapshots[workerId] = new(assignment, "Waiting",
+                    $"Waiting by {WorkerMiningPolicy.GetLabel(area)} entrance; follow the host onto an active floor", 0, null);
+                return true;
+            }
+        }
+        else location = Game1.getLocationFromName(WorkerMiningPolicy.GetLocationName(area));
+        if (location is null) return true;
+        if (!this.miningLocations.TryGetValue(workerId, out GameLocation? previous) || previous != location)
+        {
+            this.ClearMiningFloorState(workerId);
+            this.miningLocations[workerId] = location;
+        }
+        WorkerMiningWorkMode mode = this.ResolveMiningMode(workerId, assignment, location);
+        if (this.miningModes.TryGetValue(workerId, out WorkerMiningWorkMode previousMode) && previousMode != mode)
+        {
+            this.navigationManager.StopWorker(worker);
+            this.ClearActiveJobState(workerId);
+        }
+        this.miningModes[workerId] = mode;
+        if (mode != WorkerMiningWorkMode.None) return false;
+        this.navigationManager.StopTravel(worker);
+        this.ClearActiveJobState(workerId);
+        string message = area == WorkerMiningPolicy.Volcano
+            ? "Volcano uses fixed exits, gates and lava crossings; waiting for the host to advance"
+            : location is MineShaft mine
+                ? mine.mustKillAllMonstersToAdvance() && !WorkerMiningAreaCatalog.HasMineExit(mine)
+                    ? "Monsters must be defeated before vanilla opens an exit; waiting for the host"
+                    : !mine.shouldCreateLadderOnThisLevel()
+                        ? "This mine floor has no deeper ladder; waiting for the host"
+                        : "Ladder or shaft is available; waiting for the host to descend"
+                : "This area has no mine ladders";
+        if (assignment == WorkerTaskKind.MineOreGems && !WorkerMiningPolicy.IsDungeon(area))
+        {
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return true;
+        }
+        this.snapshots[workerId] = new(assignment, "Waiting", message, 0, null);
+        return true;
+    }
+
+    private void FinishResourceSweep(NPC worker, string workerId, WorkerTaskKind assignment)
+    {
+        if (!WorkerMiningPolicy.IsMiningTask(assignment)
+            || !WorkerMiningPolicy.IsDungeon(this.workerShellManager.GetMiningArea(workerId)))
+        {
+            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            return;
+        }
+        this.ClearActiveJobState(workerId);
+        this.navigationManager.StopTravel(worker);
+        this.retryAfterTicks[workerId] = Game1.ticks + 300;
+        this.snapshots[workerId] = new(assignment, "Waiting", "No reachable rocks remain; waiting for the host or a clear route", 0, null);
+    }
+
     private void UpdateForagerWork(NPC worker, string workerId, WorkerTaskKind assignment)
     {
         if (!WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay))
@@ -934,18 +1110,17 @@ internal sealed class WorkerBehaviorManager
         if (worker.controller is not null)
             return;
 
-        string locationName = assignment == WorkerTaskKind.MineRocks
-            ? WorkerMiningPolicy.GetLocationName(this.workerShellManager.GetMiningArea(workerId))
+        bool mining = WorkerMiningPolicy.IsMiningTask(assignment);
+        string locationName = mining
+            ? this.miningLocations.GetValueOrDefault(workerId)?.NameOrUniqueName
+                ?? WorkerMiningPolicy.GetLocationName(this.workerShellManager.GetMiningArea(workerId))
             : assignment == WorkerTaskKind.ClearDebris
-            && this.workerShellManager.GetWorkerProfession(workerId) != WorkerProfession.Forager
-            ? "Farm"
-            : this.workerShellManager.GetForageLocationName(workerId);
-        GameLocation? location = Game1.getLocationFromName(locationName);
-        if (location is null || !WorkerForageAreaCatalog.IsValidLocation(locationName)
-            || (assignment == WorkerTaskKind.MineRocks
-                && WorkerMiningAreaCatalog.AccessReason(this.workerShellManager.GetMiningArea(workerId)) is not null))
+                && this.workerShellManager.GetWorkerProfession(workerId) != WorkerProfession.Forager
+                ? "Farm" : this.workerShellManager.GetForageLocationName(workerId);
+        GameLocation? location = mining ? this.miningLocations.GetValueOrDefault(workerId) : Game1.getLocationFromName(locationName);
+        if (location is null || (!mining && !WorkerForageAreaCatalog.IsValidLocation(locationName)))
         {
-            this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            this.FinishResourceSweep(worker, workerId, assignment);
             return;
         }
 
@@ -960,7 +1135,7 @@ internal sealed class WorkerBehaviorManager
             }
             else if (worker.controller is null && !this.navigationManager.HasActiveRoute(workerId) && Game1.shouldTimePass())
             {
-                if (assignment == WorkerTaskKind.MineRocks)
+                if (WorkerMiningPolicy.IsMiningTask(assignment))
                 {
                     HashSet<Point> failed = this.failedWorkDebris.GetValueOrDefault(workerId) ?? new();
                     this.failedWorkDebris[workerId] = failed;
@@ -1006,7 +1181,7 @@ internal sealed class WorkerBehaviorManager
                 if (this.TryStartObstaclePlan(worker, workerId, assignment, emptySearch))
                     this.foragerSearches[workerId] = emptySearch;
                 else
-                    this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+                    this.FinishResourceSweep(worker, workerId, assignment);
                 return;
             }
 
@@ -1017,7 +1192,9 @@ internal sealed class WorkerBehaviorManager
                 OriginTile = worker.TilePoint,
                 Assignment = assignment,
                 Candidates = worker.currentLocation == location
-                    ? candidates.OrderBy(target => Math.Abs(worker.TilePoint.X - target.ApproachTile.X)
+                    ? candidates.OrderBy(target => mining && this.miningModes.GetValueOrDefault(workerId) == WorkerMiningWorkMode.FindLadder
+                        && target.ExpectedObject is not null && WorkerMiningPolicy.IsOreGemOrCoal(target.ExpectedObject.ItemId) ? 1 : 0)
+                        .ThenBy(target => Math.Abs(worker.TilePoint.X - target.ApproachTile.X)
                         + Math.Abs(worker.TilePoint.Y - target.ApproachTile.Y)).ToList()
                     : candidates.OrderBy(target => target.ResourceTile.X + target.ResourceTile.Y).ToList(),
             };
@@ -1033,6 +1210,8 @@ internal sealed class WorkerBehaviorManager
         WorkerNavigationTarget? resolvedTarget = null;
         bool TryCandidate(ForagerTarget target)
         {
+            if (mining && (worker.currentLocation != location || (WorkerMiningPolicy.IsDungeon(this.workerShellManager.GetMiningArea(workerId))
+                && (Game1.player.currentLocation != location || !WorkerDungeonTravelManager.IsActiveFloor(location))))) return false;
             if (IsAssignedObjectJob(assignment)
                 && (this.IsDebrisReservedByAnother(workerId, search.TargetLocation, target.ResourceTile)
                     || !search.TargetLocation.objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? current)
@@ -1048,7 +1227,8 @@ internal sealed class WorkerBehaviorManager
             if (!this.navigationManager.TryStartTravel(worker, navigationTarget,
                     $"travel to {WorkerTaskPolicy.GetTaskLabel(assignment).ToLowerInvariant()} target",
                     out WorkerNavigationTarget candidateTarget, validApproaches.Contains,
-                    actual => this.activeForagerTargets[workerId] = target with { ApproachTile = actual.Tile }))
+                    actual => this.activeForagerTargets[workerId] = target with { ApproachTile = actual.Tile },
+                    stepValidator: mining ? step => this.dungeonTravel.IsSafeRouteStep(location, step) : null))
             {
                 if (assignment == WorkerTaskKind.ChopHardwood && worker.currentLocation == search.TargetLocation)
                     this.LogFailedHardwoodCandidate(worker, search, target);
@@ -1082,7 +1262,7 @@ internal sealed class WorkerBehaviorManager
         if (exhausted)
         {
             if (!this.TryStartObstaclePlan(worker, workerId, assignment, search))
-                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+                this.FinishResourceSweep(worker, workerId, assignment);
             return;
         }
 
@@ -1104,7 +1284,8 @@ internal sealed class WorkerBehaviorManager
             return false;
 
         this.failedWorkDebris.TryGetValue(workerId, out HashSet<Point>? excludedTiles);
-        search.ObstaclePlanner = this.navigationManager.CreateObstacleRoutePlanner(worker, potentialApproaches, excludedTiles);
+        search.ObstaclePlanner = this.navigationManager.CreateObstacleRoutePlanner(worker, potentialApproaches, excludedTiles,
+            WorkerMiningPolicy.IsMiningTask(assignment) ? tile => this.dungeonTravel.IsSafeRouteStep(search.TargetLocation, tile) : null);
         if (search.ObstaclePlanner is null)
             return false;
 
@@ -1128,7 +1309,9 @@ internal sealed class WorkerBehaviorManager
         {
             WorkerNavigationTarget approach = new(search.TargetLocation.NameOrUniqueName,
                 clearance.ApproachTile, TestWorkerDefinition.FacingDirection);
-            if (this.navigationManager.TryStartTravel(worker, approach, "walk to route debris", out _))
+            if (this.navigationManager.TryStartTravel(worker, approach, "walk to route debris", out _,
+                    stepValidator: WorkerMiningPolicy.IsMiningTask(assignment)
+                        ? step => this.dungeonTravel.IsSafeRouteStep(search.TargetLocation, step) : null))
             {
                 this.activeObstacleClears[workerId] = new ActiveObstacleClear
                 {
@@ -1182,7 +1365,9 @@ internal sealed class WorkerBehaviorManager
             if (this.navigationManager.TryStartTravel(worker, navigationTarget,
                     $"retry visible route to reachable {WorkerTaskPolicy.GetTaskLabel(assignment).ToLowerInvariant()} target",
                     out WorkerNavigationTarget resolvedTarget, validApproaches.Contains,
-                    actual => this.activeForagerTargets[workerId] = currentCandidate with { ApproachTile = actual.Tile }))
+                    actual => this.activeForagerTargets[workerId] = currentCandidate with { ApproachTile = actual.Tile },
+                    stepValidator: WorkerMiningPolicy.IsMiningTask(assignment)
+                        ? step => this.dungeonTravel.IsSafeRouteStep(search.TargetLocation, step) : null))
             {
                 this.activeForagerTargets[workerId] = currentCandidate with { ApproachTile = resolvedTarget.Tile };
                 this.foragerSearches.Remove(workerId);
@@ -1204,8 +1389,8 @@ internal sealed class WorkerBehaviorManager
         if (status == WorkerObstaclePlanStatus.BlockedByLargeObstacle)
             this.workerShellManager.ReportLargeObstacle(workerId, assignment, search.TargetLocation.NameOrUniqueName);
 
-        this.monitor.Log($"{worker.displayName} could not reach {assignment} work in {search.TargetLocation.NameOrUniqueName}; route obstacle check={status}. Returning home.", LogLevel.Info);
-        this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+        this.monitor.Log($"{worker.displayName} could not reach {assignment} work in {search.TargetLocation.NameOrUniqueName}; route obstacle check={status}. Ending this resource search.", LogLevel.Info);
+        this.FinishResourceSweep(worker, workerId, assignment);
     }
 
     private void LogFailedHardwoodCandidate(NPC worker, ForagerSearchState search, ForagerTarget target)
@@ -1225,7 +1410,7 @@ internal sealed class WorkerBehaviorManager
 
     private void UpdateObstacleClear(NPC worker, string workerId, WorkerTaskKind assignment, ActiveObstacleClear clear)
     {
-        if ((clear.IsAssignedDebrisJob || (assignment == WorkerTaskKind.MineRocks && !clear.ContinueReturnHome))
+        if ((clear.IsAssignedDebrisJob || (WorkerMiningPolicy.IsMiningTask(assignment) && !clear.ContinueReturnHome))
             && (!IsAssignedObjectJob(assignment)
                 || !this.workerShellManager.CanWorkerWorkToday(workerId)
                 || !WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay)))
@@ -1280,6 +1465,11 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
+        // Vanilla only advances this visual/tool cooldown in the host's current
+        // location. Quarry work must also finish when the host is elsewhere.
+        if (WorkerMiningPolicy.IsMiningTask(assignment) && clear.Location != Game1.currentLocation && item.shakeTimer > 0)
+            item.shakeTimer = Math.Max(0, item.shakeTimer - (int)Game1.currentGameTime.ElapsedGameTime.TotalMilliseconds);
+
         if (item.shakeTimer > 0)
         {
             if (clear.CooldownWaitStartedAtTick < 0)
@@ -1306,13 +1496,13 @@ internal sealed class WorkerBehaviorManager
 
         StardewValley.Tool tool = item.IsWeeds() ? new MeleeWeapon("47")
             : item.IsTwig() ? new Axe()
-            : new Pickaxe { UpgradeLevel = assignment == WorkerTaskKind.MineRocks
+            : new Pickaxe { UpgradeLevel = WorkerMiningPolicy.IsMiningTask(assignment)
                 ? WorkerMiningPolicy.PickaxeUpgradeLevel : 0 };
         clear.NextSwingTick = Game1.ticks + ForagerSwingIntervalTicks;
         this.StartWorkMotion(worker, workerId, item.IsWeeds() ? WorkerWorkAnimationKind.Scythe
             : item.IsTwig() ? WorkerWorkAnimationKind.Axe : WorkerWorkAnimationKind.Pickaxe, clear.ObstacleTile,
             () => this.PerformObstacleTool(worker, workerId, assignment, clear, tool), requirePaidWork: clear.IsAssignedDebrisJob
-                || (assignment == WorkerTaskKind.MineRocks && !clear.ContinueReturnHome));
+                || (WorkerMiningPolicy.IsMiningTask(assignment) && !clear.ContinueReturnHome));
     }
 
     private void PerformObstacleTool(NPC worker, string workerId, WorkerTaskKind assignment, ActiveObstacleClear clear, Tool tool)
@@ -1393,7 +1583,8 @@ internal sealed class WorkerBehaviorManager
         if (clear.CapturedDebris.Count > 0)
             this.dropCollectionZones.Add(new DropCollectionZone(clear.Location, clear.ObstacleTile,
                 new HashSet<Debris>(), Game1.ticks + 1, Game1.ticks + 60,
-                workerId, worker.displayName, assignment, ForagerTargetKind.RouteDebris, clear.CapturedDebris));
+                workerId, worker.displayName, assignment, ForagerTargetKind.RouteDebris,
+                this.workerShellManager.GetHarvestDestination(workerId), clear.CapturedDebris));
 
         this.monitor.Log($"{worker.displayName} cleared small route debris at {clear.Location.NameOrUniqueName} {clear.ObstacleTile}; captured {clear.CapturedDebris.Count} drop groups.", LogLevel.Info);
         if (clear.IsAssignedDebrisJob)
@@ -1403,7 +1594,7 @@ internal sealed class WorkerBehaviorManager
                 item.IsBreakableStone() ? WorkerExperienceAction.ClearStone
                 : item.IsTwig() ? WorkerExperienceAction.ClearTwig : WorkerExperienceAction.ClearWeeds);
             this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Working",
-                $"{(assignment == WorkerTaskKind.MineRocks ? "Mined rock" : "Cleared debris")} at {clear.ObstacleTile}", 0, clear.ObstacleTile);
+                $"{(WorkerMiningPolicy.IsMiningTask(assignment) ? "Mined rock" : "Cleared debris")} at {clear.ObstacleTile}", 0, clear.ObstacleTile);
         }
         this.activeObstacleClears.Remove(workerId);
         this.foragerSearches.Remove(workerId);
@@ -1421,7 +1612,7 @@ internal sealed class WorkerBehaviorManager
             this.dropCollectionZones.Add(new DropCollectionZone(clear.Location, clear.ObstacleTile,
                 new HashSet<Debris>(), Game1.ticks + 1, Game1.ticks + 60,
                 workerId, worker.displayName, this.workerShellManager.GetAssignedTask(workerId),
-                ForagerTargetKind.RouteDebris, clear.CapturedDebris));
+                ForagerTargetKind.RouteDebris, this.workerShellManager.GetHarvestDestination(workerId), clear.CapturedDebris));
 
         HashSet<Point> failed = this.failedWorkDebris.GetValueOrDefault(workerId) ?? new HashSet<Point>();
         this.failedWorkDebris[workerId] = failed;
@@ -1441,14 +1632,15 @@ internal sealed class WorkerBehaviorManager
     }
 
     private static bool IsAssignedObjectJob(WorkerTaskKind assignment)
-        => assignment is WorkerTaskKind.ClearDebris or WorkerTaskKind.MineRocks;
+        => assignment == WorkerTaskKind.ClearDebris || WorkerMiningPolicy.IsMiningTask(assignment);
 
     private bool IsEligibleAssignedObject(string workerId, WorkerTaskKind assignment, Point tile, StardewValley.Object? item)
     {
         if (!IsAssignedObjectJob(assignment) || !WorkerRouteObstacleClassifier.IsSmallLitter(item)) return false;
         return assignment == WorkerTaskKind.ClearDebris
             || (item!.IsBreakableStone()
-                && WorkerMiningPolicy.ContainsTile(this.workerShellManager.GetMiningArea(workerId), tile.X, tile.Y));
+                && WorkerMiningPolicy.ContainsTile(this.workerShellManager.GetMiningArea(workerId), tile.X, tile.Y)
+                && WorkerMiningPolicy.CanTarget(this.miningModes.GetValueOrDefault(workerId), item.ItemId));
     }
 
     private IEnumerable<ForagerTarget> GetForagerTargets(NPC worker, string workerId, GameLocation location,
@@ -1546,7 +1738,8 @@ internal sealed class WorkerBehaviorManager
         int width, int height, bool includeBlockedApproaches)
         => WorkerApproachTiles.AroundResource(resourceTile, width, height, tile => includeBlockedApproaches
             ? location.isTileOnMap(tile.ToVector2())
-            : this.navigationManager.IsWalkableWorkTile(location, worker, tile));
+            : this.navigationManager.IsWalkableWorkTile(location, worker, tile)
+                && (!WorkerDungeonTravelManager.IsGeneratedFloor(location) || this.dungeonTravel.IsSafeRouteStep(location, tile)));
 
     private void BeginForagerAction(
         NPC worker,
@@ -1576,12 +1769,12 @@ internal sealed class WorkerBehaviorManager
                 ExpectedObject = item,
                 NextSwingTick = Game1.ticks,
                 MaxToolActions = WorkerObstacleToolProgressPolicy.GetMaximumActions(
-                    item.MinutesUntilReady, damagePerToolAction: assignment == WorkerTaskKind.MineRocks
+                    item.MinutesUntilReady, damagePerToolAction: WorkerMiningPolicy.IsMiningTask(assignment)
                         ? WorkerMiningPolicy.PickaxeDamage : 1, hardLimit: MaxDebrisToolActions),
                 IsAssignedDebrisJob = true,
             };
-            this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, assignment == WorkerTaskKind.MineRocks ? "Mining" : "Clearing",
-                $"{(assignment == WorkerTaskKind.MineRocks ? "Mining rocks" : "Clearing debris")} in {WorkerForageAreaCatalog.GetDisplayName(location.NameOrUniqueName)}", 0, target.ResourceTile);
+            this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, WorkerMiningPolicy.IsMiningTask(assignment) ? "Mining" : "Clearing",
+                $"{(WorkerMiningPolicy.IsMiningTask(assignment) ? this.miningModes.GetValueOrDefault(workerId) == WorkerMiningWorkMode.FindLadder ? "Breaking stone to find a ladder" : "Mining rocks" : "Clearing debris")} in {WorkerForageAreaCatalog.GetDisplayName(location.NameOrUniqueName)}", 0, target.ResourceTile);
             this.monitor.Log($"{worker.displayName} started clearing assigned debris at {location.NameOrUniqueName} {target.ResourceTile} from {target.ApproachTile}.", LogLevel.Info);
             return;
         }
@@ -1763,7 +1956,8 @@ internal sealed class WorkerBehaviorManager
                 workerId,
                 worker.displayName,
                 assignment,
-                target.Kind));
+                target.Kind,
+                this.workerShellManager.GetHarvestDestination(workerId)));
         }
 
         this.activeForagerActions.Remove(workerId);
@@ -1828,6 +2022,8 @@ internal sealed class WorkerBehaviorManager
                         zone.CapturedDebris, zone.CapturedDebris is null && this.IsDebrisNear(debris, zone.Tile, 9));
                     if (!belongsToZone || !this.TryCreateDebrisItem(debris, out Item? item))
                         continue;
+                    if (WorkerMiningPolicy.IsMiningTask(zone.Assignment) && WorkerMiningPolicy.LeaveDropForPlayer(item!.QualifiedItemId))
+                        continue;
 
                     if (!zone.StorageStartedLogged)
                     {
@@ -1841,7 +2037,7 @@ internal sealed class WorkerBehaviorManager
                     bool chestOnly;
                     try
                     {
-                        chestOnly = WorkerItemStorage.Store(item!, this.workerShellManager.GetHarvestDestination(zone.WorkerId), this.monitor);
+                        chestOnly = WorkerItemStorage.Store(item!, zone.Destination, this.monitor);
                     }
                     catch (Exception ex)
                     {

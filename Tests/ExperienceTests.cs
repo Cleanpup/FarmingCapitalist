@@ -512,13 +512,13 @@ Equal(10, (int)WorkerTaskKind.MineRocks, "new mining assignment is appended");
 Check(WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Miner, WorkerTaskKind.MineRocks), "Miner can mine");
 Check(WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Miner, WorkerTaskKind.Idle), "Miner can recall");
 foreach (WorkerTaskKind task in Enum.GetValues<WorkerTaskKind>())
-    if (task is not WorkerTaskKind.MineRocks and not WorkerTaskKind.Idle)
+    if (!WorkerMiningPolicy.IsMiningTask(task) && task != WorkerTaskKind.Idle)
         Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Miner, task), "Miner cannot receive another profession's job");
 foreach (WorkerProfession profession in new[] { WorkerProfession.Farmer, WorkerProfession.Forager, WorkerProfession.CombatWorker })
     Check(!WorkerTaskPolicy.IsTaskAllowed(profession, WorkerTaskKind.MineRocks), "mining cannot change existing profession contracts");
 var legacyMinerInput = JsonSerializer.Deserialize<WorkerRosterEntry>("{\"WorkerId\":\"old\",\"AssignedTask\":3}")!;
 Equal(WorkerProfession.Farmer, legacyMinerInput.Profession, "legacy worker still defaults to Farmer");
-Equal(WorkerMiningPolicy.Farm, legacyMinerInput.MiningArea, "absent mining area safely defaults to Farm");
+Equal(WorkerMiningPolicy.Quarry, legacyMinerInput.MiningArea, "absent mining area defaults to the first selectable area");
 Equal(WorkerTaskKind.TendCrops, legacyMinerInput.AssignedTask, "old assignment survives additive mining fields");
 var minerSave = new WorkerRosterEntry { WorkerId = "miner", Profession = WorkerProfession.Miner,
     AssignedTask = WorkerTaskKind.MineRocks, MiningArea = WorkerMiningPolicy.Quarry,
@@ -533,6 +533,51 @@ Check(WorkerMiningPolicy.ContainsTile(WorkerMiningPolicy.Quarry, 106, 13)
     && WorkerMiningPolicy.ContainsTile(WorkerMiningPolicy.Quarry, 127, 34), "quarry boundary stones are eligible");
 foreach (var tile in new[] { (105, 13), (128, 13), (106, 12), (106, 35), (50, 20) })
     Check(!WorkerMiningPolicy.ContainsTile(WorkerMiningPolicy.Quarry, tile.Item1, tile.Item2), "quarry never selects other Mountain rocks");
-Check(!WorkerMiningPolicy.IsValid("Mines") && !WorkerMiningPolicy.IsValid("UndergroundMine1")
-    && !WorkerMiningPolicy.IsValid(null), "initial mining cannot enter generated dungeon floors");
+Check(WorkerMiningPolicy.IsValid("Mines") && !WorkerMiningPolicy.IsValid("UndergroundMine1")
+    && !WorkerMiningPolicy.IsValid(null), "saved mining choices name supported areas, never generated floors");
 Console.WriteLine("Miner task, legacy save, independent storage, and quarry boundary policy checks passed.");
+
+Equal(11, (int)WorkerTaskKind.MineOreGems, "ores task appends save enum values");
+Equal(12, (int)WorkerTaskKind.FindLadder, "ladder task appends save enum values");
+Check(WorkerMiningPolicy.Areas.SequenceEqual(new[] { "Quarry", "Mines", "SkullCavern", "Volcano" }), "mining area order matches the user's progression");
+Check(WorkerTaskPolicy.GetTasks(WorkerProfession.Miner).SequenceEqual(new[] {
+    WorkerTaskKind.MineOreGems, WorkerTaskKind.FindLadder, WorkerTaskKind.MineRocks, WorkerTaskKind.Idle }), "three mining jobs and recall appear in order");
+foreach (WorkerProfession profession in new[] { WorkerProfession.Farmer, WorkerProfession.Forager, WorkerProfession.CombatWorker })
+    foreach (WorkerTaskKind task in new[] { WorkerTaskKind.MineOreGems, WorkerTaskKind.FindLadder })
+        Check(!WorkerTaskPolicy.IsTaskAllowed(profession, task), "new jobs don't broaden existing professions");
+foreach (string area in WorkerMiningPolicy.Areas)
+{
+    minerSave.MiningArea = area;
+    minerSave.AssignedTask = WorkerTaskKind.MineOreGems;
+    var savedMiner = JsonSerializer.Deserialize<WorkerRosterEntry>(JsonSerializer.Serialize(minerSave))!;
+    Equal(area, savedMiner.MiningArea, "each mining destination persists independently");
+    Equal(WorkerTaskKind.MineOreGems, savedMiner.AssignedTask, "new ore job persists");
+}
+var olderMiner = JsonSerializer.Deserialize<WorkerRosterEntry>("{\"Profession\":3,\"AssignedTask\":10,\"MiningArea\":\"Farm\"}")!;
+Check(WorkerTaskPolicy.IsTaskAllowed(olderMiner.Profession, olderMiner.AssignedTask)
+    && WorkerMiningPolicy.IsValid(olderMiner.MiningArea), "first mining implementation saves retain Farm/all-stone support");
+foreach (string node in new[] { "751", "290", "764", "765", "95", "849", "850", "2", "4", "6", "8", "10", "12", "14", "44", "46",
+    "75", "76", "77", "819", "843", "844", "BasicCoalNode0", "BasicCoalNode1", "VolcanoCoalNode0", "VolcanoCoalNode1", "VolcanoGoldNode" })
+    Check(WorkerMiningPolicy.IsOreGemOrCoal(node) && WorkerMiningPolicy.CanTarget(WorkerMiningWorkMode.Ores, node), "mineral/coal nodes are included");
+foreach (string node in new[] { "32", "38", "40", "42", "668", "670", "845", "846", "847", "343", "450", "816", "817", "818", "25" })
+{
+    Check(!WorkerMiningPolicy.CanTarget(WorkerMiningWorkMode.Ores, node), "ordinary rock/other resources are excluded from ore-first work");
+    Check(WorkerMiningPolicy.CanTarget(WorkerMiningWorkMode.AllStone, node), "all-stone work still selects every breakable stone");
+}
+Equal(WorkerMiningWorkMode.Ores, WorkerMiningPolicy.SelectMode(WorkerTaskKind.MineOreGems, true, true, true, false, true), "available ore takes priority even if an exit exists");
+Equal(WorkerMiningWorkMode.FindLadder, WorkerMiningPolicy.SelectMode(WorkerTaskKind.MineOreGems, false, true, false, false, true), "exhausted ore falls back to finding the ladder");
+Equal(WorkerMiningWorkMode.None, WorkerMiningPolicy.SelectMode(WorkerTaskKind.MineOreGems, false, true, true, false, true), "exhausted ore with an exit waits instead of breaking more rock");
+Equal(WorkerMiningWorkMode.FindLadder, WorkerMiningPolicy.SelectMode(WorkerTaskKind.FindLadder, true, true, false, false, true), "ladder order works before ore exhaustion");
+foreach (WorkerTaskKind task in new[] { WorkerTaskKind.FindLadder, WorkerTaskKind.MineOreGems })
+{
+    Equal(WorkerMiningWorkMode.None, WorkerMiningPolicy.SelectMode(task, false, false, false, false, false), "Quarry/Volcano never invent mine ladders");
+    Equal(WorkerMiningWorkMode.None, WorkerMiningPolicy.SelectMode(task, false, true, true, false, true), "ladder or shaft stops further ladder search");
+    Equal(WorkerMiningWorkMode.None, WorkerMiningPolicy.SelectMode(task, false, true, false, true, true), "monster-gated floor requires vanilla combat progression");
+    Equal(WorkerMiningWorkMode.None, WorkerMiningPolicy.SelectMode(task, false, true, false, false, false), "terminal floors have no fabricated ladder");
+}
+Equal(WorkerMiningWorkMode.AllStone, WorkerMiningPolicy.SelectMode(WorkerTaskKind.MineRocks, false, true, true, true, false), "all-stone order continues on resource floors even when exit finding is unavailable");
+foreach (string item in new[] { "(O)73", "(O)79", "(O)842" })
+    Check(WorkerMiningPolicy.LeaveDropForPlayer(item), "walnuts and readable notes retain player pickup handling");
+foreach (string item in new[] { "(O)390", "(O)382", "(O)378", "(O)380", "(O)384", "(O)386", "(O)72", "(O)848", "(O)535" })
+    Check(!WorkerMiningPolicy.LeaveDropForPlayer(item), "normal mining loot reaches worker storage");
+Console.WriteLine("Dungeon Miner progression checks passed: ore/coal selection, ladder fallback, exits, monster gates, Volcano, terminal floors, saves, and special drops.");

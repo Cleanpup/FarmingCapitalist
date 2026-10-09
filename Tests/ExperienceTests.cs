@@ -564,6 +564,21 @@ foreach (string node in new[] { "32", "38", "40", "42", "668", "670", "845", "84
     Check(!WorkerMiningPolicy.CanTarget(WorkerMiningWorkMode.Ores, node), "ordinary rock/other resources are excluded from ore-first work");
     Check(WorkerMiningPolicy.CanTarget(WorkerMiningWorkMode.AllStone, node), "all-stone work still selects every breakable stone");
 }
+foreach (string gem in new[] { "80", "82", "84", "86" })
+{
+    Check(WorkerMiningPolicy.IsLooseGem(gem), "quartz and other loose mine crystals are recognized");
+    Check(WorkerMiningPolicy.CanCollectLooseGem(WorkerMiningWorkMode.Ores, gem, false), "ore job gathers loose mine crystals");
+    Check(!WorkerMiningPolicy.CanCollectLooseGem(WorkerMiningWorkMode.FindLadder, gem, false), "ladder search does not gather loose crystals");
+    Check(!WorkerMiningPolicy.CanCollectLooseGem(WorkerMiningWorkMode.Ores, gem, true), "breakable nodes still use the pickaxe path");
+}
+Check(!WorkerMiningPolicy.IsLooseGem("78") && !WorkerMiningPolicy.IsLooseGem("81"), "unrelated ground objects are not miner gem targets");
+Equal(WorkerMiningWorkMode.Ores, WorkerMiningPolicy.SelectMode(WorkerTaskKind.MineOreGems, true, true, false, false, true),
+    "loose crystal presence keeps the ore job ahead of ladder search");
+var crystalMiner = new WorkerRosterEntry { Profession = WorkerProfession.Miner, AssignedTask = WorkerTaskKind.MineOreGems };
+Check(WorkerExperiencePolicy.TryAwardCompletedAction(crystalMiner, true, true, WorkerExperienceAction.PickupLooseGem),
+    "gathering a mine crystal awards its miner");
+Equal(WorkerExperiencePolicy.MiningExperiencePerLooseGem, crystalMiner.Experience.Mining, "loose crystal grants Mining XP");
+Equal(0, crystalMiner.Experience.Foraging, "loose crystal does not grant Foraging XP");
 Equal(WorkerMiningWorkMode.Ores, WorkerMiningPolicy.SelectMode(WorkerTaskKind.MineOreGems, true, true, true, false, true), "available ore takes priority even if an exit exists");
 Equal(WorkerMiningWorkMode.FindLadder, WorkerMiningPolicy.SelectMode(WorkerTaskKind.MineOreGems, false, true, false, false, true), "exhausted ore falls back to finding the ladder");
 Equal(WorkerMiningWorkMode.None, WorkerMiningPolicy.SelectMode(WorkerTaskKind.MineOreGems, false, true, true, false, true), "exhausted ore with an exit waits instead of breaking more rock");

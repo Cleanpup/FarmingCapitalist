@@ -54,6 +54,12 @@ internal static class WorkerMiningPolicy
         or "819" or "843" or "844" or "849" or "850"
         or "BasicCoalNode0" or "BasicCoalNode1" or "VolcanoCoalNode0" or "VolcanoCoalNode1" or "VolcanoGoldNode";
 
+    // Mine crystals are loose ground objects, not breakable mineral nodes.
+    public static bool IsLooseGem(string? itemId) => itemId is "80" or "82" or "84" or "86";
+
+    public static bool CanCollectLooseGem(WorkerMiningWorkMode mode, string? itemId, bool isBreakableStone)
+        => mode == WorkerMiningWorkMode.Ores && !isBreakableStone && IsLooseGem(itemId);
+
     public static WorkerMiningWorkMode SelectMode(WorkerTaskKind assignment, bool hasResources,
         bool hasMineLadders, bool hasExit, bool monsterGate, bool canCreateLadder)
     {

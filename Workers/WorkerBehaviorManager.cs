@@ -36,6 +36,7 @@ internal sealed class WorkerBehaviorManager
         HardwoodTree,
         HardwoodClump,
         RouteDebris,
+        LooseGem,
     }
 
     private sealed record ForagerTarget(string LocationName, Point ResourceTile, Point ApproachTile, ForagerTargetKind Kind,
@@ -969,9 +970,11 @@ internal sealed class WorkerBehaviorManager
         if (assignment == WorkerTaskKind.MineRocks) return WorkerMiningWorkMode.AllStone;
         string area = this.workerShellManager.GetMiningArea(workerId);
         bool hasResources = assignment == WorkerTaskKind.MineOreGems && location.objects.Pairs.Any(pair =>
-            WorkerRouteObstacleClassifier.IsSmallLitter(pair.Value) && pair.Value.IsBreakableStone()
-            && WorkerMiningPolicy.ContainsTile(area, (int)pair.Key.X, (int)pair.Key.Y)
-            && WorkerMiningPolicy.IsOreGemOrCoal(pair.Value.ItemId));
+            WorkerMiningPolicy.ContainsTile(area, (int)pair.Key.X, (int)pair.Key.Y)
+            && ((WorkerRouteObstacleClassifier.IsSmallLitter(pair.Value) && pair.Value.IsBreakableStone()
+                    && WorkerMiningPolicy.IsOreGemOrCoal(pair.Value.ItemId))
+                || WorkerMiningPolicy.CanCollectLooseGem(WorkerMiningWorkMode.Ores,
+                    pair.Value.ItemId, pair.Value.IsBreakableStone())));
         if (hasResources) return WorkerMiningWorkMode.Ores;
         MineShaft? mine = location as MineShaft;
         return WorkerMiningPolicy.SelectMode(assignment, hasResources, mine is not null,
@@ -1636,11 +1639,15 @@ internal sealed class WorkerBehaviorManager
 
     private bool IsEligibleAssignedObject(string workerId, WorkerTaskKind assignment, Point tile, StardewValley.Object? item)
     {
-        if (!IsAssignedObjectJob(assignment) || !WorkerRouteObstacleClassifier.IsSmallLitter(item)) return false;
-        return assignment == WorkerTaskKind.ClearDebris
-            || (item!.IsBreakableStone()
-                && WorkerMiningPolicy.ContainsTile(this.workerShellManager.GetMiningArea(workerId), tile.X, tile.Y)
-                && WorkerMiningPolicy.CanTarget(this.miningModes.GetValueOrDefault(workerId), item.ItemId));
+        if (!IsAssignedObjectJob(assignment) || item is null) return false;
+        if (assignment == WorkerTaskKind.ClearDebris) return WorkerRouteObstacleClassifier.IsSmallLitter(item);
+        if (!WorkerMiningPolicy.ContainsTile(this.workerShellManager.GetMiningArea(workerId), tile.X, tile.Y))
+            return false;
+        WorkerMiningWorkMode mode = this.miningModes.GetValueOrDefault(workerId);
+        return (WorkerRouteObstacleClassifier.IsSmallLitter(item) && item.IsBreakableStone()
+                && WorkerMiningPolicy.CanTarget(mode, item.ItemId))
+            || (assignment == WorkerTaskKind.MineOreGems
+                && WorkerMiningPolicy.CanCollectLooseGem(mode, item.ItemId, item.IsBreakableStone()));
     }
 
     private IEnumerable<ForagerTarget> GetForagerTargets(NPC worker, string workerId, GameLocation location,
@@ -1658,11 +1665,14 @@ internal sealed class WorkerBehaviorManager
                     || this.IsDebrisReservedByAnother(workerId, location, debrisTile))
                     continue;
 
+                ForagerTargetKind kind = WorkerMiningPolicy.IsMiningTask(assignment) && !pair.Value.IsBreakableStone()
+                    ? ForagerTargetKind.LooseGem : ForagerTargetKind.RouteDebris;
+
                 foreach (Point approach in this.GetApproachTiles(worker, location, debrisTile, 1, 1, includeBlockedApproaches))
                 {
                     if (Math.Abs(approach.X - debrisTile.X) + Math.Abs(approach.Y - debrisTile.Y) == 1)
                         yield return new ForagerTarget(location.NameOrUniqueName, debrisTile, approach,
-                            ForagerTargetKind.RouteDebris, pair.Value);
+                            kind, pair.Value);
                 }
             }
             yield break;
@@ -1718,7 +1728,7 @@ internal sealed class WorkerBehaviorManager
         foreach (KeyValuePair<string, ForagerTarget> pair in this.activeForagerTargets)
         {
             if (!string.Equals(pair.Key, workerId, StringComparison.OrdinalIgnoreCase)
-                && pair.Value.Kind == ForagerTargetKind.RouteDebris
+                && pair.Value.Kind is (ForagerTargetKind.RouteDebris or ForagerTargetKind.LooseGem)
                 && pair.Value.LocationName == location.NameOrUniqueName
                 && pair.Value.ResourceTile == tile)
                 return true;
@@ -1798,6 +1808,36 @@ internal sealed class WorkerBehaviorManager
                     location.playSound("pickUpItem");
                 }
 
+                this.FinishForagerAction(worker, workerId, target, assignment, null);
+            });
+            return;
+        }
+
+        if (target.Kind == ForagerTargetKind.LooseGem)
+        {
+            this.snapshots[workerId] = new(assignment, "Gathering", "Picking up a loose mineral", 0, target.ResourceTile);
+            this.StartWorkMotion(worker, workerId, WorkerWorkAnimationKind.Gather, target.ResourceTile, () =>
+            {
+                if (worker.currentLocation == location && worker.TilePoint == target.ApproachTile
+                    && location.Objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? gem)
+                    && ReferenceEquals(gem, target.ExpectedObject)
+                    && this.IsEligibleAssignedObject(workerId, assignment, target.ResourceTile, gem))
+                {
+                    try
+                    {
+                        bool chestOnly = WorkerItemStorage.Store(gem, this.workerShellManager.GetHarvestDestination(workerId), this.monitor);
+                        location.Objects.Remove(target.ResourceTile.ToVector2());
+                        this.RecordCompletedWork(workerId);
+                        this.workerShellManager.TryAwardCompletedActionExperience(workerId, WorkerExperienceAction.PickupLooseGem);
+                        this.monitor.Log($"{worker.displayName} gathered {gem.DisplayName} at {target.LocationName} {target.ResourceTile}; "
+                            + $"storage={(chestOnly ? "selected chest" : "shipping bin, wholly or partly")}.", LogLevel.Info);
+                        location.playSound("pickUpItem");
+                    }
+                    catch (Exception ex)
+                    {
+                        this.monitor.Log($"{worker.displayName} could not store loose gem at {target.LocationName} {target.ResourceTile}: {ex.Message}", LogLevel.Warn);
+                    }
+                }
                 this.FinishForagerAction(worker, workerId, target, assignment, null);
             });
             return;

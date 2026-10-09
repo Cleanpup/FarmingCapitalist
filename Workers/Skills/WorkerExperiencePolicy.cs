@@ -9,6 +9,7 @@ internal static class WorkerExperiencePolicy
     public const int ForagingExperiencePerTree = 12;
     public const int ForagingExperiencePerHardwood = 25;
     public const int ExperiencePerSmallDebris = 1;
+    public const int MiningExperiencePerLooseGem = 1;
 
     // Farmer.getBaseExperienceForLevel in the installed Stardew Valley 1.6 assembly.
     private static readonly int[] FarmingLevelThresholds = { 0, 100, 380, 770, 1300, 2150, 3300, 4800, 6900, 10000, 15000 };
@@ -68,11 +69,12 @@ internal static class WorkerExperiencePolicy
             WorkerExperienceAction.ChopHardwood => ForagingExperiencePerHardwood,
             WorkerExperienceAction.ClearWeeds or WorkerExperienceAction.ClearTwig => ExperiencePerSmallDebris,
             WorkerExperienceAction.ClearStone => ExperiencePerSmallDebris,
+            WorkerExperienceAction.PickupLooseGem => MiningExperiencePerLooseGem,
             _ => 0,
         };
         if (amount == 0)
             return false;
-        if (action == WorkerExperienceAction.ClearStone)
+        if (action is WorkerExperienceAction.ClearStone or WorkerExperienceAction.PickupLooseGem)
             worker.Experience.Mining = AddExperience(worker.Experience.Mining, amount);
         else
             worker.Experience.Foraging = AddExperience(worker.Experience.Foraging, amount);
@@ -102,4 +104,5 @@ internal enum WorkerExperienceAction
     ClearWeeds,
     ClearTwig,
     ClearStone,
+    PickupLooseGem,
 }

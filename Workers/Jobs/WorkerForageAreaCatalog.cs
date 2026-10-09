@@ -8,7 +8,7 @@ namespace FarmingCapitalist.Workers;
 /// <summary>Outdoor mainland areas which vanilla NPC schedule pathing can reach on foot.</summary>
 internal static class WorkerForageAreaCatalog
 {
-    public const string DefaultLocationName = "Forest";
+    public const string DefaultLocationName = "Farm";
 
     private static readonly WorkerForageArea[] SupportedAreas =
     {

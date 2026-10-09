@@ -1,7 +1,7 @@
 {
   "Name": "FarmingCapitalist",
   "Author": "Cleanpup",
-  "Version": "1.3.4",
+  "Version": "1.3.5",
   "Description": "The Big One",
   "UniqueID": "Cleanpup.FarmingCapitalist",
   "EntryDll": "FarmingCapitalistFull.dll",

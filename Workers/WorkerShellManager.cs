@@ -289,7 +289,7 @@ internal sealed class WorkerShellManager
         WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
         if (entry is null || entry.Profession != WorkerProfession.Fisher || !WorkerFishingAreaCatalog.IsValid(area))
         { message = "That fishing area is not available for this worker."; return false; }
-        if (WorkerFishingAreaCatalog.AccessReason(area) is string reason) { message = reason + "."; return false; }
+        // Valid destinations remain browseable; the Fish assignment checks access before starting work.
         this.CancelFishing(workerId);
         entry.FishingArea = area;
         entry.AssignedTask = WorkerTaskKind.Idle;
@@ -369,11 +369,7 @@ internal sealed class WorkerShellManager
             message = "That mining area is not available for this worker.";
             return false;
         }
-        if (WorkerMiningAreaCatalog.AccessReason(area) is string reason)
-        {
-            message = reason + ".";
-            return false;
-        }
+        // Selection sets Idle only. Mining assignments retain the unlock/location checks.
         entry.MiningArea = area;
         entry.AssignedTask = WorkerTaskKind.Idle;
         this.PersistRoster();

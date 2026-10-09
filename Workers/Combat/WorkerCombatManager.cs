@@ -428,13 +428,17 @@ internal sealed class WorkerCombatManager
             if (!target.isInvincible() && Game1.ticks >= state.NextAttackTick)
             {
                 state.NextAttackTick = Game1.ticks + 40;
-                worker.faceDirection(target.TilePoint.X < worker.TilePoint.X ? 3
-                    : target.TilePoint.X > worker.TilePoint.X ? 1
-                    : target.TilePoint.Y < worker.TilePoint.Y ? 0 : 2);
+                Point workerCenter = worker.StandingPixel;
+                Point targetCenter = target.StandingPixel;
+                int facing = WorkerCombatSwingPolicy.FacingTowards(workerCenter.X, workerCenter.Y,
+                    targetCenter.X, targetCenter.Y, worker.FacingDirection);
                 state.SwingTarget = target;
                 state.SwingElapsed = 0;
                 state.SwingImpactApplied = false;
-                this.animations.Start(worker);
+                this.animations.Start(worker, facing);
+                this.monitor.Log($"{worker.displayName} started sword swing facing {facing} "
+                    + $"(0=up, 1=right, 2=down, 3=left) at {target.displayName}: "
+                    + $"worker center={workerCenter}, target center={targetCenter}.", LogLevel.Trace);
             }
             snapshot = new WorkerRuntimeSnapshot(WorkerTaskKind.SlayMonsters, "Fighting",
                 $"Fighting {target.displayName} ({state.Health} HP)", 0, target.TilePoint);
@@ -931,9 +935,8 @@ internal sealed class WorkerCombatManager
                 crab.isStickBug.Value, crab.shellGone.Value,
                 crab.Sprite is not null && crab.Sprite.CurrentFrame % 4 != 0))
             return;
-        worker.faceDirection(target.TilePoint.X < worker.TilePoint.X ? 3
-            : target.TilePoint.X > worker.TilePoint.X ? 1
-            : target.TilePoint.Y < worker.TilePoint.Y ? 0 : 2);
+        // Keep the direction captured at windup; damage must not redirect the
+        // visual slash halfway through when the monster moves or overlaps us.
         int dealt = target.takeDamage(10, 0, 0, false, 0d, "hitEnemy");
         this.monitor.Log($"{worker.displayName} struck {target.displayName} at {target.TilePoint}: "
             + $"damage={dealt}, remaining health={target.Health}.", LogLevel.Trace);

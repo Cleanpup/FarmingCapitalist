@@ -34,10 +34,12 @@ internal sealed class WorkerCombatAnimationManager
             prefix: new HarmonyMethod(typeof(WorkerCombatAnimationManager), nameof(BeforeNpcDraw)));
     }
 
-    public void Start(NPC worker)
+    public void Start(NPC worker, int facing)
     {
-        string signal = $"{++this.sequence}:{worker.FacingDirection}";
-        this.swings[worker] = new Swing { Signal = signal, Facing = worker.FacingDirection, Location = worker.currentLocation };
+        // Character.faceDirection ignores SimpleNonVillagerNPC workers. Capture
+        // the chosen direction explicitly, then ApplyPose sets it for every pose.
+        string signal = $"{++this.sequence}:{facing}";
+        this.swings[worker] = new Swing { Signal = signal, Facing = facing, Location = worker.currentLocation };
         worker.modData[SwingDataKey] = signal;
         this.ApplyPose(worker, this.swings[worker]);
         worker.currentLocation.localSound("swordswipe");

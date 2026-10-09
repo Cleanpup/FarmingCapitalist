@@ -26,6 +26,15 @@ internal static class WorkerCombatSwingPolicy
 
     public static int SheetFrame(int facing, int pose) => FirstSheetFrame + DirectionRow(facing) * PoseCount + pose;
 
+    public static int FacingTowards(int workerX, int workerY, int targetX, int targetY, int currentFacing)
+    {
+        int dx = targetX - workerX;
+        int dy = targetY - workerY;
+        if (dx == 0 && dy == 0)
+            return currentFacing;
+        return Math.Abs(dx) > Math.Abs(dy) ? (dx < 0 ? 3 : 1) : (dy < 0 ? 0 : 2);
+    }
+
     // These are animation IDs, rather than texture-frame indices. Let the
     // game supply the full pose metadata (especially its sword arm overlay).
     public static int SwordAnimation(int facing) => facing switch { 2 => 232, 1 => 240, 0 => 248, 3 => 256,

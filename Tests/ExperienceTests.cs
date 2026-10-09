@@ -200,6 +200,12 @@ Equal(232, WorkerCombatSwingPolicy.SwordAnimation(2), "down uses the native swor
 Equal(240, WorkerCombatSwingPolicy.SwordAnimation(1), "right uses the native sword animation ID");
 Equal(248, WorkerCombatSwingPolicy.SwordAnimation(0), "up uses the native sword animation ID");
 Equal(256, WorkerCombatSwingPolicy.SwordAnimation(3), "left uses the native mirrored sword animation ID");
+Equal(0, WorkerCombatSwingPolicy.FacingTowards(96, 100, 96, 90, 2), "enemy above within the same tile starts an upward swing even when worker was facing down");
+Equal(2, WorkerCombatSwingPolicy.FacingTowards(96, 100, 96, 110, 0), "enemy below preserves downward sword attacks");
+Equal(1, WorkerCombatSwingPolicy.FacingTowards(96, 100, 106, 101, 2), "enemy predominantly right starts a right swing");
+Equal(3, WorkerCombatSwingPolicy.FacingTowards(96, 100, 86, 101, 2), "enemy predominantly left starts a left swing");
+Equal(0, WorkerCombatSwingPolicy.FacingTowards(96, 100, 99, 90, 2), "enemy above with small horizontal offset still gets an upward swing");
+Equal(3, WorkerCombatSwingPolicy.FacingTowards(96, 100, 96, 100, 3), "exactly overlapping centers retain the prior facing");
 Equal(2, WorkerCombatSwingPolicy.PoseAt(124), "first slash pose lasts the native 25 ms");
 Equal(3, WorkerCombatSwingPolicy.PoseAt(125), "second slash pose follows immediately");
 Equal(4, WorkerCombatSwingPolicy.PoseAt(150), "third slash pose follows at 150 ms");

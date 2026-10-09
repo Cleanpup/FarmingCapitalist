@@ -131,6 +131,7 @@ internal sealed class WorkerBehaviorManager
     private readonly Dictionary<string, WorkerTravelPhase> activePhases = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly IMonitor monitor;
     private readonly WorkerNavigationManager navigationManager;
+    private readonly WorkerIdleMovementManager idleMovement;
     private readonly WorkerShellManager workerShellManager;
     private readonly WorkerCombatManager combatManager;
     private readonly WorkerDungeonTravelManager dungeonTravel;
@@ -164,6 +165,7 @@ internal sealed class WorkerBehaviorManager
     {
         this.navigationManager = navigationManager;
         this.workerShellManager = workerShellManager;
+        this.idleMovement = new WorkerIdleMovementManager(navigationManager, workerShellManager, monitor);
         this.dungeonTravel = new(navigationManager, monitor);
         this.combatManager = new WorkerCombatManager(workerShellManager, navigationManager, monitor,
             this.RecordCompletedWork, this.dungeonTravel);
@@ -175,9 +177,8 @@ internal sealed class WorkerBehaviorManager
 
     public void HandleWorkerInitialized(NPC? worker, string triggerReason)
     {
-        // Hiring and loading leave a worker at its saved farmhouse tile. Orders are the
-        // only thing which should start movement; the old scripted round trip was noisy
-        // and could send a newly hired worker outside before the player gave an order.
+        // The saved farmhouse tile is the overnight home. Idle workers head outdoors
+        // during the day, while DayStarted places the morning crew on the Farm.
         if (worker is not null)
             this.monitor.Log($"{worker.displayName} initialized at {worker.currentLocation?.NameOrUniqueName ?? "unknown"} tile {worker.TilePoint}; waiting for an assignment (trigger: {triggerReason}).", LogLevel.Trace);
     }
@@ -197,6 +198,11 @@ internal sealed class WorkerBehaviorManager
         foreach (NPC worker in this.workerShellManager.GetSpawnedWorkers())
             this.HandleWorkerInitialized(worker, triggerReason);
     }
+
+    public void PlaceWorkersOnFarmForMorning() => this.idleMovement.PlaceWorkersOnFarmForMorning();
+
+    private bool CanWanderToday(string workerId)
+        => this.workerShellManager.CanWorkerWorkToday(workerId) && !this.workerShellManager.WasDefeatedToday(workerId);
 
     private bool MayFollowDungeon(string workerId) =>
         this.activePhases.GetValueOrDefault(workerId, WorkerTravelPhase.None)
@@ -298,6 +304,15 @@ internal sealed class WorkerBehaviorManager
                 continue;
             }
 
+            if (phase == WorkerTravelPhase.RestingAtFarmhouse
+                && this.workerShellManager.GetAssignedTask(workerId) == WorkerTaskKind.Idle
+                && this.CanWanderToday(workerId)
+                && WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay))
+            {
+                this.activePhases[workerId] = WorkerTravelPhase.None;
+                phase = WorkerTravelPhase.None;
+            }
+
             if (phase is WorkerTravelPhase.ReturningToFarmhouse or WorkerTravelPhase.RestingAtFarmhouse)
             {
                 this.UpdateReturnHome(worker, workerId, phase);
@@ -318,12 +333,21 @@ internal sealed class WorkerBehaviorManager
                 continue;
             }
 
+            if (assignment == WorkerTaskKind.Idle)
+            {
+                if (!this.CanWanderToday(workerId) || !WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay))
+                    this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
+                else
+                    this.snapshots[workerId] = this.idleMovement.Update(worker, workerId);
+            }
+
         }
     }
 
     public void Reset()
     {
         this.activePhases.Clear();
+        this.idleMovement.Reset();
         this.snapshots.Clear();
         this.completedToday.Clear();
         this.activeTargets.Clear();
@@ -388,6 +412,7 @@ internal sealed class WorkerBehaviorManager
             return false;
         }
         this.navigationManager.StopTravel(worker);
+        this.idleMovement.Stop(workerId);
         this.combatManager.Stop(workerId);
         this.explorationManager.Stop(workerId);
         this.fishingManager.Stop(workerId);
@@ -414,7 +439,11 @@ internal sealed class WorkerBehaviorManager
         this.lastCropFallbackTargets.Remove(workerId);
         if (task == WorkerTaskKind.Idle)
         {
-            this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
+            if (worker.currentLocation is Farm && this.CanWanderToday(workerId)
+                && WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay))
+                this.snapshots[workerId] = new WorkerRuntimeSnapshot(task, "Idle", "Looking around the Farm", 0, null);
+            else
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
         }
         else
         {
@@ -427,6 +456,7 @@ internal sealed class WorkerBehaviorManager
 
     public void StopWorker(string workerId)
     {
+        this.idleMovement.Stop(workerId);
         this.explorationManager.DeliverPendingLoot(workerId);
         this.fishingManager.Deliver(workerId);
         this.explorationManager.Stop(workerId);
@@ -556,6 +586,15 @@ internal sealed class WorkerBehaviorManager
         WorkerRuntimeSnapshot current = this.snapshots.TryGetValue(workerId, out WorkerRuntimeSnapshot snapshot)
             ? snapshot
             : new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId), "Idle", "Waiting for an assignment", 0, null);
+        if (!Context.IsMainPlayer && current.AssignedTask == WorkerTaskKind.Idle)
+        {
+            this.workerShellManager.TryGetWorker(workerId, out NPC? idleWorker);
+            if (idleWorker?.currentLocation is Farm)
+                current = current with { State = idleWorker.controller is null ? "Idle" : "Traveling",
+                    Status = idleWorker.controller is null ? "Looking around the Farm" : "Walking around the Farm" };
+            else if (idleWorker?.currentLocation?.NameOrUniqueName == TestWorkerDefinition.LocationName)
+                current = current with { State = "Idle", Status = "At home" };
+        }
         WorkerExplorationProgress progress = this.workerShellManager.GetExplorationProgress(workerId);
         if (!Context.IsMainPlayer && current.AssignedTask == WorkerTaskKind.ExploreArea)
         {
@@ -690,6 +729,7 @@ internal sealed class WorkerBehaviorManager
 
     private void BeginReturnHome(NPC worker, string workerId, ReturnHomeReason reason)
     {
+        this.idleMovement.Stop(workerId);
         if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Miner)
             this.dungeonTravel.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetMiningArea(workerId),
                 () => this.ClearMiningFloorState(workerId));

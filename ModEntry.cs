@@ -72,6 +72,7 @@ internal sealed class ModEntry : Mod
         this.workerBehaviorManager.Reset();
         this.workerShellManager.ProcessDailyWages();
         this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
+        this.workerBehaviorManager.PlaceWorkersOnFarmForMorning();
         this.workerBehaviorManager.HandleConfiguredWorkersInitialized("day started");
     }
 

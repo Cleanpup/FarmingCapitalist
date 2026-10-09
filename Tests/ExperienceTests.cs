@@ -77,11 +77,11 @@ Equal(50, progress.Minutes, "HHMM minutes are converted without inventing forty 
 WorkerExplorationPolicy.ObserveClock(progress, 100, 700, true);
 Equal(60, progress.Minutes, "one hour is ready for one batch");
 var staleProgress = progress.Clone();
-var initialLoot = new List<WorkerExplorationLoot> { new() { ItemId = "(O)378", Stack = 2 } };
+var initialLoot = new List<WorkerExplorationLoot> { new() { ItemId = "(O)766", Stack = 2 } };
 Check(WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 100, true, true, true, false), "host commits completed run and pending loot");
 Equal(1, expedition.Exploration.CompletedRuns, "one run completed");
 Equal(0, expedition.Exploration.Minutes, "completed run consumes its hour");
-Equal(5, expedition.Experience.Mining, "explorer gets five mining XP");
+Equal(0, expedition.Experience.Mining, "monster exploration never simulates mining or awards mining XP");
 Equal(5, expedition.Experience.Combat, "explorer gets five combat XP without a player kill");
 Check(!WorkerExplorationPolicy.TryQueueRun(expedition, staleProgress, initialLoot, 100, true, true, true, false), "stale completion cannot duplicate loot or XP");
 initialLoot[0].Stack = 99;
@@ -115,20 +115,85 @@ Check(!WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 10
 
 var areaLootIds = new Dictionary<string, HashSet<string>>
 {
-    ["Mines"] = new() { "390", "378", "380", "384", "684", "766", "767", "769", "535", "536", "537", "382" },
-    ["SkullCavern"] = new() { "390", "384", "386", "768", "769", "749", "382" },
-    ["Volcano"] = new() { "390", "848", "384", "768", "537", "382" },
+    ["Mines"] = new() { "766", "684", "767", "768", "769", "382", "378", "380", "286", "717", "86", "157", "273", "203", "96", "97", "98", "99", "105", "114", "336", "74" },
+    ["SkullCavern"] = new() { "766", "767", "768", "769", "386", "382", "428", "226", "287", "749", "732", "107", "580", "583", "584", "72", "337", "99", "485", "74" },
+    ["Volcano"] = new() { "848", "881", "768", "766", "378", "380", "382", "851", "831", "833", "829", "852", "60", "62", "64", "66", "68", "70", "72", "835", "857", "98", "99" },
 };
-foreach (string area in WorkerExplorationAreaCatalog.GetAreas())
-for (int seed = 0; seed < 1000; seed++)
+var forbiddenExplorationIds = new[] { "390", "388", "92", "384", "535", "536", "537", "73", "890", "875", "876", "930" };
+var mineCoreIds = new HashSet<string> { "766", "684", "767", "768", "769" };
+var mineRareIds = new HashSet<string> { "96", "97", "98", "99", "105", "114", "336" };
+foreach (var scenario in new[] { ("Mines", 0, false), ("Mines", 30, false), ("Mines", 31, false),
+    ("Mines", 40, false), ("Mines", 50, false), ("Mines", 51, false), ("Mines", 79, false),
+    ("Mines", 80, false), ("Mines", 119, false), ("Mines", 120, false),
+    ("SkullCavern", 119, false), ("SkullCavern", 120, false), ("Volcano", 120, false), ("Volcano", 120, true) })
 {
-    var loot = WorkerExplorationPolicy.RollLoot(area, new Random(seed), 120);
-    Check(loot.All(drop => areaLootIds[area].Contains(drop.ItemId[3..]) && drop.Stack is >= 1 and <= 4), "every rolled reward belongs to its area's capped pool");
-    if (area == "Volcano") Check(loot.Any(drop => drop.ItemId == "(O)848"), "volcano batches always include cinder shards");
-    if (area == "SkullCavern") Check(loot.Any(drop => drop.ItemId == "(O)384"), "cavern batches include gold ore");
-    var shallowLoot = WorkerExplorationPolicy.RollLoot("Mines", new Random(seed), 39);
-    Check(shallowLoot.Any(drop => drop.ItemId == "(O)378") && !shallowLoot.Any(drop => drop.ItemId is "(O)380" or "(O)384" or "(O)386"), "shallow unlocked Mines give copper rather than advanced ores");
+    var (area, depth, hutch) = scenario;
+    int commonUnits = 0, totalUnits = 0, rareEvents = 0, shards = 0, eggs = 0, solar = 0, voids = 0;
+    const int samples = 100000;
+    var random = new Random(9467);
+    for (int run = 0; run < samples; run++)
+    {
+        var loot = WorkerExplorationPolicy.RollLoot(area, random, depth, hutch);
+        Check(loot.Count > 0 && loot.All(drop => drop.Area == area && areaLootIds[area].Contains(drop.ItemId[3..])
+            && WorkerExplorationPolicy.IsAllowedMonsterLoot(area, drop.ItemId) && drop.Stack is >= 1 and <= 5), "only capped source-backed monster drops from the selected area");
+        Check(!loot.Any(drop => forbiddenExplorationIds.Contains(drop.ItemId[3..])), "stone and excluded mining/quest rewards never roll");
+        shards += loot.Count(drop => drop.ItemId == "(O)74");
+        eggs += loot.Count(drop => drop.ItemId == "(O)857");
+        if (area != "Mines") continue;
+        var core = loot.Where(drop => mineCoreIds.Contains(drop.ItemId[3..])).ToList();
+        Check(core.Count == 1 && core[0].Stack is >= 3 and <= 5, "every hourly run guarantees three to five core monster units");
+        commonUnits += core.Sum(drop => drop.Stack);
+        totalUnits += loot.Sum(drop => drop.Stack);
+        rareEvents += loot.Count(drop => mineRareIds.Contains(drop.ItemId[3..]));
+        solar += loot.Count(drop => drop.ItemId == "(O)768");
+        voids += loot.Count(drop => drop.ItemId == "(O)769");
+        Check(depth >= 31 || !loot.Any(drop => drop.ItemId is "(O)767" or "(O)382"), "pre-Golem/Bat progression excludes their coal and wings");
+        Check(depth >= 40 || !loot.Any(drop => drop.ItemId is "(O)97" or "(O)336"), "Dust Spirit extras wait for the frozen band");
+        Check(depth >= 80 || !loot.Any(drop => drop.ItemId is "(O)378" or "(O)380" or "(O)203" or "(O)98"), "Metal Head/Shadow Brute and conservative Scroll III gates");
+        Check(depth >= 120 || !loot.Any(drop => drop.ItemId is "(O)99"), "conservative worker Scroll IV gate waits for mine bottom");
+    }
+    if (area == "Mines")
+    {
+        double commonShare = (double)commonUnits / totalUnits;
+        Check(commonShare is > .795 and < .805, "Mines container units average approximately eighty percent core and twenty percent extras at every progression band");
+        Check(rareEvents is > 800 and < 1120, "rare tier remains near 0.96 percent hourly rather than filling an extra-loot quota");
+        Check(depth < 51 ? solar == 0 : solar > 0, "solar essence starts at actual Ghost floor 51");
+        Check(depth < 80 ? voids == 0 : voids > 0, "void essence starts with Shadow monsters");
+    }
+    if (area != "Volcano")
+        Check(depth < 120 ? shards == 0 : area == "Mines" ? shards is > 10 and < 75 : shards is > 50 and < 155,
+            "prismatic hourly rarity and bottom gate preserve conservative worker progression");
+    else
+    {
+        Equal(0, shards, "Volcano does not inherit global mine-monster prismatic rewards");
+        Check(!hutch ? eggs == 0 : eggs is > 200 and < 400, "Tiger egg requires the host's slime hutch progression and remains rare");
+    }
 }
+foreach (string area in WorkerExplorationAreaCatalog.GetAreas())
+    foreach (string id in forbiddenExplorationIds)
+        Check(!WorkerExplorationPolicy.IsAllowedMonsterLoot(area, "(O)" + id), "queued validation rejects stone and items outside the curated monster subset");
+Check(WorkerExplorationPolicy.IsAllowedMonsterLoot("Mines", "(O)382"), "Dust Sprite coal remains legitimate monster loot");
+Check(WorkerExplorationPolicy.IsAllowedMonsterLoot("Mines", "(O)380"), "Metal Head iron remains legitimate monster loot");
+Check(WorkerExplorationPolicy.IsAllowedMonsterLoot("SkullCavern", "(O)386"), "Iridium Crab/slime ore remains legitimate monster loot");
+Check(WorkerExplorationPolicy.IsAllowedMonsterLoot("SkullCavern", "(O)749"), "Carbon Ghost omni geodes are genuine monster drops");
+Check(WorkerExplorationPolicy.IsAllowedMonsterLoot("Volcano", "(O)851"), "False Magma Cap drops remain legitimate monster loot");
+Check(WorkerExplorationPolicy.IsAllowedMonsterLoot("Volcano", "(O)378"), "Hot Head copper remains legitimate monster loot");
+Check(!WorkerExplorationPolicy.IsAllowedMonsterLoot("Volcano", "390"), "unqualified stone is also forbidden");
+var legacyQueue = new WorkerExplorationProgress { PendingLoot = new() {
+    new() { ItemId = "(O)684", Stack = 1 }, new() { ItemId = "(O)749", Stack = 1 },
+    new() { Area = "Volcano", ItemId = "(O)852", Stack = 1 } } };
+WorkerExplorationPolicy.TagLegacyPendingLoot(legacyQueue, "Mines");
+Check(WorkerExplorationPolicy.IsAllowedPendingLoot(legacyQueue.PendingLoot[0]), "legacy source defaults to its saved destination");
+Check(!WorkerExplorationPolicy.IsAllowedPendingLoot(legacyQueue.PendingLoot[1]), "legacy Mines queue cannot borrow Skull-only Carbon Ghost rewards");
+Equal("Volcano", legacyQueue.PendingLoot[2].Area, "migration never retags known source areas after a destination change");
+Check(!WorkerExplorationPolicy.IsAllowedPendingLoot(new() { Area = "Mines", ItemId = "(O)390", Stack = 1 }), "old queued stone cannot be delivered");
+Check(WorkerExplorationPolicy.IsAllowedPendingLoot(new() { Area = "Mines", ItemId = "(O)684", Stack = 1 }), "saved loot retains its source area after changing destinations");
+Check(!WorkerExplorationPolicy.IsAllowedPendingLoot(new() { Area = "Volcano", ItemId = "(O)684", Stack = 1 }), "invalid cross-area loot is rejected");
+var rejectedRun = new WorkerRosterEntry { Profession = WorkerProfession.CombatWorker, AssignedTask = WorkerTaskKind.ExploreArea,
+    Exploration = new() { Day = 55, Minutes = 60 } };
+Check(!WorkerExplorationPolicy.TryQueueRun(rejectedRun, rejectedRun.Exploration.Clone(),
+    new() { new() { ItemId = "(O)390", Stack = 1 } }, 55, true, true, true, false), "a prohibited reward cannot commit a run or XP");
+Equal(0, rejectedRun.Experience.Combat, "prohibited loot rejection is side-effect free");
 expedition.ExplorationArea = WorkerExplorationAreaCatalog.Volcano;
 var reloadedExpedition = JsonSerializer.Deserialize<WorkerRosterEntry>(JsonSerializer.Serialize(expedition))!;
 Equal(WorkerExplorationAreaCatalog.Volcano, reloadedExpedition.ExplorationArea, "independent exploration selection survives save/load");

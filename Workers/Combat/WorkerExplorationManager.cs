@@ -128,7 +128,8 @@ internal sealed class WorkerExplorationManager
             progress = this.shell.GetExplorationProgress(workerId);
             int seed = unchecked((int)Game1.uniqueIDForThisGame + progress.Day * 397 + progress.CompletedRuns * 7919);
             foreach (char c in workerId + area) seed = unchecked(seed * 31 + c);
-            List<WorkerExplorationLoot> loot = WorkerExplorationPolicy.RollLoot(area, new Random(seed), Game1.MasterPlayer.deepestMineLevel);
+            List<WorkerExplorationLoot> loot = WorkerExplorationPolicy.RollLoot(area, new Random(seed), Game1.MasterPlayer.deepestMineLevel,
+                Game1.MasterPlayer.mailReceived.Contains("slimeHutchBuilt"));
             if (!this.shell.TryCompleteExploration(workerId, progress, loot))
                 break;
             this.monitor.Log($"{worker.displayName} completed simulated exploration #{progress.CompletedRuns} in {label}: "

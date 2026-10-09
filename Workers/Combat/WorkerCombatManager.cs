@@ -1000,6 +1000,11 @@ internal sealed class WorkerCombatManager
                 item = ItemRegistry.Create(debris.itemId.Value, Math.Max(1, debris.Chunks.Count), debris.itemQuality);
             if (item is null)
                 return;
+            // This is still a real monster drop, but workers explicitly never
+            // collect stone. Leave it in the world for the player rather than
+            // destroying it or depositing it in shared storage.
+            if (item.QualifiedItemId == "(O)390")
+                return;
             Item forStorage = item.getOne();
             forStorage.Stack = item.Stack;
             WorkerItemStorage.Store(forStorage, this.shell.GetHarvestDestination(), this.monitor);

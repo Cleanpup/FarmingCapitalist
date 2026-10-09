@@ -1016,6 +1016,7 @@ internal sealed class WorkerShellManager
             if (!WorkerExplorationAreaCatalog.IsValid(normalized.ExplorationArea))
                 normalized.ExplorationArea = WorkerExplorationAreaCatalog.Mines;
             normalized.Exploration ??= new();
+            WorkerExplorationPolicy.TagLegacyPendingLoot(normalized.Exploration, normalized.ExplorationArea);
             normalized.Exploration.Day = Math.Clamp(normalized.Exploration.Day, -1, Game1.Date.TotalDays);
             normalized.Exploration.Minutes = Math.Clamp(normalized.Exploration.Minutes, 0, 960);
             normalized.Exploration.LastObservedMinute = normalized.Exploration.LastObservedMinute is >= 360 and <= 1320

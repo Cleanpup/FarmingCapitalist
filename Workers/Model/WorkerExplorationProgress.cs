@@ -2,9 +2,10 @@ namespace FarmingCapitalist.Workers;
 
 internal sealed class WorkerExplorationLoot
 {
+    public string Area { get; set; } = "";
     public string ItemId { get; set; } = "";
     public int Stack { get; set; }
-    public WorkerExplorationLoot Clone() => new() { ItemId = this.ItemId, Stack = this.Stack };
+    public WorkerExplorationLoot Clone() => new() { Area = this.Area, ItemId = this.ItemId, Stack = this.Stack };
 }
 
 /// <summary>Only simulated progress and undelivered items are saved, never dungeon objects.</summary>

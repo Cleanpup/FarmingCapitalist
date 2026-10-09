@@ -10,7 +10,7 @@
 - `ModEntry.cs`: event wiring, console commands, lifecycle.
 - `Workers/WorkerShellManager.cs`: roster, spawning, identity, persistence and hiring.
 - `Workers/WorkerBehaviorManager.cs`: task selection and execution; `WorkerNavigationManager.cs`: routes/recovery.
-- `Workers/Combat/WorkerCombatManager.cs`: physical Slay monsters; `WorkerExplorationManager.cs` and `WorkerExplorationPolicy.cs`: entrance-only Explore Area simulation, timing/loot. `WorkerExplorationProgress` persists progress and pending loot; storage delivery is shared.
+- `Workers/Combat/WorkerCombatManager.cs`: physical Slay monsters; `WorkerExplorationManager.cs` and `WorkerExplorationPolicy.cs`: entrance-only Explore Area simulation/timing; `WorkerExplorationLootCatalog.cs`: source-backed hourly loot tiers and gates. `WorkerExplorationProgress` persists progress and pending loot; storage delivery is shared.
 - `Workers/WorkerControlMenu*.cs`: management UI and input; `WorkerCustomizationManager.cs`: appearance workflow.
 - `Workers/WorkerAppearance*.cs`, `WorkerSpriteSheetBuilder.cs`: farmer appearance and NPC sprite generation.
 - Search `Workers/` first. `SMAPI/` and `StardewValleyDecompiled/` are ignored local reference sources, not mod code.
@@ -22,7 +22,7 @@
 - Save worker identity, appearance and assignments in mod data; rebuild temporary runtime state from the live world.
 - Never serialize generated textures or path controllers; clean up transient workers and textures on lifecycle boundaries.
 - Never overwrite player objects, destroy obstacles, or teleport to a job to hide a failed route.
-- Explore Area explicitly teleports to a safe permanent dungeon entrance, simulates rewards there, and never enters generated floors. Keep its destination/timing separate from physical combat and preserve pending loot on cancellation/dismissal.
+- Explore Area explicitly teleports to a safe permanent dungeon entrance, simulates rewards there, and never enters generated floors. Keep its destination/timing separate from physical combat. Simulate monster loot and Combat XP only; ore/coal require monster provenance and stone is always excluded (real stone drops stay in the world). Mines target ~80% core / 20% extra item units; rare rolls remain independent and tiny. Preserve permitted pending loot on cancellation/dismissal.
 - Revalidate a crop at execution, reserve jobs across workers, and recover from blocked/invalid destinations.
 - Preserve harvested items and vanilla crop/regrowth rules. Never silently discard produce.
 - Use existing NPC/game APIs where practical and keep policy, movement, persistence and UI separate.

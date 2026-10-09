@@ -85,7 +85,6 @@ internal static class WorkerExperiencePolicy
             || worker.AssignedTask != WorkerTaskKind.ExploreArea)
             return false;
         worker.Experience ??= new();
-        worker.Experience.Mining = AddExperience(worker.Experience.Mining, WorkerExplorationPolicy.MiningExperiencePerRun);
         worker.Experience.Combat = AddExperience(worker.Experience.Combat, WorkerExplorationPolicy.CombatExperiencePerRun);
         return true;
     }

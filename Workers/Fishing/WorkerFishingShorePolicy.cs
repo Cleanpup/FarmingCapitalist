@@ -5,6 +5,11 @@ internal static class WorkerFishingShorePolicy
 {
     public const int MaximumCastTiles = 4;
 
+    // The vanilla Beach's south dock edge has clear wood flooring and ocean
+    // directly beyond its decorative border. Keep fallbacks on that dock.
+    public static bool IsAllowedShore(string area, int x, int y)
+        => area != "Beach" || (y == 36 && x is >= 34 and <= 43);
+
     public static bool TryFindCast(int shoreX, int shoreY, int dx, int dy,
         Func<int, int, bool> isWater, Func<int, int, bool> eligibleFishableWater, out (int X, int Y) cast)
     {

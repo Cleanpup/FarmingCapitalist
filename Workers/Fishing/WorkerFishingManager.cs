@@ -82,7 +82,7 @@ internal sealed class WorkerFishingManager
         }
         bool validStation = this.stationed.TryGetValue(workerId, out var station) && station.Location == location
             && worker.currentLocation == location && worker.TilePoint == station.Shore
-            && this.IsSafeShore(location, worker, station.Shore, station.Water, checkActors: false);
+            && this.IsSafeShore(location, worker, area, station.Shore, station.Water, checkActors: false);
         if (!validStation)
         {
             worker.modData.Remove(VisualKey);
@@ -131,10 +131,13 @@ internal sealed class WorkerFishingManager
         return false;
     }
 
-    private bool IsSafeShore(GameLocation location, NPC worker, Point shore, Point water, bool checkActors = true)
-        => location.hasTileAt(shore.X, shore.Y, "Back")
+    private bool IsSafeShore(GameLocation location, NPC worker, string area, Point shore, Point water, bool checkActors = true)
+        => WorkerFishingShorePolicy.IsAllowedShore(area, shore.X, shore.Y)
+            && location.hasTileAt(shore.X, shore.Y, "Back")
             && (checkActors ? this.navigation.IsWalkableWorkTile(location, worker, shore) : this.navigation.IsTraversableWorkTile(location, worker, shore))
             && !location.isWaterTile(shore.X, shore.Y)
+            && (area != WorkerFishingAreaCatalog.Beach
+                || (!location.hasTileAt(shore.X, shore.Y, "Front") && !location.hasTileAt(shore.X, shore.Y, "AlwaysFront")))
             && location.isTileFishable(water.X, water.Y)
             && WorkerFishingShorePolicy.IsContinuousWaterCast(shore.X, shore.Y, water.X, water.Y,
                 (x, y) => IsWaterForCast(location, x, y))
@@ -170,7 +173,7 @@ internal sealed class WorkerFishingManager
                     (x, y) => IsWaterForCast(location, x, y),
                     (x, y) => IsEligibleFishableWater(location, area, x, y), out var castTile)) continue;
                 Point cast = new(castTile.X, castTile.Y);
-                if (!this.IsSafeShore(location, worker, candidate, cast)) continue;
+                if (!this.IsSafeShore(location, worker, area, candidate, cast)) continue;
                 shore = candidate; water = cast; return true;
             }
         }

@@ -66,4 +66,7 @@ Check(!WorkerFishingShorePolicy.TryFindCast(0, 0, 1, 1, (x,y) => true, (x,y) => 
 Check(WorkerFishingShorePolicy.IsContinuousWaterCast(69,81,72,81,(x,y) => y==81 && x>=70), "Town cast did not revalidate");
 Check(!WorkerFishingShorePolicy.IsContinuousWaterCast(69,81,72,81,(x,y) => x!=71), "Interrupted water cast remained valid");
 Check(!WorkerFishingShorePolicy.IsContinuousWaterCast(69,81,70,82,(x,y) => true), "Diagonal cast revalidated");
+Check(!WorkerFishingShorePolicy.IsAllowedShore("Beach", 29, 28), "Beach roof admitted as a fishing shore");
+Check(WorkerFishingShorePolicy.IsAllowedShore("Beach", 35, 36), "Beach dock rejected as a fishing shore");
+Check(!WorkerFishingShorePolicy.IsAllowedShore("Beach", 35, 35), "Beach inland walkway admitted as a fishing shore");
 Console.WriteLine("Fishing checks passed: shoreline border casts, dry-gap/reach rejection, authority, timing, no-catch, stale completion, persistence, XP, legendary exclusions, season/time/weather/location gates.");

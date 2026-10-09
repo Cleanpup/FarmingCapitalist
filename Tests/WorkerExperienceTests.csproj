@@ -22,6 +22,7 @@
     <Compile Include="../Workers/Combat/WorkerCombatPolicy.cs" Link="WorkerCombatPolicy.cs" />
     <Compile Include="../Workers/Combat/WorkerCombatTilePolicy.cs" Link="WorkerCombatTilePolicy.cs" />
     <Compile Include="../Workers/Combat/WorkerCombatTargetPolicy.cs" Link="WorkerCombatTargetPolicy.cs" />
+    <Compile Include="../Workers/Combat/WorkerCombatSwingPolicy.cs" Link="WorkerCombatSwingPolicy.cs" />
     <Compile Include="../Workers/WorkerShellLifecyclePolicy.cs" Link="WorkerShellLifecyclePolicy.cs" />
   </ItemGroup>
 </Project>

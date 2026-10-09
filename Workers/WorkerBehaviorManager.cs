@@ -192,6 +192,7 @@ internal sealed class WorkerBehaviorManager
     public void Update()
     {
         this.navigationManager.Update();
+        this.combatManager.UpdateClientAnimations();
 
         if (!Context.IsWorldReady)
         {
@@ -414,6 +415,9 @@ internal sealed class WorkerBehaviorManager
 
     public void DrawCombatHealthBars(Microsoft.Xna.Framework.Graphics.SpriteBatch batch)
         => this.combatManager.DrawHealthBars(batch);
+
+    public void RegisterCombatAnimations(HarmonyLib.Harmony harmony)
+        => this.combatManager.RegisterAnimations(harmony);
 
     private void RecordCompletedWork(string workerId)
     {

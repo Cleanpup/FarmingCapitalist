@@ -40,11 +40,11 @@ internal sealed class WorkerSpriteSheetBuilder
         this.monitor = monitor;
     }
 
-    public Texture2D BuildSheet(WorkerAppearanceData appearance)
+    public Texture2D BuildSheet(WorkerAppearanceData appearance, bool includeCombatFrames = false)
     {
         GraphicsDevice graphicsDevice = Game1.graphics.GraphicsDevice;
         int outputWidth = FrameWidth * FramesPerRow;
-        int outputHeight = FrameHeight * Rows;
+        int outputHeight = FrameHeight * (includeCombatFrames ? 10 : Rows);
 
         using RenderTarget2D renderTarget = new(
             graphicsDevice,
@@ -85,6 +85,19 @@ internal sealed class WorkerSpriteSheetBuilder
                 this.DrawFrame(spriteBatch, renderWorker, frame);
             }
 
+            if (includeCombatFrames)
+            {
+                for (int facing = 0; facing < 4; facing++)
+                for (int pose = 0; pose < WorkerCombatSwingPolicy.PoseCount; pose++)
+                {
+                    int index = WorkerCombatSwingPolicy.SheetFrame(facing, pose);
+                    this.DrawFrame(spriteBatch, renderWorker, new GeneratedFrameSpec(
+                        index % FramesPerRow, index / FramesPerRow, facing,
+                        WorkerCombatSwingPolicy.FarmerFrame(facing, pose), facing == 3),
+                        secondaryArm: facing is 1 or 3);
+                }
+            }
+
             spriteBatch.End();
         }
         finally
@@ -106,10 +119,10 @@ internal sealed class WorkerSpriteSheetBuilder
         return spriteSheet;
     }
 
-    private void DrawFrame(SpriteBatch spriteBatch, Farmer renderWorker, GeneratedFrameSpec frame)
+    private void DrawFrame(SpriteBatch spriteBatch, Farmer renderWorker, GeneratedFrameSpec frame, bool secondaryArm = false)
     {
         renderWorker.FacingDirection = frame.FacingDirection;
-        renderWorker.FarmerSprite.setCurrentSingleFrame(frame.FarmerFrame, 32000, secondaryArm: false, flip: frame.Flip);
+        renderWorker.FarmerSprite.setCurrentSingleFrame(frame.FarmerFrame, 32000, secondaryArm: secondaryArm, flip: frame.Flip);
 
         Vector2 position = new(
             frame.Column * FrameWidth * BakeScale,

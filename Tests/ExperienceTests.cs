@@ -160,6 +160,58 @@ Equal((3, 2), connectedLanding, "landing stays beside the farmer on connected fl
 HashSet<(int, int)> separatedFloor = new() { (4, 2), (5, 2), (5, 3) };
 Check(!WorkerCombatTilePolicy.TryChooseConnectedLanding(2, 2, 8,
     (x, y) => separatedFloor.Contains((x, y)), out _), "floor across a wall is not a landing");
+
+HashSet<(int, int)> longHall = Enumerable.Range(1, 18).Select(x => (x, 2)).ToHashSet();
+Check(WorkerCombatTilePolicy.TryChooseFloorLanding(22, 5, 1, 2,
+    (x, y) => longHall.Contains((x, y)),
+    (x, y) => longHall.Contains((x, y)) && x >= 14, out var farLanding),
+    "floor search crosses safe route overlays to a landing beyond eight tiles");
+Equal((14, 2), farLanding, "far landing uses nearest clear tile in farmer's component");
+HashSet<(int, int)> distantRoom = new() { (15, 2), (16, 2), (17, 2), (17, 3) };
+Check(WorkerCombatTilePolicy.TryChooseFloorLanding(20, 6, 2, 2,
+    (x, y) => distantRoom.Contains((x, y)), (x, y) => distantRoom.Contains((x, y)), out var roomLanding),
+    "no adjacent floor tile still allows a safe distant room on the generated floor");
+Equal((15, 2), roomLanding, "fallback stays in the valid distant room");
+Check(!WorkerCombatTilePolicy.TryChooseFloorLanding(8, 8, 2, 2,
+    (x, y) => x == 5 && y == 5, (_, _) => true, out _),
+    "single isolated passable tile is never a floor landing");
+Check(!WorkerCombatTilePolicy.TryChooseFloorLanding(20, 6, 2, 2,
+    (x, y) => distantRoom.Contains((x, y)), (_, _) => false, out _),
+    "occupied room with no safe standing tile is rejected");
+Check(!WorkerCombatTilePolicy.TryChooseFloorLanding(5, 5, 2, 2,
+    (_, _) => false, (_, _) => true, out _), "blank/walled floor cannot produce a landing");
+HashSet<(int, int)> rooms = new(distantRoom) { (4, 2), (5, 2), (6, 2) };
+Check(WorkerCombatTilePolicy.TryChooseFloorLanding(20, 6, 2, 2,
+    (x, y) => rooms.Contains((x, y)), (x, y) => rooms.Contains((x, y)), out var roomyLanding),
+    "fallback selects a connected area with room to move");
+Equal((15, 2), roomyLanding, "larger room is preferred over a tiny pocket beside the ladder");
+
+Equal(0, WorkerCombatSwingPolicy.PoseAt(0), "swing begins in the windup pose");
+Equal(1, WorkerCombatSwingPolicy.PoseAt(55), "second windup pose starts at 55 ms");
+Equal(2, WorkerCombatSwingPolicy.PoseAt(100), "impact matches the visible third pose");
+Equal(5, WorkerCombatSwingPolicy.PoseAt(250), "swing ends in recovery");
+for (int facing = 0; facing < 4; facing++)
+for (int pose = 0; pose < WorkerCombatSwingPolicy.PoseCount; pose++)
+{
+    int frame = WorkerCombatSwingPolicy.SheetFrame(facing, pose);
+    Check(frame >= 16 && frame < 40, "all sword poses lie after walking frames and inside sheet bounds");
+}
+Equal(24, WorkerCombatSwingPolicy.FarmerFrame(2, 0), "down swing uses the game's sword poses");
+Equal(36, WorkerCombatSwingPolicy.FarmerFrame(0, 0), "up swing uses the game's sword poses");
+Equal(WorkerCombatSwingPolicy.FarmerFrame(1, 2), WorkerCombatSwingPolicy.FarmerFrame(3, 2),
+    "left body poses mirror the right sword poses");
+bool Impact(double elapsed, bool applied = false, bool sameLocation = true, bool alive = true,
+    bool present = true, bool inReach = true, bool revealed = true, bool invincible = false)
+    => WorkerCombatSwingPolicy.CanApplyImpact(applied, elapsed, sameLocation, alive, present, inReach, revealed, invincible);
+Check(!Impact(99), "windup cannot deal damage");
+Check(Impact(100), "valid target takes damage at impact");
+Check(!Impact(140, applied: true), "swing cannot damage twice");
+Check(!Impact(100, sameLocation: false), "floor transition cancels the hit");
+Check(!Impact(100, alive: false), "dead target cannot be hit again");
+Check(!Impact(100, present: false), "removed target cannot be hit");
+Check(!Impact(100, inReach: false), "target moving away during windup is not hit remotely");
+Check(!Impact(100, revealed: false), "hidden/reburrowed target is revalidated at impact");
+Check(!Impact(100, invincible: true), "invincible target does not take a delayed hit");
 Check(!WorkerExperiencePolicy.TryAwardCompletedAction(first, true, true, WorkerExperienceAction.None), "route clearance gives no award");
 Check(!WorkerExperiencePolicy.TryAwardCompletedAction(first, false, true, WorkerExperienceAction.ChopTree), "client cannot award");
 Check(!WorkerExperiencePolicy.TryAwardCompletedAction(first, true, false, WorkerExperienceAction.ClearStone), "unloaded world cannot award");

@@ -138,6 +138,11 @@ internal sealed class WorkerNavigationManager
             && this.ClassifyObstacleRouteTile(location, worker, tile) == WorkerRouteTileKind.SmallDebris;
 
     public bool IsWalkableWorkTile(GameLocation location, NPC worker, Point tile)
+        => this.IsTraversableWorkTile(location, worker, tile) && !this.IsOccupiedByOtherActor(location, worker, tile);
+
+    // Connectivity is static: a farmer or monster temporarily occupying a tile
+    // must not split a mine floor into disconnected components.
+    public bool IsTraversableWorkTile(GameLocation location, NPC worker, Point tile)
     {
         if (!Context.IsWorldReady || !location.isTileOnMap(tile.ToVector2()))
             return false;
@@ -145,7 +150,7 @@ internal sealed class WorkerNavigationManager
         return WorkerWorkTilePolicy.CanStand(onMap: true,
             movementBlocked: this.IsPathfindingCollision(location, worker, tile),
             npcBarrier: location.doesTileHaveProperty(tile.X, tile.Y, "NPCBarrier", "Back") is not null,
-            occupied: this.IsOccupiedByOtherActor(location, worker, tile),
+            occupied: false,
             warp: location.warps.Any(warp => warp.X == tile.X && warp.Y == tile.Y));
     }
 

@@ -22,6 +22,7 @@ internal sealed class ModEntry : Mod
         this.workerBehaviorManager = new WorkerBehaviorManager(navigation, this.workerShellManager, this.Monitor);
         this.workerDialogueManager = new WorkerDialogueManager(helper, this.workerShellManager, this.Monitor, this.ModManifest.UniqueID);
         Harmony harmony = new(this.ModManifest.UniqueID);
+        this.workerBehaviorManager.RegisterCombatAnimations(harmony);
         this.workerDialogueManager.Register(harmony);
         WorkerExperienceSuppression.Register(harmony);
         this.workerCustomizationManager = new WorkerCustomizationManager(this.Monitor, this.workerShellManager, this.workerBehaviorManager);

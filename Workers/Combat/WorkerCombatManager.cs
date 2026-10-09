@@ -23,6 +23,9 @@ internal sealed class WorkerCombatManager
         public int Health;
         public int MaxHealth;
         public int NextAttackTick;
+        public Monster? SwingTarget;
+        public double SwingElapsed;
+        public bool SwingImpactApplied;
         public int NextContactTick;
         public int NextRouteTick;
         public int NextPatrolTick;
@@ -37,6 +40,7 @@ internal sealed class WorkerCombatManager
     private readonly WorkerNavigationManager navigation;
     private readonly IMonitor monitor;
     private readonly Action<string> onConfirmedKill;
+    private readonly WorkerCombatAnimationManager animations;
 
     public WorkerCombatManager(WorkerShellManager shell, WorkerNavigationManager navigation, IMonitor monitor,
         Action<string> onConfirmedKill)
@@ -45,10 +49,16 @@ internal sealed class WorkerCombatManager
         this.navigation = navigation;
         this.monitor = monitor;
         this.onConfirmedKill = onConfirmedKill;
+        this.animations = new WorkerCombatAnimationManager(shell);
     }
+
+    public void RegisterAnimations(HarmonyLib.Harmony harmony) => this.animations.Register(harmony);
+
+    public void UpdateClientAnimations() => this.animations.UpdateClients();
 
     public void Reset()
     {
+        this.animations.Reset();
         if (Context.IsWorldReady)
         {
             foreach (NPC worker in this.shell.GetSpawnedWorkers(recoverStale: false))
@@ -114,12 +124,16 @@ internal sealed class WorkerCombatManager
             {
                 if (this.shell.TryGetWorkerId(worker, out string spawnedId)
                     && string.Equals(spawnedId, workerId, StringComparison.OrdinalIgnoreCase))
+                {
                     worker.modData.Remove(BlockedMonsterDataKey);
+                    this.animations.Stop(worker);
+                }
             }
         }
         if (this.states.TryGetValue(workerId, out CombatState? state))
         {
             state.Target = null;
+            state.SwingTarget = null;
             state.Patrolling = false;
         }
     }
@@ -220,6 +234,7 @@ internal sealed class WorkerCombatManager
             return false;
         }
         this.navigation.StopWorker(worker);
+        this.animations.Stop(worker);
         try
         {
             Game1.warpCharacter(worker, home.LocationName, home.Tile);
@@ -270,7 +285,10 @@ internal sealed class WorkerCombatManager
 
         // Leave a generous margin for the ordinary visible route home, including mine exits.
         if (WorkerCombatPolicy.ShouldBeginReturn(Game1.timeOfDay))
+        {
+            this.Stop(workerId);
             return true;
+        }
 
         string area = this.shell.GetCombatArea(workerId);
         GameLocation? location = this.ResolveWorkLocation(area, worker);
@@ -297,6 +315,8 @@ internal sealed class WorkerCombatManager
 
         if (state.LastLocation != location)
         {
+            this.animations.Stop(worker);
+            state.SwingTarget = null;
             state.Target = null;
             state.FailedTargets.Clear();
             state.Patrolling = false;
@@ -318,6 +338,34 @@ internal sealed class WorkerCombatManager
         {
             snapshot = new WorkerRuntimeSnapshot(WorkerTaskKind.SlayMonsters, "Idle", "Defeated; off duty today", 0, null);
             return false;
+        }
+
+        if (state.SwingTarget is Monster swingTarget)
+        {
+            state.SwingElapsed += Game1.currentGameTime.ElapsedGameTime.TotalMilliseconds;
+            this.animations.SetElapsed(worker, state.SwingElapsed);
+            bool impactTime = !state.SwingImpactApplied
+                && state.SwingElapsed >= WorkerCombatSwingPolicy.ImpactMilliseconds;
+            if (impactTime)
+            {
+                bool canHit = WorkerCombatSwingPolicy.CanApplyImpact(state.SwingImpactApplied, state.SwingElapsed,
+                        worker.currentLocation == location, swingTarget.Health > 0,
+                        location.characters.Contains(swingTarget),
+                        Math.Abs(worker.TilePoint.X - swingTarget.TilePoint.X)
+                            + Math.Abs(worker.TilePoint.Y - swingTarget.TilePoint.Y) <= 1,
+                        this.IsRevealedTarget(swingTarget), swingTarget.isInvincible());
+                state.SwingImpactApplied = true;
+                if (canHit)
+                    this.Strike(worker, workerId, state, location, swingTarget);
+            }
+            if (state.SwingElapsed < WorkerCombatSwingPolicy.DurationMilliseconds)
+            {
+                snapshot = new WorkerRuntimeSnapshot(WorkerTaskKind.SlayMonsters, "Fighting",
+                    $"Swinging at {swingTarget.displayName} ({state.Health} HP)", 0, swingTarget.TilePoint);
+                return false;
+            }
+            state.SwingTarget = null;
+            this.animations.Stop(worker);
         }
 
         // A monster can be briefly invincible after a hit. Keep pursuing the
@@ -380,7 +428,13 @@ internal sealed class WorkerCombatManager
             if (!target.isInvincible() && Game1.ticks >= state.NextAttackTick)
             {
                 state.NextAttackTick = Game1.ticks + 40;
-                this.Strike(worker, workerId, state, location, target);
+                worker.faceDirection(target.TilePoint.X < worker.TilePoint.X ? 3
+                    : target.TilePoint.X > worker.TilePoint.X ? 1
+                    : target.TilePoint.Y < worker.TilePoint.Y ? 0 : 2);
+                state.SwingTarget = target;
+                state.SwingElapsed = 0;
+                state.SwingImpactApplied = false;
+                this.animations.Start(worker);
             }
             snapshot = new WorkerRuntimeSnapshot(WorkerTaskKind.SlayMonsters, "Fighting",
                 $"Fighting {target.displayName} ({state.Health} HP)", 0, target.TilePoint);
@@ -456,16 +510,19 @@ internal sealed class WorkerCombatManager
         Point landing;
         if (nearFarmer)
         {
-            if (!this.TryChooseConnectedLandingNearFarmer(destination, worker, 8, out landing))
+            if (!this.TryChooseFloorLanding(destination, worker, out landing))
             {
-                this.monitor.Log($"No connected landing with room to move was available for {worker.displayName} in {destination.NameOrUniqueName}; staying on the previous floor.", LogLevel.Info);
+                this.monitor.Log($"No safe landing with room to move was available for {worker.displayName} anywhere in {destination.NameOrUniqueName}; staying on the previous floor.", LogLevel.Info);
                 return;
             }
+            this.monitor.Log($"{worker.displayName} will follow into {destination.NameOrUniqueName} at {landing} "
+                + $"({Math.Abs(landing.X - Game1.player.TilePoint.X) + Math.Abs(landing.Y - Game1.player.TilePoint.Y)} tiles from the farmer).", LogLevel.Trace);
         }
         else if (!this.TryChooseLanding(destination, worker, out landing))
             return;
 
         this.navigation.StopWorker(worker);
+        this.animations.Stop(worker);
         GameLocation? previous = worker.currentLocation;
         try
         {
@@ -607,7 +664,7 @@ internal sealed class WorkerCombatManager
     {
         // Initial placement must avoid decorative wall/edge tiles. This mine-specific
         // test is too strict for ordinary movement across passable mine overlays.
-        bool onMap = location.isTileOnMap(tile.ToVector2());
+        bool onMap = this.IsSafeCombatRouteStep(location, tile);
         bool hasGround = onMap && location.hasTileAt(tile.X, tile.Y, "Back");
         if (hasGround && location is MineShaft mine)
             hasGround = mine.isTileOnClearAndSolidGround(tile.ToVector2());
@@ -636,6 +693,19 @@ internal sealed class WorkerCombatManager
         Point origin = Game1.player.TilePoint;
         bool found = WorkerCombatTilePolicy.TryChooseConnectedLanding(origin.X, origin.Y, maxRadius,
             (x, y) => this.IsSafeCombatLandingTile(location, worker, new Point(x, y)), out (int X, int Y) tile);
+        landing = found ? new Point(tile.X, tile.Y) : Point.Zero;
+        return found;
+    }
+
+    private bool TryChooseFloorLanding(GameLocation location, NPC worker, out Point landing)
+    {
+        var ground = location.map.RequireLayer("Back");
+        Point origin = Game1.player.TilePoint;
+        bool found = WorkerCombatTilePolicy.TryChooseFloorLanding(ground.LayerWidth, ground.LayerHeight,
+            origin.X, origin.Y,
+            (x, y) => this.IsSafeCombatRouteStep(location, new Point(x, y))
+                && this.navigation.IsTraversableWorkTile(location, worker, new Point(x, y)),
+            (x, y) => this.IsSafeCombatLandingTile(location, worker, new Point(x, y)), out var tile);
         landing = found ? new Point(tile.X, tile.Y) : Point.Zero;
         return found;
     }
@@ -785,9 +855,14 @@ internal sealed class WorkerCombatManager
         state.DefeatedToday = true;
         this.shell.MarkDefeatedToday(workerId);
         state.Target = null;
+        state.SwingTarget = null;
         this.navigation.StopWorker(worker);
+        this.animations.Stop(worker);
+        this.monitor.Log($"Defeat details: worker={workerId}, location={location.NameOrUniqueName}, tile={worker.TilePoint}, attacker={contact.displayName}.", LogLevel.Trace);
         this.TryPlaceDefeatedAtHome(worker);
-        this.monitor.Log($"{worker.displayName} was defeated and is off duty until tomorrow.", LogLevel.Info);
+        string message = $"{worker.displayName} was defeated and is off duty until tomorrow.";
+        this.monitor.Log(message, LogLevel.Info);
+        Game1.addHUDMessage(new HUDMessage(message, HUDMessage.error_type));
     }
 
     private void PrioritizeAttacker(NPC worker, string workerId, CombatState state,

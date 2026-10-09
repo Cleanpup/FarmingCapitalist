@@ -322,6 +322,12 @@ internal sealed class WorkerBehaviorManager
             message = reason + ".";
             return false;
         }
+        if (task == WorkerTaskKind.MineRocks && Context.IsMainPlayer
+            && WorkerMiningAreaCatalog.AccessReason(this.workerShellManager.GetMiningArea(workerId)) is string miningReason)
+        {
+            message = miningReason + ".";
+            return false;
+        }
         if (!this.workerShellManager.TrySetAssignedTask(workerId, task))
         {
             message = "Only the host can assign worker tasks.";
@@ -423,6 +429,22 @@ internal sealed class WorkerBehaviorManager
         this.combatManager.Stop(workerId);
         this.explorationManager.Stop(workerId);
         this.ClearActiveJobState(workerId);
+        this.activePhases[workerId] = WorkerTravelPhase.None;
+        this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
+        return true;
+    }
+
+    public bool TrySetMiningArea(string workerId, string area, out string message)
+    {
+        if (!this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
+        {
+            message = $"Worker '{workerId}' was not found.";
+            return false;
+        }
+        if (!this.workerShellManager.TrySetMiningArea(workerId, area, out message)) return false;
+        this.navigationManager.StopWorker(worker);
+        this.ClearActiveJobState(workerId);
+        this.failedWorkDebris.Remove(workerId);
         this.activePhases[workerId] = WorkerTravelPhase.None;
         this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
         return true;
@@ -793,7 +815,7 @@ internal sealed class WorkerBehaviorManager
                 this.snapshots[workerId] = combatSnapshot;
             return;
         }
-        if (assignment == WorkerTaskKind.ClearDebris
+        if (IsAssignedObjectJob(assignment)
             || this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Forager)
         {
             this.UpdateForagerWork(worker, workerId, assignment);
@@ -912,12 +934,16 @@ internal sealed class WorkerBehaviorManager
         if (worker.controller is not null)
             return;
 
-        string locationName = assignment == WorkerTaskKind.ClearDebris
+        string locationName = assignment == WorkerTaskKind.MineRocks
+            ? WorkerMiningPolicy.GetLocationName(this.workerShellManager.GetMiningArea(workerId))
+            : assignment == WorkerTaskKind.ClearDebris
             && this.workerShellManager.GetWorkerProfession(workerId) != WorkerProfession.Forager
             ? "Farm"
             : this.workerShellManager.GetForageLocationName(workerId);
         GameLocation? location = Game1.getLocationFromName(locationName);
-        if (location is null || !WorkerForageAreaCatalog.IsValidLocation(locationName))
+        if (location is null || !WorkerForageAreaCatalog.IsValidLocation(locationName)
+            || (assignment == WorkerTaskKind.MineRocks
+                && WorkerMiningAreaCatalog.AccessReason(this.workerShellManager.GetMiningArea(workerId)) is not null))
         {
             this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
             return;
@@ -934,6 +960,13 @@ internal sealed class WorkerBehaviorManager
             }
             else if (worker.controller is null && !this.navigationManager.HasActiveRoute(workerId) && Game1.shouldTimePass())
             {
+                if (assignment == WorkerTaskKind.MineRocks)
+                {
+                    HashSet<Point> failed = this.failedWorkDebris.GetValueOrDefault(workerId) ?? new();
+                    this.failedWorkDebris[workerId] = failed;
+                    failed.Add(active.ResourceTile);
+                    this.foragerSearches.Remove(workerId);
+                }
                 this.activeForagerTargets.Remove(workerId);
                 this.retryAfterTicks[workerId] = Game1.ticks + TravelRetryCooldownTicks;
             }
@@ -1000,11 +1033,11 @@ internal sealed class WorkerBehaviorManager
         WorkerNavigationTarget? resolvedTarget = null;
         bool TryCandidate(ForagerTarget target)
         {
-            if (assignment == WorkerTaskKind.ClearDebris
+            if (IsAssignedObjectJob(assignment)
                 && (this.IsDebrisReservedByAnother(workerId, search.TargetLocation, target.ResourceTile)
                     || !search.TargetLocation.objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? current)
                     || !ReferenceEquals(current, target.ExpectedObject)
-                    || !WorkerRouteObstacleClassifier.IsSmallLitter(current)))
+                    || !this.IsEligibleAssignedObject(workerId, assignment, target.ResourceTile, current)))
                 return false;
 
             WorkerNavigationTarget navigationTarget = new(target.LocationName, target.ApproachTile, TestWorkerDefinition.FacingDirection);
@@ -1089,7 +1122,7 @@ internal sealed class WorkerBehaviorManager
 
         if (status == WorkerObstaclePlanStatus.ClearSmallDebris && clearance is not null
             && search.TargetLocation.objects.TryGetValue(clearance.ObstacleTile.ToVector2(), out StardewValley.Object? item)
-            && (assignment != WorkerTaskKind.ClearDebris
+            && (!IsAssignedObjectJob(assignment)
                 || !this.IsDebrisReservedByAnother(workerId, search.TargetLocation, clearance.ObstacleTile))
             && this.navigationManager.IsSmallRouteObstacle(worker, clearance.ObstacleTile))
         {
@@ -1106,7 +1139,7 @@ internal sealed class WorkerBehaviorManager
                     NextSwingTick = Game1.ticks,
                     MaxToolActions = WorkerObstacleToolProgressPolicy.GetMaximumActions(
                         item.MinutesUntilReady, damagePerToolAction: 1, hardLimit: MaxDebrisToolActions),
-                    IsAssignedDebrisJob = assignment == WorkerTaskKind.ClearDebris,
+                    IsAssignedDebrisJob = this.IsEligibleAssignedObject(workerId, assignment, clearance.ObstacleTile, item),
                 };
                 this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Clearing", "Clearing small route debris", 0, clearance.ObstacleTile);
                 this.monitor.Log($"{worker.displayName} will clear small route debris at {clearance.ObstacleTile} from {clearance.ApproachTile} in {search.TargetLocation.NameOrUniqueName}.", LogLevel.Info);
@@ -1192,8 +1225,8 @@ internal sealed class WorkerBehaviorManager
 
     private void UpdateObstacleClear(NPC worker, string workerId, WorkerTaskKind assignment, ActiveObstacleClear clear)
     {
-        if (clear.IsAssignedDebrisJob
-            && (assignment != WorkerTaskKind.ClearDebris
+        if ((clear.IsAssignedDebrisJob || (assignment == WorkerTaskKind.MineRocks && !clear.ContinueReturnHome))
+            && (!IsAssignedObjectJob(assignment)
                 || !this.workerShellManager.CanWorkerWorkToday(workerId)
                 || !WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay)))
         {
@@ -1234,7 +1267,7 @@ internal sealed class WorkerBehaviorManager
         }
 
         if (clear.IsAssignedDebrisJob
-            ? !WorkerRouteObstacleClassifier.IsSmallLitter(item)
+            ? !this.IsEligibleAssignedObject(workerId, assignment, clear.ObstacleTile, item)
             : !this.navigationManager.IsSmallRouteObstacle(worker, clear.ObstacleTile))
         {
             if (clear.ContinueReturnHome)
@@ -1273,11 +1306,13 @@ internal sealed class WorkerBehaviorManager
 
         StardewValley.Tool tool = item.IsWeeds() ? new MeleeWeapon("47")
             : item.IsTwig() ? new Axe()
-            : new Pickaxe();
+            : new Pickaxe { UpgradeLevel = assignment == WorkerTaskKind.MineRocks
+                ? WorkerMiningPolicy.PickaxeUpgradeLevel : 0 };
         clear.NextSwingTick = Game1.ticks + ForagerSwingIntervalTicks;
         this.StartWorkMotion(worker, workerId, item.IsWeeds() ? WorkerWorkAnimationKind.Scythe
             : item.IsTwig() ? WorkerWorkAnimationKind.Axe : WorkerWorkAnimationKind.Pickaxe, clear.ObstacleTile,
-            () => this.PerformObstacleTool(worker, workerId, assignment, clear, tool), requirePaidWork: clear.IsAssignedDebrisJob);
+            () => this.PerformObstacleTool(worker, workerId, assignment, clear, tool), requirePaidWork: clear.IsAssignedDebrisJob
+                || (assignment == WorkerTaskKind.MineRocks && !clear.ContinueReturnHome));
     }
 
     private void PerformObstacleTool(NPC worker, string workerId, WorkerTaskKind assignment, ActiveObstacleClear clear, Tool tool)
@@ -1286,6 +1321,8 @@ internal sealed class WorkerBehaviorManager
             || !clear.Location.objects.TryGetValue(clear.ObstacleTile.ToVector2(), out StardewValley.Object? item)
             || !ReferenceEquals(item, clear.ExpectedObject) || item.shakeTimer > 0
             || Math.Abs(worker.TilePoint.X - clear.ObstacleTile.X) + Math.Abs(worker.TilePoint.Y - clear.ObstacleTile.Y) != 1)
+            return;
+        if (clear.IsAssignedDebrisJob && !this.IsEligibleAssignedObject(workerId, assignment, clear.ObstacleTile, item))
             return;
         tool.lastUser = Game1.MasterPlayer;
         clear.ToolActionCount++;
@@ -1366,7 +1403,7 @@ internal sealed class WorkerBehaviorManager
                 item.IsBreakableStone() ? WorkerExperienceAction.ClearStone
                 : item.IsTwig() ? WorkerExperienceAction.ClearTwig : WorkerExperienceAction.ClearWeeds);
             this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Working",
-                $"Cleared debris at {clear.ObstacleTile}", 0, clear.ObstacleTile);
+                $"{(assignment == WorkerTaskKind.MineRocks ? "Mined rock" : "Cleared debris")} at {clear.ObstacleTile}", 0, clear.ObstacleTile);
         }
         this.activeObstacleClears.Remove(workerId);
         this.foragerSearches.Remove(workerId);
@@ -1390,7 +1427,7 @@ internal sealed class WorkerBehaviorManager
         this.failedWorkDebris[workerId] = failed;
         failed.Add(clear.ObstacleTile);
         if (failed.Count >= MaxFailedWorkDebrisApproaches
-            && this.workerShellManager.GetAssignedTask(workerId) != WorkerTaskKind.ClearDebris)
+            && !IsAssignedObjectJob(this.workerShellManager.GetAssignedTask(workerId)))
         {
             this.monitor.Log($"{worker.displayName} exhausted {failed.Count} failed work-route debris approaches; returning home.", LogLevel.Info);
             this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
@@ -1403,14 +1440,25 @@ internal sealed class WorkerBehaviorManager
             "Checking", "Rechecking work routes after blocked debris", 0, clear.ObstacleTile);
     }
 
+    private static bool IsAssignedObjectJob(WorkerTaskKind assignment)
+        => assignment is WorkerTaskKind.ClearDebris or WorkerTaskKind.MineRocks;
+
+    private bool IsEligibleAssignedObject(string workerId, WorkerTaskKind assignment, Point tile, StardewValley.Object? item)
+    {
+        if (!IsAssignedObjectJob(assignment) || !WorkerRouteObstacleClassifier.IsSmallLitter(item)) return false;
+        return assignment == WorkerTaskKind.ClearDebris
+            || (item!.IsBreakableStone()
+                && WorkerMiningPolicy.ContainsTile(this.workerShellManager.GetMiningArea(workerId), tile.X, tile.Y));
+    }
+
     private IEnumerable<ForagerTarget> GetForagerTargets(NPC worker, string workerId, GameLocation location,
         WorkerTaskKind assignment, bool includeBlockedApproaches = false)
     {
-        if (assignment == WorkerTaskKind.ClearDebris)
+        if (IsAssignedObjectJob(assignment))
         {
             foreach (KeyValuePair<Vector2, StardewValley.Object> pair in location.Objects.Pairs)
             {
-                if (!WorkerRouteObstacleClassifier.IsSmallLitter(pair.Value))
+                if (!this.IsEligibleAssignedObject(workerId, assignment, pair.Key.ToPoint(), pair.Value))
                     continue;
 
                 Point debrisTile = pair.Key.ToPoint();
@@ -1507,11 +1555,11 @@ internal sealed class WorkerBehaviorManager
         ForagerTarget target,
         WorkerTaskKind assignment)
     {
-        if (assignment == WorkerTaskKind.ClearDebris && target.Kind == ForagerTargetKind.RouteDebris)
+        if (IsAssignedObjectJob(assignment) && target.Kind == ForagerTargetKind.RouteDebris)
         {
             if (!location.objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? item)
                 || !ReferenceEquals(item, target.ExpectedObject)
-                || !WorkerRouteObstacleClassifier.IsSmallLitter(item)
+                || !this.IsEligibleAssignedObject(workerId, assignment, target.ResourceTile, item)
                 || this.IsDebrisReservedByAnother(workerId, location, target.ResourceTile))
             {
                 this.FinishForagerAction(worker, workerId, target, assignment, null);
@@ -1528,11 +1576,12 @@ internal sealed class WorkerBehaviorManager
                 ExpectedObject = item,
                 NextSwingTick = Game1.ticks,
                 MaxToolActions = WorkerObstacleToolProgressPolicy.GetMaximumActions(
-                    item.MinutesUntilReady, damagePerToolAction: 1, hardLimit: MaxDebrisToolActions),
+                    item.MinutesUntilReady, damagePerToolAction: assignment == WorkerTaskKind.MineRocks
+                        ? WorkerMiningPolicy.PickaxeDamage : 1, hardLimit: MaxDebrisToolActions),
                 IsAssignedDebrisJob = true,
             };
-            this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, "Clearing",
-                $"Clearing debris in {WorkerForageAreaCatalog.GetDisplayName(location.NameOrUniqueName)}", 0, target.ResourceTile);
+            this.snapshots[workerId] = new WorkerRuntimeSnapshot(assignment, assignment == WorkerTaskKind.MineRocks ? "Mining" : "Clearing",
+                $"{(assignment == WorkerTaskKind.MineRocks ? "Mining rocks" : "Clearing debris")} in {WorkerForageAreaCatalog.GetDisplayName(location.NameOrUniqueName)}", 0, target.ResourceTile);
             this.monitor.Log($"{worker.displayName} started clearing assigned debris at {location.NameOrUniqueName} {target.ResourceTile} from {target.ApproachTile}.", LogLevel.Info);
             return;
         }

@@ -502,3 +502,37 @@ foreach (WorkerWorkAnimationKind kind in Enum.GetValues<WorkerWorkAnimationKind>
             Equal(overheadAnimations[facing], WorkerWorkAnimationPolicy.NativeAnimation(kind, facing), "pickaxe retains overhead direction independently of walking/swords");
 }
 Console.WriteLine("Worker work-animation policy tests passed.");
+
+// Additive mining fields must not change old numeric assignments or chest migration.
+Equal(0, (int)WorkerProfession.Farmer, "legacy Farmer profession remains stable");
+Equal(1, (int)WorkerProfession.Forager, "legacy Forager profession remains stable");
+Equal(3, (int)WorkerProfession.Miner, "new Miner uses appended profession value");
+Equal(9, (int)WorkerTaskKind.ExploreArea, "legacy Explore Area assignment remains stable");
+Equal(10, (int)WorkerTaskKind.MineRocks, "new mining assignment is appended");
+Check(WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Miner, WorkerTaskKind.MineRocks), "Miner can mine");
+Check(WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Miner, WorkerTaskKind.Idle), "Miner can recall");
+foreach (WorkerTaskKind task in Enum.GetValues<WorkerTaskKind>())
+    if (task is not WorkerTaskKind.MineRocks and not WorkerTaskKind.Idle)
+        Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Miner, task), "Miner cannot receive another profession's job");
+foreach (WorkerProfession profession in new[] { WorkerProfession.Farmer, WorkerProfession.Forager, WorkerProfession.CombatWorker })
+    Check(!WorkerTaskPolicy.IsTaskAllowed(profession, WorkerTaskKind.MineRocks), "mining cannot change existing profession contracts");
+var legacyMinerInput = JsonSerializer.Deserialize<WorkerRosterEntry>("{\"WorkerId\":\"old\",\"AssignedTask\":3}")!;
+Equal(WorkerProfession.Farmer, legacyMinerInput.Profession, "legacy worker still defaults to Farmer");
+Equal(WorkerMiningPolicy.Farm, legacyMinerInput.MiningArea, "absent mining area safely defaults to Farm");
+Equal(WorkerTaskKind.TendCrops, legacyMinerInput.AssignedTask, "old assignment survives additive mining fields");
+var minerSave = new WorkerRosterEntry { WorkerId = "miner", Profession = WorkerProfession.Miner,
+    AssignedTask = WorkerTaskKind.MineRocks, MiningArea = WorkerMiningPolicy.Quarry,
+    HarvestDestination = first.HarvestDestination!.Clone() };
+var minerRoundtrip = JsonSerializer.Deserialize<WorkerRosterEntry>(JsonSerializer.Serialize(minerSave.Clone()))!;
+Equal(WorkerProfession.Miner, minerRoundtrip.Profession, "miner profession clones and roundtrips");
+Equal(WorkerTaskKind.MineRocks, minerRoundtrip.AssignedTask, "mining assignment roundtrips");
+Equal(WorkerMiningPolicy.Quarry, minerRoundtrip.MiningArea, "per-worker quarry choice roundtrips");
+minerRoundtrip.HarvestDestination!.TileX = 99;
+Equal(5, minerSave.HarvestDestination!.TileX, "mining storage remains independent after cloning");
+Check(WorkerMiningPolicy.ContainsTile(WorkerMiningPolicy.Quarry, 106, 13)
+    && WorkerMiningPolicy.ContainsTile(WorkerMiningPolicy.Quarry, 127, 34), "quarry boundary stones are eligible");
+foreach (var tile in new[] { (105, 13), (128, 13), (106, 12), (106, 35), (50, 20) })
+    Check(!WorkerMiningPolicy.ContainsTile(WorkerMiningPolicy.Quarry, tile.Item1, tile.Item2), "quarry never selects other Mountain rocks");
+Check(!WorkerMiningPolicy.IsValid("Mines") && !WorkerMiningPolicy.IsValid("UndergroundMine1")
+    && !WorkerMiningPolicy.IsValid(null), "initial mining cannot enter generated dungeon floors");
+Console.WriteLine("Miner task, legacy save, independent storage, and quarry boundary policy checks passed.");

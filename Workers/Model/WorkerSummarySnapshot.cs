@@ -9,6 +9,7 @@ internal readonly record struct WorkerSummarySnapshot(
     string ForageLocationName,
     string CombatArea,
     string ExplorationArea,
+    string MiningArea,
     bool IsConfigured,
     bool IsSpawned,
     string? CurrentLocationName,

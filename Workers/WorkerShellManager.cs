@@ -308,6 +308,30 @@ internal sealed class WorkerShellManager
     public string GetCombatArea(string workerId)
         => this.GetWorkerEntry(workerId)?.CombatArea ?? WorkerCombatAreaCatalog.Farm;
 
+    public string GetMiningArea(string workerId)
+        => this.GetWorkerEntry(workerId)?.MiningArea ?? WorkerMiningPolicy.Farm;
+
+    public bool TrySetMiningArea(string workerId, string area, out string message)
+    {
+        if (!this.CanManageWorkers(out message)) return false;
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null || entry.Profession != WorkerProfession.Miner || !WorkerMiningPolicy.IsValid(area))
+        {
+            message = "That mining area is not available for this worker.";
+            return false;
+        }
+        if (WorkerMiningAreaCatalog.AccessReason(area) is string reason)
+        {
+            message = reason + ".";
+            return false;
+        }
+        entry.MiningArea = area;
+        entry.AssignedTask = WorkerTaskKind.Idle;
+        this.PersistRoster();
+        message = $"{entry.DisplayName} will mine in {area}. Choose Mine rocks to begin.";
+        return true;
+    }
+
     public string GetExplorationArea(string workerId)
         => this.GetWorkerEntry(workerId)?.ExplorationArea ?? WorkerExplorationAreaCatalog.Mines;
 
@@ -889,6 +913,7 @@ internal sealed class WorkerShellManager
                 entry.ForageLocationName,
                 entry.CombatArea,
                 entry.ExplorationArea,
+                entry.MiningArea,
                 IsConfigured: true,
                 IsSpawned: worker is not null,
                 CurrentLocationName: worker?.currentLocation?.NameOrUniqueName,
@@ -1028,6 +1053,8 @@ internal sealed class WorkerShellManager
             }
             if (!WorkerCombatAreaCatalog.IsValid(normalized.CombatArea))
                 normalized.CombatArea = WorkerCombatAreaCatalog.Farm;
+            if (!WorkerMiningPolicy.IsValid(normalized.MiningArea))
+                normalized.MiningArea = WorkerMiningPolicy.Farm;
             if (!WorkerExplorationAreaCatalog.IsValid(normalized.ExplorationArea))
                 normalized.ExplorationArea = WorkerExplorationAreaCatalog.Mines;
             normalized.Exploration ??= new();

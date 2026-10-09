@@ -127,12 +127,13 @@ internal sealed class ModEntry : Mod
                 $"Press B or use 'workers' to manage your crew. Hire: {WorkerEmploymentTerms.HiringCost}g including today's wage; later {WorkerEmploymentTerms.DailyWage}g/day.\n"
                 + "workers status — list IDs, orders, activity and location\n"
                 + "workers hire [default] — hire with custom or default appearance\n"
-                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|slay|explore|idle> — assign a job\n"
+                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|mine|slay|explore|idle> — assign a job\n"
                 + "workers combat-area <id> <farm|mines|skull|islandfarm|volcanoentrance> — set a combat worker's area\n"
+                + "workers mining-area <id> <farm|quarry> — set physical mining area\n"
                 + "workers explore-area <id> <mines|skull|volcano> — set simulated exploration area\n"
                 + "workers dismiss <id> — dismiss one worker\n"
                 + "workers pay — retry unpaid wages without charging paid workers again\n"
-                + "Choose a shared harvest destination in the Storage tab; the shipping bin is the default and overflow fallback. Only the host can manage workers.", LogLevel.Info);
+                + "Choose each worker's harvest destination in the Storage tab; the shipping bin is the default and overflow fallback. Only the host can manage workers.", LogLevel.Info);
             return;
         }
         if (!this.RequireWorld())
@@ -161,6 +162,7 @@ internal sealed class ModEntry : Mod
                     "trees" or "choptrees" => WorkerTaskKind.ChopTrees,
                     "hardwood" or "chophardwood" => WorkerTaskKind.ChopHardwood,
                     "debris" or "cleardebris" => WorkerTaskKind.ClearDebris,
+                    "mine" or "mining" or "minerocks" => WorkerTaskKind.MineRocks,
                     "slay" or "combat" or "slaymonsters" => WorkerTaskKind.SlayMonsters,
                     "explore" or "explorearea" => WorkerTaskKind.ExploreArea,
                     "idle" or "stop" => WorkerTaskKind.Idle,
@@ -168,11 +170,27 @@ internal sealed class ModEntry : Mod
                 };
                 if (task is null)
                 {
-                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, debris, slay, explore, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
+                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, debris, mine, slay, explore, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
                     return;
                 }
                 bool assigned = this.workerBehaviorManager.TryAssignTask(args[1], task.Value, out string assignmentMessage);
                 this.Monitor.Log(assignmentMessage, assigned ? LogLevel.Info : LogLevel.Warn);
+                break;
+            case "mining-area" when args.Length == 3:
+                if (!this.RequireHost()) return;
+                string? miningArea = args[2].ToLowerInvariant() switch
+                {
+                    "farm" => WorkerMiningPolicy.Farm,
+                    "quarry" => WorkerMiningPolicy.Quarry,
+                    _ => null,
+                };
+                if (miningArea is null)
+                {
+                    this.Monitor.Log("Choose farm or quarry.", LogLevel.Info);
+                    return;
+                }
+                bool miningChanged = this.workerBehaviorManager.TrySetMiningArea(args[1], miningArea, out string miningMessage);
+                this.Monitor.Log(miningMessage, miningChanged ? LogLevel.Info : LogLevel.Warn);
                 break;
             case "combat-area" when args.Length == 3:
                 if (!this.RequireHost())

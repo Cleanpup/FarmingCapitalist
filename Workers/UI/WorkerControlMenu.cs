@@ -359,6 +359,18 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 }
                 return;
             }
+            if (selectedWorker is { Profession: WorkerProfession.Miner } miner && this.forageAreaButton.containsPoint(x, y))
+            {
+                if (this.EnsureSelectedHostWorker())
+                {
+                    string next = miner.MiningArea == WorkerMiningPolicy.Farm ? WorkerMiningPolicy.Quarry : WorkerMiningPolicy.Farm;
+                    bool success = this.workerBehaviorManager.TrySetMiningArea(miner.WorkerId, next, out string message);
+                    this.SetFeedback(message, !success);
+                    this.RefreshSnapshots();
+                    this.RebuildLayout(ForageAreaId);
+                }
+                return;
+            }
             if (selectedWorker is { Profession: WorkerProfession.CombatWorker } combat && this.forageAreaButton.containsPoint(x, y))
             {
                 if (this.EnsureSelectedHostWorker())
@@ -602,7 +614,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.workerRows.Add(Button(WorkerRowIdBase + i, new Rectangle(this.rosterBounds.X + 14, rowsTop + (i - this.firstVisibleWorker) * (rowHeight + 6), this.rosterBounds.Width - 28, rowHeight)));
         }
         this.orderButtons.Clear();
-        bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker };
+        bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker or WorkerProfession.Miner };
         bool showExplorationArea = this.GetSelectedWorker() is { Profession: WorkerProfession.CombatWorker };
         int areaHeight = this.ordersBounds.Height >= 220 ? 48 : 32;
         int areaRowHeight = areaHeight + 8;
@@ -673,7 +685,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             if (this.currentTab == WorkerMenuTab.Jobs)
             {
                 this.allClickableComponents.AddRange(this.orderButtons);
-                if (this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker })
+                if (this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker or WorkerProfession.Miner })
                     this.allClickableComponents.Add(this.forageAreaButton);
                 if (this.GetSelectedWorker() is { Profession: WorkerProfession.CombatWorker })
                     this.allClickableComponents.Add(this.explorationAreaButton);
@@ -804,12 +816,14 @@ internal sealed class WorkerControlMenu : IClickableMenu
         {
             WorkerProfession.Forager => "Foraging",
             WorkerProfession.CombatWorker => "Combat",
+            WorkerProfession.Miner => "Mining",
             _ => "Farming",
         };
         int skillExperience = worker.Profession switch
         {
             WorkerProfession.Forager => experience.Foraging,
             WorkerProfession.CombatWorker => experience.Combat,
+            WorkerProfession.Miner => experience.Mining,
             _ => experience.Farming,
         };
         int skillLevel = WorkerExperiencePolicy.GetLevel(skillExperience);
@@ -917,6 +931,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.DrawButton(b, this.forageAreaButton,
                 $"Forage area: {WorkerForageAreaCatalog.GetDisplayName(forager.ForageLocationName)}  >",
                 enabled, Color.White, WorkerMenuArt.Icon.Sprout);
+        }
+        if (selectedWorker is { Profession: WorkerProfession.Miner } miner)
+        {
+            this.DrawButton(b, this.forageAreaButton, $"Mining area: {miner.MiningArea}  >",
+                enabled, Color.White, WorkerMenuArt.Icon.Tend);
         }
         if (selectedWorker is { Profession: WorkerProfession.CombatWorker } combat)
         {
@@ -1112,6 +1131,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerTaskKind.ChopTrees => WorkerMenuArt.Icon.Tend,
             WorkerTaskKind.ChopHardwood => WorkerMenuArt.Icon.Ledger,
             WorkerTaskKind.ClearDebris => WorkerMenuArt.Icon.Tend,
+            WorkerTaskKind.MineRocks => WorkerMenuArt.Icon.Tend,
             WorkerTaskKind.SlayMonsters => WorkerMenuArt.Icon.Ledger,
             WorkerTaskKind.ExploreArea => WorkerMenuArt.Icon.Ledger,
             _ => WorkerMenuArt.Icon.Home,
@@ -1144,6 +1164,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 WorkerTaskKind.ChopTrees => "Fell ordinary trees",
                 WorkerTaskKind.ChopHardwood => "Clear hardwood sources",
                 WorkerTaskKind.ClearDebris => "Remove small litter",
+                WorkerTaskKind.MineRocks => "Break rocks and ore nodes",
                 WorkerTaskKind.SlayMonsters => "Fight monsters in selected area",
                 WorkerTaskKind.ExploreArea => "Explore for loot each hour",
                 _ => "Return to the house",
@@ -1348,6 +1369,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.ChopTrees => "Walk to the nearest reachable ordinary tree in the selected area, cut it down, and store its drops.",
         WorkerTaskKind.ChopHardwood => "Walk to the nearest reachable hardwood source, including mahogany trees and large stumps or logs.",
         WorkerTaskKind.ClearDebris => "Clear loose stones, weeds, and small fallen wood. Foragers work in their selected outdoor area; Farmers work on the farm.",
+        WorkerTaskKind.MineRocks => "Walk to real rocks, ore, and gem nodes on the Farm or unlocked Quarry and break them with a steel pickaxe. Drops go to this worker's storage; each completed rock grants 1 Mining XP. Large boulders and dungeon floors are excluded.",
         WorkerTaskKind.SlayMonsters => "Fight real monsters in the combat area. Mines and Skull Cavern follow the host farmer onto active floors.",
         WorkerTaskKind.ExploreArea => "Teleport to the selected dungeon entrance and explore independently for loot every in-game hour, from 6:00 to 22:00. Exploration is simulated; the worker stays at the entrance. Loot goes to this worker's selected chest or shipping-bin fallback. Completed runs grant this worker 5 Combat XP; only monster drops are collected, with stone excluded.",
         _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",

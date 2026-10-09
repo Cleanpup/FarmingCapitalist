@@ -160,7 +160,12 @@ internal sealed class WorkerWorkAnimationManager
                 worker.getLocalPosition(Game1.viewport) + new Vector2(0, 16), proxy, "(W)47", 3, false);
             return;
         }
-        string toolId = work.Kind switch { WorkerWorkAnimationKind.Water => "(T)WateringCan", WorkerWorkAnimationKind.Axe => "(T)Axe", _ => "(T)Pickaxe" };
+        bool mining = work.Kind == WorkerWorkAnimationKind.Pickaxe
+            && this.shell.TryGetWorkerId(worker, out string workerId)
+            && this.shell.GetWorkerProfession(workerId) == WorkerProfession.Miner
+            && this.shell.GetAssignedTask(workerId) == WorkerTaskKind.MineRocks;
+        string toolId = work.Kind switch { WorkerWorkAnimationKind.Water => "(T)WateringCan", WorkerWorkAnimationKind.Axe => "(T)Axe",
+            _ => mining ? "(T)SteelPickaxe" : "(T)Pickaxe" };
         if (proxy.CurrentTool?.QualifiedItemId != toolId) proxy.Items[0] = ItemRegistry.Create(toolId);
         proxy.CurrentToolIndex = 0;
         int pose = WorkerWorkAnimationPolicy.PoseAt(work.Kind, work.Elapsed);

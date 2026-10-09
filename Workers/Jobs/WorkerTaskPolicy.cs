@@ -16,6 +16,7 @@ internal static class WorkerTaskPolicy
     };
 
     private static readonly WorkerTaskKind[] CombatTasks = { WorkerTaskKind.SlayMonsters, WorkerTaskKind.ExploreArea, WorkerTaskKind.Idle };
+    private static readonly WorkerTaskKind[] MinerTasks = { WorkerTaskKind.MineRocks, WorkerTaskKind.Idle };
 
     public const int WorkDayEndsAt = 2200;
 
@@ -46,6 +47,7 @@ internal static class WorkerTaskPolicy
         {
             WorkerProfession.Forager => ForagerTasks,
             WorkerProfession.CombatWorker => CombatTasks,
+            WorkerProfession.Miner => MinerTasks,
             _ => FarmerTasks,
         };
 
@@ -65,6 +67,7 @@ internal static class WorkerTaskPolicy
         {
             WorkerProfession.Forager => "Forager",
             WorkerProfession.CombatWorker => "Combat Worker",
+            WorkerProfession.Miner => "Miner",
             _ => "Farmer",
         };
 
@@ -79,6 +82,7 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.ClearDebris => "Clear debris",
         WorkerTaskKind.SlayMonsters => "Slay monsters",
         WorkerTaskKind.ExploreArea => "Explore Area",
+        WorkerTaskKind.MineRocks => "Mine rocks",
         _ => idleLabel,
     };
 }

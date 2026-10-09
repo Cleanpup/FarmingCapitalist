@@ -19,6 +19,7 @@
     <Compile Include="../Workers/Model/WorkerProfession.cs" Link="WorkerProfession.cs" />
     <Compile Include="../Workers/Model/WorkerEmploymentTerms.cs" Link="WorkerEmploymentTerms.cs" />
     <Compile Include="../Workers/Jobs/WorkerCombatAreaCatalog.cs" Link="WorkerCombatAreaCatalog.cs" />
+    <Compile Include="../Workers/Jobs/WorkerMiningPolicy.cs" Link="WorkerMiningPolicy.cs" />
     <Compile Include="../Workers/Jobs/WorkerTaskPolicy.cs" Link="WorkerTaskPolicy.cs" />
     <Compile Include="../Workers/Combat/WorkerCombatPolicy.cs" Link="WorkerCombatPolicy.cs" />
     <Compile Include="../Workers/Combat/WorkerCombatTilePolicy.cs" Link="WorkerCombatTilePolicy.cs" />

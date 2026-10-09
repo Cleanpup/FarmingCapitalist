@@ -138,3 +138,12 @@ static void Assert(bool condition, string message)
     if (!condition)
         throw new Exception(message);
 }
+
+// Quarry ruby durability is five; the steel mining tool should complete in two
+// successful impacts without reaching the no-progress/action-limit safeguards.
+int miningBudget = WorkerObstacleToolProgressPolicy.GetMaximumActions(5, WorkerMiningPolicy.PickaxeDamage, 32);
+Assert(miningBudget == 2, "Steel mining pickaxe must use its actual damage in the bounded action budget.");
+Assert(WorkerObstacleToolProgressPolicy.Evaluate(false, true, 5, 2, 1, miningBudget)
+    == WorkerObstacleToolActionStatus.Continue, "First mining impact must allow another hit on a durable node.");
+Assert(WorkerObstacleToolProgressPolicy.Evaluate(true, true, 2, -1, 2, miningBudget)
+    == WorkerObstacleToolActionStatus.Completed, "Final mining impact must complete exactly once.");

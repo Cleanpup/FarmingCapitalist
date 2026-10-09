@@ -11,7 +11,6 @@ internal sealed class WorkerSpriteSheetBuilder
     private const int FrameWidth = 16;
     private const int FrameHeight = 32;
     private const int FramesPerRow = 4;
-    private const int Rows = 4;
     private const float BakeScale = 4f;
     private static readonly GeneratedFrameSpec[] BaseFrameLayout =
     {
@@ -44,7 +43,8 @@ internal sealed class WorkerSpriteSheetBuilder
     {
         GraphicsDevice graphicsDevice = Game1.graphics.GraphicsDevice;
         int outputWidth = FrameWidth * FramesPerRow;
-        int outputHeight = FrameHeight * (includeCombatFrames ? 10 : Rows);
+        int outputHeight = FrameHeight * ((WorkerWorkAnimationPolicy.FirstSheetFrame
+            + WorkerWorkAnimationPolicy.BodyKinds * 4 * WorkerWorkAnimationPolicy.FramesPerDirection) / FramesPerRow);
 
         using RenderTarget2D renderTarget = new(
             graphicsDevice,
@@ -107,6 +107,25 @@ internal sealed class WorkerSpriteSheetBuilder
                 }
             }
 
+            foreach (WorkerWorkAnimationKind kind in new[] { WorkerWorkAnimationKind.Water, WorkerWorkAnimationKind.Gather, WorkerWorkAnimationKind.Axe })
+            {
+                for (int facing = 0; facing < 4; facing++)
+                {
+                    renderWorker.FarmerSprite.getAnimationFromIndex(
+                        WorkerWorkAnimationPolicy.NativeAnimation(kind, facing), renderWorker.FarmerSprite,
+                        80, WorkerWorkAnimationPolicy.FramesPerDirection, flip: false, secondaryArm: false);
+                    FarmerSprite.AnimationFrame[] poses = renderWorker.FarmerSprite.CurrentAnimation
+                        .Where(frame => kind != WorkerWorkAnimationKind.Gather || frame.milliseconds > 0).ToArray();
+                    for (int pose = 0; pose < WorkerWorkAnimationPolicy.FramesPerDirection; pose++)
+                    {
+                        FarmerSprite.AnimationFrame native = poses[Math.Min(pose, poses.Length - 1)];
+                        int index = WorkerWorkAnimationPolicy.SheetFrame(kind, facing, pose);
+                        this.DrawFrame(spriteBatch, renderWorker, new GeneratedFrameSpec(
+                            index % FramesPerRow, index / FramesPerRow, facing, native.frame, native.flip), native);
+                    }
+                }
+            }
+
             spriteBatch.End();
         }
         finally
@@ -129,11 +148,11 @@ internal sealed class WorkerSpriteSheetBuilder
     }
 
     private void DrawFrame(SpriteBatch spriteBatch, Farmer renderWorker, GeneratedFrameSpec frame,
-        FarmerSprite.AnimationFrame? swordPose = null)
+        FarmerSprite.AnimationFrame? workPose = null)
     {
         renderWorker.FacingDirection = frame.FacingDirection;
         renderWorker.FarmerSprite.setCurrentSingleFrame(frame.FarmerFrame, 32000, secondaryArm: false, flip: frame.Flip);
-        if (swordPose is FarmerSprite.AnimationFrame nativePose)
+        if (workPose is FarmerSprite.AnimationFrame nativePose)
         {
             // Preserve vanilla arm/flip/position metadata, but never attach its
             // player damage or movement callbacks to a worker rendering proxy.

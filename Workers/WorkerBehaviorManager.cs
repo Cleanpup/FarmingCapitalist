@@ -131,6 +131,7 @@ internal sealed class WorkerBehaviorManager
     private readonly WorkerShellManager workerShellManager;
     private readonly WorkerCombatManager combatManager;
     private readonly WorkerExplorationManager explorationManager;
+    private readonly WorkerWorkAnimationManager workAnimations;
     private readonly Dictionary<string, WorkerRuntimeSnapshot> snapshots = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> completedToday = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Point> activeTargets = new(System.StringComparer.OrdinalIgnoreCase);
@@ -158,6 +159,7 @@ internal sealed class WorkerBehaviorManager
         this.combatManager = new WorkerCombatManager(workerShellManager, navigationManager, monitor,
             this.RecordCompletedWork);
         this.explorationManager = new(workerShellManager, navigationManager, monitor);
+        this.workAnimations = new(workerShellManager, monitor);
         this.monitor = monitor;
     }
 
@@ -195,6 +197,7 @@ internal sealed class WorkerBehaviorManager
     {
         this.navigationManager.Update();
         this.combatManager.UpdateClientAnimations();
+        this.workAnimations.Update();
 
         if (!Context.IsWorldReady)
         {
@@ -206,7 +209,7 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
-        if (!Game1.shouldTimePass())
+        if (!Game1.shouldTimePass() || Game1.activeClickableMenu is not null || Game1.CurrentEvent is not null)
             return;
 
         this.UpdateDropCollectionZones();
@@ -234,6 +237,8 @@ internal sealed class WorkerBehaviorManager
                     "Idle", "Home for the night", 0, null);
                 continue;
             }
+
+            if (this.workAnimations.IsActive(worker)) continue;
 
             WorkerTravelPhase phase = this.activePhases.GetValueOrDefault(workerId, WorkerTravelPhase.None);
             if (this.activeObstacleClears.TryGetValue(workerId, out ActiveObstacleClear? obstacleClear))
@@ -294,6 +299,7 @@ internal sealed class WorkerBehaviorManager
         this.navigationManager.Reset();
         this.combatManager.Reset();
         this.explorationManager.Reset();
+        this.workAnimations.Reset();
     }
 
     public bool TryAssignTask(string workerId, WorkerTaskKind task, out string message)
@@ -375,6 +381,7 @@ internal sealed class WorkerBehaviorManager
 
     private void ClearActiveJobState(string workerId)
     {
+        this.workAnimations.Stop(workerId);
         this.activeTargets.Remove(workerId);
         this.activeForagerTargets.Remove(workerId);
         this.activeForagerActions.Remove(workerId);
@@ -465,7 +472,24 @@ internal sealed class WorkerBehaviorManager
         => this.combatManager.DrawHealthBars(batch);
 
     public void RegisterCombatAnimations(HarmonyLib.Harmony harmony)
-        => this.combatManager.RegisterAnimations(harmony);
+    {
+        this.combatManager.RegisterAnimations(harmony);
+        this.workAnimations.Register(harmony);
+    }
+
+    private void StartWorkMotion(NPC worker, string workerId, WorkerWorkAnimationKind kind, Point target,
+        Action impact, bool requirePaidWork = true)
+    {
+        WorkerTaskKind assignment = this.workerShellManager.GetAssignedTask(workerId);
+        WorkerProfession profession = this.workerShellManager.GetWorkerProfession(workerId);
+        this.navigationManager.StopWorker(worker);
+        this.workAnimations.Start(worker, kind, target,
+            () => this.workerShellManager.GetAssignedTask(workerId) == assignment
+                && (profession != WorkerProfession.CombatWorker || !WorkerCombatPolicy.MustBeHomeNow(Game1.timeOfDay))
+                && (!requirePaidWork || (this.workerShellManager.CanWorkerWorkToday(workerId)
+                    && WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay)))
+                && !this.navigationManager.HasActiveRoute(workerId), impact);
+    }
 
     private void RecordCompletedWork(string workerId)
     {
@@ -801,10 +825,28 @@ internal sealed class WorkerBehaviorManager
             this.monitor.Log(
                 $"{worker.displayName} arrived at crop tile {target}; assignment={assignment}, resolved action={action}.",
                 LogLevel.Trace);
-            if (this.PerformJobAt(workerId, farm, target, action))
-                this.RecordCompletedWork(workerId);
+            if (action is WorkerTaskKind.WaterCrops or WorkerTaskKind.HarvestCrops)
+            {
+                Crop? expectedCrop = (feature as HoeDirt)?.crop;
+                WorkerTaskKind selectedAction = action;
+                WorkerWorkAnimationKind motion = action == WorkerTaskKind.WaterCrops ? WorkerWorkAnimationKind.Water
+                    : expectedCrop?.GetHarvestMethod() == StardewValley.GameData.Crops.HarvestMethod.Scythe
+                        ? WorkerWorkAnimationKind.Scythe : WorkerWorkAnimationKind.Gather;
+                this.StartWorkMotion(worker, workerId, motion, target, () =>
+                {
+                    if (farm.terrainFeatures.TryGetValue(target.ToVector2(), out TerrainFeature? live)
+                        && live is HoeDirt current && ReferenceEquals(current.crop, expectedCrop)
+                        && WorkerTaskPolicy.SelectCropAction(assignment, !current.crop!.dead.Value,
+                            IsHarvestable(current.crop), !current.isWatered()) == selectedAction
+                        && this.PerformJobAt(workerId, farm, target, selectedAction))
+                        this.RecordCompletedWork(workerId);
+                    this.activeTargets.Remove(workerId);
+                    this.LogState(workerId, worker, $"finished action at target tile {target}; rescanning farm");
+                });
+                return;
+            }
             this.activeTargets.Remove(workerId);
-            this.LogState(workerId, worker, $"finished action at target tile {target}; rescanning farm");
+            this.LogState(workerId, worker, $"skipped invalid action at target tile {target}; rescanning farm");
         }
 
         if (this.activeTargets.ContainsKey(workerId))
@@ -1205,7 +1247,6 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
-        this.AnimateForagerSwing(worker, clear.ObstacleTile);
         if (item.shakeTimer > 0)
         {
             if (clear.CooldownWaitStartedAtTick < 0)
@@ -1233,9 +1274,21 @@ internal sealed class WorkerBehaviorManager
         StardewValley.Tool tool = item.IsWeeds() ? new MeleeWeapon("47")
             : item.IsTwig() ? new Axe()
             : new Pickaxe();
+        clear.NextSwingTick = Game1.ticks + ForagerSwingIntervalTicks;
+        this.StartWorkMotion(worker, workerId, item.IsWeeds() ? WorkerWorkAnimationKind.Scythe
+            : item.IsTwig() ? WorkerWorkAnimationKind.Axe : WorkerWorkAnimationKind.Pickaxe, clear.ObstacleTile,
+            () => this.PerformObstacleTool(worker, workerId, assignment, clear, tool), requirePaidWork: clear.IsAssignedDebrisJob);
+    }
+
+    private void PerformObstacleTool(NPC worker, string workerId, WorkerTaskKind assignment, ActiveObstacleClear clear, Tool tool)
+    {
+        if (!this.activeObstacleClears.TryGetValue(workerId, out ActiveObstacleClear? current) || current != clear
+            || !clear.Location.objects.TryGetValue(clear.ObstacleTile.ToVector2(), out StardewValley.Object? item)
+            || !ReferenceEquals(item, clear.ExpectedObject) || item.shakeTimer > 0
+            || Math.Abs(worker.TilePoint.X - clear.ObstacleTile.X) + Math.Abs(worker.TilePoint.Y - clear.ObstacleTile.Y) != 1)
+            return;
         tool.lastUser = Game1.MasterPlayer;
         clear.ToolActionCount++;
-        clear.NextSwingTick = Game1.ticks + ForagerSwingIntervalTicks;
         HashSet<Debris> beforeSwing = clear.Location.debris.ToHashSet();
         int durabilityBefore = item.MinutesUntilReady;
         bool toolActionCompleted;
@@ -1319,7 +1372,7 @@ internal sealed class WorkerBehaviorManager
         this.foragerSearches.Remove(workerId);
         this.navigationManager.ApplyIdlePose(worker);
         if (clear.ContinueReturnHome)
-            this.BeginReturnHome(worker, workerId, clear.ReturnReason);
+            this.workAnimations.AfterCompletion(worker, () => this.BeginReturnHome(worker, workerId, clear.ReturnReason));
     }
 
     private void RetryWorkAfterFailedDebris(NPC worker, string workerId, ActiveObstacleClear clear)
@@ -1486,21 +1539,25 @@ internal sealed class WorkerBehaviorManager
 
         if (target.Kind == ForagerTargetKind.Forage)
         {
-            if (location.Objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? forage)
-                && forage.IsSpawnedObject && forage.isForage())
+            StardewValley.Object? expectedForage = location.Objects.GetValueOrDefault(target.ResourceTile.ToVector2());
+            this.StartWorkMotion(worker, workerId, WorkerWorkAnimationKind.Gather, target.ResourceTile, () =>
             {
-                location.Objects.Remove(target.ResourceTile.ToVector2());
-                bool chestOnly = WorkerItemStorage.Store(forage, this.workerShellManager.GetHarvestDestination(workerId), this.monitor);
-                this.RecordCompletedWork(workerId);
-                this.workerShellManager.TryAwardCompletedActionExperience(workerId, WorkerExperienceAction.PickupForage);
-                this.monitor.Log(
-                    $"Worker {worker.displayName} [{workerId}] {assignment} forage at {target.LocationName} {target.ResourceTile}: collected; "
-                    + $"storage={(chestOnly ? "selected chest" : "shipping bin, wholly or partly")}.",
-                    LogLevel.Info);
-                location.playSound("pickUpItem");
-            }
+                if (location.Objects.TryGetValue(target.ResourceTile.ToVector2(), out StardewValley.Object? forage)
+                    && ReferenceEquals(forage, expectedForage) && forage.IsSpawnedObject && forage.isForage())
+                {
+                    location.Objects.Remove(target.ResourceTile.ToVector2());
+                    bool chestOnly = WorkerItemStorage.Store(forage, this.workerShellManager.GetHarvestDestination(workerId), this.monitor);
+                    this.RecordCompletedWork(workerId);
+                    this.workerShellManager.TryAwardCompletedActionExperience(workerId, WorkerExperienceAction.PickupForage);
+                    this.monitor.Log(
+                        $"Worker {worker.displayName} [{workerId}] {assignment} forage at {target.LocationName} {target.ResourceTile}: collected; "
+                        + $"storage={(chestOnly ? "selected chest" : "shipping bin, wholly or partly")}.",
+                        LogLevel.Info);
+                    location.playSound("pickUpItem");
+                }
 
-            this.FinishForagerAction(worker, workerId, target, assignment, null);
+                this.FinishForagerAction(worker, workerId, target, assignment, null);
+            });
             return;
         }
 
@@ -1540,11 +1597,18 @@ internal sealed class WorkerBehaviorManager
             return;
         }
 
-        this.AnimateForagerSwing(worker, action.Target.ResourceTile);
-        if (Game1.ticks < action.NextSwingTick)
-            return;
-
+        if (Game1.ticks < action.NextSwingTick) return;
         action.NextSwingTick = Game1.ticks + ForagerSwingIntervalTicks;
+        this.StartWorkMotion(worker, workerId, WorkerWorkAnimationKind.Axe, action.Target.ResourceTile,
+            () => this.PerformForagerSwing(worker, workerId, action));
+    }
+
+    private void PerformForagerSwing(NPC worker, string workerId, ActiveForagerAction action)
+    {
+        GameLocation? location = Game1.getLocationFromName(action.Target.LocationName);
+        if (location is null || worker.currentLocation != location || worker.TilePoint != action.Target.ApproachTile
+            || !this.activeForagerActions.TryGetValue(workerId, out ActiveForagerAction? current) || current != action)
+            return;
         action.SwingCount++;
         bool resourcePresent = action.Target.Kind == ForagerTargetKind.HardwoodClump
             ? location.resourceClumps.Any(clump => clump.Tile.ToPoint() == action.Target.ResourceTile
@@ -1663,25 +1727,6 @@ internal sealed class WorkerBehaviorManager
             $"Finished {WorkerTaskPolicy.GetTaskLabel(assignment).ToLowerInvariant()}",
             0,
             target.ResourceTile);
-    }
-
-    private void AnimateForagerSwing(NPC worker, Point resourceTile)
-    {
-        this.FaceWorkerToward(worker, resourceTile);
-        if (worker.Sprite is null)
-            return;
-
-        int baseFrame = worker.FacingDirection switch
-        {
-            1 => 4,
-            0 => 8,
-            3 => 12,
-            _ => 0,
-        };
-        int[] swingFrames = { 0, 1, 0, 3 };
-        worker.Sprite.StopAnimation();
-        worker.Sprite.CurrentFrame = baseFrame + swingFrames[(Game1.ticks / 6) % swingFrames.Length];
-        worker.Sprite.UpdateSourceRect();
     }
 
     private void FaceWorkerToward(NPC worker, Point resourceTile)
@@ -1946,6 +1991,7 @@ internal sealed class WorkerBehaviorManager
         if (task == WorkerTaskKind.WaterCrops && !dirt.isWatered())
         {
             dirt.state.Value = HoeDirt.watered;
+            if (farm == Game1.currentLocation) farm.localSound("wateringCan");
             this.monitor.Log($"Worker watered crop tile {tile}.", LogLevel.Trace);
             return true;
         }

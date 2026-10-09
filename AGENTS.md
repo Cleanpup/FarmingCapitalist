@@ -12,6 +12,7 @@
 - `Workers/WorkerBehaviorManager.cs`: task selection and execution; `WorkerNavigationManager.cs`: routes/recovery.
 - `Workers/Combat/WorkerCombatManager.cs`: physical Slay monsters; `WorkerExplorationManager.cs` and `WorkerExplorationPolicy.cs`: entrance-only Explore Area simulation/timing; `WorkerExplorationLootCatalog.cs`: source-backed hourly loot tiers and gates. `WorkerExplorationProgress` persists progress and pending loot; delivery uses each worker's saved chest or shipping fallback (schema 4).
 - `Workers/WorkerControlMenu*.cs`: management UI and input; `WorkerCustomizationManager.cs`: appearance workflow.
+- `Workers/Appearance/WorkerWorkAnimationManager.cs` and `WorkerWorkAnimationPolicy.cs`: transient Farmer/Forager tool and gathering poses, host impact callbacks, and client visuals. Work motions retain a captured target-relative facing and never execute actions in draw hooks.
 - `Workers/WorkerAppearance*.cs`, `WorkerSpriteSheetBuilder.cs`: farmer appearance and NPC sprite generation.
 - Search `Workers/` first. `SMAPI/` and `StardewValleyDecompiled/` are ignored local reference sources, not mod code.
 - Inspect only the specific reference API needed; do not recursively dump decompiled source or generated output.

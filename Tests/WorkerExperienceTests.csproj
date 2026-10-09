@@ -23,6 +23,7 @@
     <Compile Include="../Workers/Combat/WorkerCombatPolicy.cs" Link="WorkerCombatPolicy.cs" />
     <Compile Include="../Workers/Combat/WorkerCombatTilePolicy.cs" Link="WorkerCombatTilePolicy.cs" />
     <Compile Include="../Workers/Combat/WorkerCombatTargetPolicy.cs" Link="WorkerCombatTargetPolicy.cs" />
+    <Compile Include="../Workers/Appearance/WorkerWorkAnimationPolicy.cs" Link="WorkerWorkAnimationPolicy.cs" />
     <Compile Include="../Workers/Combat/WorkerCombatSwingPolicy.cs" Link="WorkerCombatSwingPolicy.cs" />
     <Compile Include="../Workers/Combat/WorkerExplorationLootCatalog.cs" Link="WorkerExplorationLootCatalog.cs" />
     <Compile Include="../Workers/Combat/WorkerExplorationPolicy.cs" Link="WorkerExplorationPolicy.cs" />

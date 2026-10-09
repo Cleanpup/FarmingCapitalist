@@ -461,3 +461,40 @@ Equal(0, corrupt.Clone().Experience.Farming, "negative XP normalized on clone");
 var missing = JsonSerializer.Deserialize<WorkerRosterEntry>("{\"WorkerId\":\"null\",\"Experience\":null}")!;
 Equal(0, missing.Clone().Experience.Farming, "null XP normalized on clone");
 Console.WriteLine("Worker experience tests passed.");
+
+// Direction-specific native tool/hand poses retain their own frame ranges.
+var overheadAnimations = new[] { 176, 168, 160, 184 };
+var waterAnimations = new[] { 180, 172, 164, 188 };
+var gatherAnimations = new[] { 279, 280, 281, 282 };
+var workSheetFrames = new HashSet<int>();
+foreach (WorkerWorkAnimationKind kind in new[] { WorkerWorkAnimationKind.Water, WorkerWorkAnimationKind.Gather, WorkerWorkAnimationKind.Axe })
+    for (int facing = 0; facing < 4; facing++)
+    {
+        int expectedAnimation = kind == WorkerWorkAnimationKind.Water ? waterAnimations[facing]
+            : kind == WorkerWorkAnimationKind.Gather ? gatherAnimations[facing] : overheadAnimations[facing];
+        Equal(expectedAnimation, WorkerWorkAnimationPolicy.NativeAnimation(kind, facing), "native work animation matches actual facing");
+        for (int pose = 0; pose < WorkerWorkAnimationPolicy.FramesPerDirection; pose++)
+        {
+            int frame = WorkerWorkAnimationPolicy.SheetFrame(kind, facing, pose);
+            Check(frame >= 40 && frame < 100 && workSheetFrames.Add(frame), "work sheets never overlap another direction or existing walk/combat frames");
+        }
+    }
+Equal(60, workSheetFrames.Count, "all water/gather/tool directions are generated");
+foreach (WorkerWorkAnimationKind kind in Enum.GetValues<WorkerWorkAnimationKind>())
+{
+    double impact = WorkerWorkAnimationPolicy.ImpactMilliseconds(kind);
+    Check(!WorkerWorkAnimationPolicy.CanApplyImpact(false, kind, impact - .01, true, true, true), "tool changes nothing before its impact pose");
+    Check(WorkerWorkAnimationPolicy.CanApplyImpact(false, kind, impact, true, true, true), "host can apply exactly one action at impact");
+    Check(!WorkerWorkAnimationPolicy.CanApplyImpact(true, kind, 400, true, true, true), "completed impact cannot apply another tool action");
+    Check(!WorkerWorkAnimationPolicy.CanApplyImpact(false, kind, 400, false, true, true), "clients only render and cannot execute work");
+    Check(!WorkerWorkAnimationPolicy.CanApplyImpact(false, kind, 400, true, false, true), "title-screen action is forbidden");
+    Check(!WorkerWorkAnimationPolicy.CanApplyImpact(false, kind, 400, true, true, false), "cancelled or unavailable target cannot execute");
+    Equal(0, WorkerWorkAnimationPolicy.PoseAt(kind, -1), "early pose clamps safely");
+    Equal(WorkerWorkAnimationPolicy.PoseCount(kind) - 1, WorkerWorkAnimationPolicy.PoseAt(kind, 999), "late pose never walks outside generated sheet");
+    for (int facing = 0; facing < 4; facing++)
+        if (kind == WorkerWorkAnimationKind.Scythe)
+            Equal(gatherAnimations[facing], WorkerWorkAnimationPolicy.NativeAnimation(kind, facing), "weed clearing uses a gathering/sweep body rather than sword metadata");
+        else if (kind == WorkerWorkAnimationKind.Pickaxe)
+            Equal(overheadAnimations[facing], WorkerWorkAnimationPolicy.NativeAnimation(kind, facing), "pickaxe retains overhead direction independently of walking/swords");
+}
+Console.WriteLine("Worker work-animation policy tests passed.");

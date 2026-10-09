@@ -28,6 +28,9 @@ internal sealed class WorkerRosterEntry
 
     public WorkerSkillExperience Experience { get; set; } = new();
 
+    /// <summary>Chest used for this worker's gathered items; null sends them to the shipping bin.</summary>
+    public WorkerHarvestDestination? HarvestDestination { get; set; }
+
     public int DailyWage { get; set; } = WorkerEmploymentTerms.DailyWage;
 
     /// <summary>The absolute game date covered by the last payment; -1 means no payment yet.</summary>
@@ -64,6 +67,7 @@ internal sealed class WorkerRosterEntry
             Exploration = this.Exploration?.Clone() ?? new(),
             AssignedTask = this.AssignedTask,
             Experience = this.Experience?.Clone() ?? new WorkerSkillExperience(),
+            HarvestDestination = this.HarvestDestination?.Clone(),
             DailyWage = this.DailyWage,
             LastPaidDay = this.LastPaidDay,
             LastWageAttemptDay = this.LastWageAttemptDay,

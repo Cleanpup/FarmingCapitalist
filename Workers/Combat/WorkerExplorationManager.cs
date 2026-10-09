@@ -47,7 +47,7 @@ internal sealed class WorkerExplorationManager
         if (!Context.IsWorldReady || !Context.IsMainPlayer)
             return false;
         WorkerExplorationProgress progress = this.shell.GetExplorationProgress(workerId);
-        bool delivered = WorkerExplorationLootStorage.TryDeliver(progress, this.shell.GetHarvestDestination(), this.monitor,
+        bool delivered = WorkerExplorationLootStorage.TryDeliver(progress, this.shell.GetHarvestDestination(workerId), this.monitor,
             () => this.shell.RecordExplorationProgress(workerId, progress), out string error);
         if (!delivered)
             this.monitor.Log($"{workerId} exploration loot delivery deferred; items remain saved: {error}", LogLevel.Warn);

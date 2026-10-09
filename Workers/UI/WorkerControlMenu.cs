@@ -318,11 +318,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 {
                     if (!row.containsPoint(x, y))
                         continue;
-                    if (this.EnsureHost())
+                    if (this.EnsureSelectedHostWorker())
                     {
                         int index = row.myID - DestinationRowIdBase;
                         WorkerHarvestDestination? destination = index == 0 ? null : this.chestOptions[index - 1].ToDestination();
-                        bool success = this.workerShellManager.TrySetHarvestDestination(destination, out string message);
+                        bool success = this.workerShellManager.TrySetHarvestDestination(this.selectedWorkerId!, destination, out string message);
                         this.SetFeedback(message, !success);
                         if (success)
                             this.destinationDropdownOpen = false;
@@ -470,7 +470,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 : "The host manages hiring, wages, and orders.";
         }
         if (this.currentTab == WorkerMenuTab.Storage && this.destinationDropdownButton.containsPoint(x, y))
-            this.hoverText = "Choose the shared destination for every worker's harvested items.";
+            this.hoverText = "Choose where this worker sends gathered items. Other workers keep their own destinations.";
         if (this.currentTab != WorkerMenuTab.Jobs)
         {
             return;
@@ -992,16 +992,22 @@ internal sealed class WorkerControlMenu : IClickableMenu
         if (this.ordersBounds.Height >= 220)
             this.DrawSectionHeading(b, this.ordersBounds, "HARVEST STORAGE", $"{this.chestOptions.Count} chests found");
 
-        WorkerHarvestDestination? destination = this.workerShellManager.GetHarvestDestination();
+        WorkerHarvestDestination? destination = this.selectedWorkerId is null
+            ? null
+            : this.workerShellManager.GetHarvestDestination(this.selectedWorkerId);
         WorkerChestOption? selectedChest = destination is null ? null : this.chestOptions.Find(option =>
             option.LocationName == destination.LocationName && option.Tile == destination.Tile);
         string selectedLabel = destination is null ? "Shipping bin" : selectedChest?.Label ?? "Missing chest — using shipping bin";
-        this.DrawButton(b, this.destinationDropdownButton, $"{selectedLabel}  {(this.destinationDropdownOpen ? "^" : "v")}", true, Color.White,
+        string workerLabel = this.GetSelectedWorker()?.DisplayName ?? "Select a worker";
+        this.DrawButton(b, this.destinationDropdownButton, $"{workerLabel}: {selectedLabel}  {(this.destinationDropdownOpen ? "^" : "v")}",
+            Context.IsMainPlayer && this.selectedWorkerId is not null, Color.White,
             destination is null ? WorkerMenuArt.Icon.Coin : WorkerMenuArt.Icon.Chest);
 
         if (!this.destinationDropdownOpen)
         {
-            string description = "All workers put harvested items here. If a chest is full or unavailable, remaining items go to the shipping bin.";
+            string description = this.selectedWorkerId is null
+                ? "Select a worker to choose their item destination. Workers without a chest use the shipping bin."
+                : "This worker sends gathered items here. A full, locked, or unavailable chest falls back to the shipping bin.";
             this.DrawText(b, description, new Rectangle(this.ordersBounds.X + 24, this.destinationDropdownButton.bounds.Bottom + 20,
                 this.ordersBounds.Width - 48, Math.Max(1, this.ordersBounds.Bottom - this.destinationDropdownButton.bounds.Bottom - 40)), MutedInk);
             return;
@@ -1343,7 +1349,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.ChopHardwood => "Walk to the nearest reachable hardwood source, including mahogany trees and large stumps or logs.",
         WorkerTaskKind.ClearDebris => "Clear loose stones, weeds, and small fallen wood. Foragers work in their selected outdoor area; Farmers work on the farm.",
         WorkerTaskKind.SlayMonsters => "Fight real monsters in the combat area. Mines and Skull Cavern follow the host farmer onto active floors.",
-        WorkerTaskKind.ExploreArea => "Teleport to the selected dungeon entrance and explore independently for loot every in-game hour, from 6:00 to 22:00. Exploration is simulated; the worker stays at the entrance. Loot goes to shared storage. Completed runs grant this worker 5 Combat XP; only monster drops are collected, with stone excluded.",
+        WorkerTaskKind.ExploreArea => "Teleport to the selected dungeon entrance and explore independently for loot every in-game hour, from 6:00 to 22:00. Exploration is simulated; the worker stays at the entrance. Loot goes to this worker's selected chest or shipping-bin fallback. Completed runs grant this worker 5 Combat XP; only monster drops are collected, with stone excluded.",
         _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",
     };
 }

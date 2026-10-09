@@ -1490,7 +1490,7 @@ internal sealed class WorkerBehaviorManager
                 && forage.IsSpawnedObject && forage.isForage())
             {
                 location.Objects.Remove(target.ResourceTile.ToVector2());
-                bool chestOnly = WorkerItemStorage.Store(forage, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                bool chestOnly = WorkerItemStorage.Store(forage, this.workerShellManager.GetHarvestDestination(workerId), this.monitor);
                 this.RecordCompletedWork(workerId);
                 this.workerShellManager.TryAwardCompletedActionExperience(workerId, WorkerExperienceAction.PickupForage);
                 this.monitor.Log(
@@ -1747,7 +1747,7 @@ internal sealed class WorkerBehaviorManager
                     bool chestOnly;
                     try
                     {
-                        chestOnly = WorkerItemStorage.Store(item!, this.workerShellManager.GetHarvestDestination(), this.monitor);
+                        chestOnly = WorkerItemStorage.Store(item!, this.workerShellManager.GetHarvestDestination(zone.WorkerId), this.monitor);
                     }
                     catch (Exception ex)
                     {
@@ -1954,7 +1954,7 @@ internal sealed class WorkerBehaviorManager
             Crop crop = dirt.crop;
             int regrowDaysBefore = crop.dayOfCurrentPhase.Value;
             this.monitor.Log($"Worker reached crop tile {tile}; harvesting crop {crop.indexOfHarvest.Value} (regrows={crop.RegrowsAfterHarvest()}).", LogLevel.Trace);
-            WorkerHarvestCollector collector = new(farm, tile, this.workerShellManager.GetHarvestDestination(), this.monitor);
+            WorkerHarvestCollector collector = new(farm, tile, this.workerShellManager.GetHarvestDestination(workerId), this.monitor);
             int shippingBinCountBefore = farm.getShippingBin(Game1.MasterPlayer).Count;
             bool harvested = WithoutFarmerExperience(() => crop.harvest(tile.X, tile.Y, dirt, collector));
             int shippingBinCountAfter = farm.getShippingBin(Game1.MasterPlayer).Count;

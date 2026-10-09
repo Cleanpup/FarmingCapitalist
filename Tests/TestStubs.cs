@@ -14,5 +14,14 @@ internal static class WorkerForageAreaCatalog
 
 internal sealed class WorkerHarvestDestination
 {
-    public WorkerHarvestDestination Clone() => new();
+    public string LocationName { get; set; } = string.Empty;
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+
+    public WorkerHarvestDestination Clone() => new()
+    {
+        LocationName = this.LocationName,
+        TileX = this.TileX,
+        TileY = this.TileY,
+    };
 }

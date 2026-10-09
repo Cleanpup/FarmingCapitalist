@@ -14,6 +14,7 @@ static void Check(bool value, string scenario)
 
 var first = new WorkerRosterEntry { WorkerId = "first" };
 var second = new WorkerRosterEntry { WorkerId = "second" };
+first.HarvestDestination = new WorkerHarvestDestination { LocationName = "Farm", TileX = 5, TileY = 7 };
 Check(WorkerExperiencePolicy.IsConfirmedCropHarvest(true, false, 0, 0, 1), "ordinary harvest confirmed");
 Check(WorkerExperiencePolicy.IsConfirmedCropHarvest(false, true, 0, 4, 1), "regrowing harvest confirmed");
 Check(!WorkerExperiencePolicy.IsConfirmedCropHarvest(false, false, 0, 0, 1), "failed nonregrowing harvest rejected");
@@ -405,6 +406,30 @@ first.CombatArea = WorkerCombatAreaCatalog.IslandFarm;
 first.LastDefeatedDay = 42;
 var save = new WorkerRosterSaveData { Workers = new() { first, second } };
 var loaded = JsonSerializer.Deserialize<WorkerRosterSaveData>(JsonSerializer.Serialize(save))!;
+Equal("Farm", loaded.Workers[0].HarvestDestination?.LocationName, "worker destination round trip");
+Equal(5, loaded.Workers[0].HarvestDestination?.TileX, "worker destination X round trip");
+Check(loaded.Workers[1].HarvestDestination is null, "unassigned worker keeps shipping-bin default");
+var legacyRoster = JsonSerializer.Deserialize<WorkerRosterSaveData>("""
+    {"SchemaVersion":2,"HarvestDestination":{"LocationName":"Farm","TileX":5,"TileY":7},
+     "Workers":[{"WorkerId":"one"},{"WorkerId":"two"}]}
+    """)!;
+WorkerRosterMigration.ApplySharedHarvestDestination(legacyRoster);
+Check(legacyRoster.Workers.All(worker => worker.HarvestDestination?.LocationName == "Farm"),
+    "legacy shared chest choice migrates to every worker");
+// Combat 1.3.1 also wrote schema 3 with the shared chest field.
+legacyRoster.SchemaVersion = 3;
+legacyRoster.Workers[0].HarvestDestination = null;
+legacyRoster.Workers[1].HarvestDestination = new() { LocationName = "Forest", TileX = 9, TileY = 8 };
+WorkerRosterMigration.ApplySharedHarvestDestination(legacyRoster);
+Equal("Farm", legacyRoster.Workers[0].HarvestDestination!.LocationName, "combat schema-three shared choice migrates");
+Equal("Forest", legacyRoster.Workers[1].HarvestDestination!.LocationName, "existing individual chest survives branch integration");
+legacyRoster.Workers[0].HarvestDestination!.TileX = 77;
+Equal(5, legacyRoster.HarvestDestination!.TileX, "migration clones the shared destination");
+Equal(9, legacyRoster.Workers[1].HarvestDestination!.TileX, "migration never aliases another worker's chest");
+legacyRoster.SchemaVersion = 4;
+legacyRoster.Workers[0].HarvestDestination = null;
+WorkerRosterMigration.ApplySharedHarvestDestination(legacyRoster);
+Check(legacyRoster.Workers[0].HarvestDestination is null, "schema-four shipping choice is not replaced by a stale global chest");
 Equal(380, loaded.Workers[0].Experience.Farming, "saved XP round trip");
 Equal(11, loaded.Workers[0].Experience.Mining, "mining XP round trip");
 Equal(12, loaded.Workers[0].Experience.Fishing, "fishing XP round trip");
@@ -415,6 +440,8 @@ Equal(WorkerCombatAreaCatalog.IslandFarm, loaded.Workers[0].CombatArea, "combat 
 Equal(42, loaded.Workers[0].LastDefeatedDay, "defeat day survives save");
 Equal(0, loaded.Workers[1].Experience.Farming, "independent saved XP");
 var clone = loaded.Workers[0].Clone();
+clone.HarvestDestination!.TileX = 99;
+Equal(5, loaded.Workers[0].HarvestDestination!.TileX, "worker destination clone does not alias another worker");
 clone.Experience.Farming = 500;
 clone.Experience.Mining = 500;
 Equal(380, loaded.Workers[0].Experience.Farming, "clone does not alias XP");

@@ -944,7 +944,7 @@ internal sealed class WorkerCombatManager
             return;
 
         // Vanilla onMonsterKilled credits a Farmer's quests, stats and XP. Worker kills use
-        // the monster's own loot list and the existing shared worker storage destination.
+        // the monster's own loot list and the killing worker's configured storage destination.
         Vector2 origin = target.getStandingPosition();
         foreach (string raw in target.objectsToDrop.ToArray())
         {
@@ -953,7 +953,7 @@ internal sealed class WorkerCombatManager
                 Debris generated = raw.StartsWith('-') && int.TryParse(raw, out int resource)
                     ? new Debris(Math.Abs(resource), Game1.random.Next(1, 4), origin, origin)
                     : new Debris(raw, origin, origin);
-                this.StoreGeneratedLoot(location, target.ModifyMonsterLoot(generated));
+                this.StoreGeneratedLoot(workerId, location, target.ModifyMonsterLoot(generated));
             }
             catch (Exception ex)
             {
@@ -972,7 +972,7 @@ internal sealed class WorkerCombatManager
         {
             try
             {
-                this.StoreGeneratedLoot(location, target.ModifyMonsterLoot(new Debris(item, origin, origin)));
+                this.StoreGeneratedLoot(workerId, location, target.ModifyMonsterLoot(new Debris(item, origin, origin)));
             }
             catch (Exception ex)
             {
@@ -987,7 +987,7 @@ internal sealed class WorkerCombatManager
         state.Target = null;
     }
 
-    private void StoreGeneratedLoot(GameLocation location, Debris debris)
+    private void StoreGeneratedLoot(string workerId, GameLocation location, Debris debris)
     {
         // Put the drop in the world first. If an item type or destination is unavailable,
         // the physical drop remains rather than being swallowed by a failed storage call.
@@ -1002,17 +1002,17 @@ internal sealed class WorkerCombatManager
                 return;
             // This is still a real monster drop, but workers explicitly never
             // collect stone. Leave it in the world for the player rather than
-            // destroying it or depositing it in shared storage.
+            // destroying it or depositing it in worker storage.
             if (item.QualifiedItemId == "(O)390")
                 return;
             Item forStorage = item.getOne();
             forStorage.Stack = item.Stack;
-            WorkerItemStorage.Store(forStorage, this.shell.GetHarvestDestination(), this.monitor);
+            WorkerItemStorage.Store(forStorage, this.shell.GetHarvestDestination(workerId), this.monitor);
             location.debris.Remove(debris);
         }
         catch (Exception ex)
         {
-            this.monitor.Log($"Could not store monster loot in shared storage; left it on the ground: {ex.Message}", LogLevel.Warn);
+            this.monitor.Log($"Could not store monster loot in worker storage; left it on the ground: {ex.Message}", LogLevel.Warn);
         }
     }
 }

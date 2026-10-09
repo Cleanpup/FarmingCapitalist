@@ -10,7 +10,7 @@
 - `ModEntry.cs`: event wiring, console commands, lifecycle.
 - `Workers/WorkerShellManager.cs`: roster, spawning, identity, persistence and hiring.
 - `Workers/WorkerBehaviorManager.cs`: task selection and execution; `WorkerNavigationManager.cs`: routes/recovery.
-- `Workers/Combat/WorkerCombatManager.cs`: physical Slay monsters; `WorkerExplorationManager.cs` and `WorkerExplorationPolicy.cs`: entrance-only Explore Area simulation/timing; `WorkerExplorationLootCatalog.cs`: source-backed hourly loot tiers and gates. `WorkerExplorationProgress` persists progress and pending loot; storage delivery is shared.
+- `Workers/Combat/WorkerCombatManager.cs`: physical Slay monsters; `WorkerExplorationManager.cs` and `WorkerExplorationPolicy.cs`: entrance-only Explore Area simulation/timing; `WorkerExplorationLootCatalog.cs`: source-backed hourly loot tiers and gates. `WorkerExplorationProgress` persists progress and pending loot; delivery uses each worker's saved chest or shipping fallback (schema 4).
 - `Workers/WorkerControlMenu*.cs`: management UI and input; `WorkerCustomizationManager.cs`: appearance workflow.
 - `Workers/WorkerAppearance*.cs`, `WorkerSpriteSheetBuilder.cs`: farmer appearance and NPC sprite generation.
 - Search `Workers/` first. `SMAPI/` and `StardewValleyDecompiled/` are ignored local reference sources, not mod code.
@@ -26,6 +26,7 @@
 - Revalidate a crop at execution, reserve jobs across workers, and recover from blocked/invalid destinations.
 - Preserve harvested items and vanilla crop/regrowth rules. Never silently discard produce.
 - Use existing NPC/game APIs where practical and keep policy, movement, persistence and UI separate.
+- Storage choices belong to each worker, including combat/exploration/dismissal delivery; schema 4 migrates shared choices from older and combat schema-3 saves.
 - Treat legacy roster saves as supported input. Avoid duplicate workers and repeated daily charges.
 
 ## Work and validation

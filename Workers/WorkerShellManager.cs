@@ -196,6 +196,8 @@ internal sealed class WorkerShellManager
             message = "That worker is no longer employed.";
             return false;
         }
+        if (!this.TryStorePendingExploration(entry, out message))
+            return false;
 
         this.RemoveWorkerShells(workerId);
         this.detachedWorkers.RemoveAll(saved => this.IsManagedWorker(saved.Worker, workerId));
@@ -213,6 +215,12 @@ internal sealed class WorkerShellManager
             return false;
         }
 
+        foreach (WorkerRosterEntry entry in this.savedWorkers)
+            if (!this.TryStorePendingExploration(entry, out string message))
+            {
+                this.monitor.Log(message, LogLevel.Warn);
+                return false;
+            }
         bool removedWorkers = this.RemoveAllWorkerShells();
         bool hadRosterEntries = this.savedWorkers.Count > 0;
         this.savedWorkers.Clear();
@@ -222,6 +230,16 @@ internal sealed class WorkerShellManager
         this.helper.Data.WriteSaveData<WorkerAppearanceData>(this.legacyAppearanceSaveDataKey, null);
         this.DisposeAllGeneratedSpriteSheets();
         return removedWorkers || hadRosterEntries;
+    }
+
+    private bool TryStorePendingExploration(WorkerRosterEntry entry, out string message)
+    {
+        message = string.Empty;
+        bool delivered = WorkerExplorationLootStorage.TryDeliver(entry.Exploration, this.GetHarvestDestination(),
+            this.monitor, this.PersistRoster, out string error);
+        if (!delivered)
+            message = $"{entry.DisplayName} still has saved exploration loot; dismissal deferred: {error}";
+        return delivered;
     }
 
     public IReadOnlyList<WorkerRosterEntry> GetRosterEntries()
@@ -282,6 +300,60 @@ internal sealed class WorkerShellManager
 
     public string GetCombatArea(string workerId)
         => this.GetWorkerEntry(workerId)?.CombatArea ?? WorkerCombatAreaCatalog.Farm;
+
+    public string GetExplorationArea(string workerId)
+        => this.GetWorkerEntry(workerId)?.ExplorationArea ?? WorkerExplorationAreaCatalog.Mines;
+
+    public WorkerExplorationProgress GetExplorationProgress(string workerId)
+        => this.GetWorkerEntry(workerId)?.Exploration?.Clone() ?? new();
+
+    public void RecordExplorationProgress(string workerId, WorkerExplorationProgress progress)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry)
+            return;
+        entry.Exploration = progress.Clone();
+        this.PersistRoster();
+    }
+
+    public bool TryCompleteExploration(string workerId, WorkerExplorationProgress progress, List<WorkerExplorationLoot> loot)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry
+            || !WorkerExplorationPolicy.TryQueueRun(entry, progress, loot, Game1.Date.TotalDays,
+                Context.IsMainPlayer, Context.IsWorldReady, this.CanWorkerWorkToday(workerId), this.WasDefeatedToday(workerId)))
+            return false;
+        // Persist completion and its undelivered items together before delivery;
+        // saving/reloading can't re-roll or credit the same simulated run twice.
+        this.PersistRoster();
+        return true;
+    }
+
+    public void CancelExploration(string workerId)
+    {
+        WorkerExplorationProgress progress = this.GetExplorationProgress(workerId);
+        if (progress.Minutes == 0 && progress.LastObservedMinute == -1)
+            return;
+        progress.Minutes = 0;
+        progress.LastObservedMinute = -1;
+        this.RecordExplorationProgress(workerId, progress);
+    }
+
+    public bool TrySetExplorationArea(string workerId, string area, out string message)
+    {
+        if (!this.CanManageWorkers(out message))
+            return false;
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null || entry.Profession != WorkerProfession.CombatWorker || !WorkerExplorationAreaCatalog.IsValid(area))
+        {
+            message = "That exploration area is not available for this worker.";
+            return false;
+        }
+        this.CancelExploration(workerId);
+        entry.ExplorationArea = area;
+        entry.AssignedTask = WorkerTaskKind.Idle;
+        this.PersistRoster();
+        message = $"{entry.DisplayName} will explore {WorkerExplorationAreaCatalog.GetLabel(area)}. Choose Explore Area to begin.";
+        return true;
+    }
 
     public bool WasDefeatedToday(string workerId)
         => Context.IsWorldReady && this.GetWorkerEntry(workerId)?.LastDefeatedDay == Game1.Date.TotalDays;
@@ -804,6 +876,7 @@ internal sealed class WorkerShellManager
                 entry.Profession,
                 entry.ForageLocationName,
                 entry.CombatArea,
+                entry.ExplorationArea,
                 IsConfigured: true,
                 IsSpawned: worker is not null,
                 CurrentLocationName: worker?.currentLocation?.NameOrUniqueName,
@@ -940,6 +1013,14 @@ internal sealed class WorkerShellManager
             }
             if (!WorkerCombatAreaCatalog.IsValid(normalized.CombatArea))
                 normalized.CombatArea = WorkerCombatAreaCatalog.Farm;
+            if (!WorkerExplorationAreaCatalog.IsValid(normalized.ExplorationArea))
+                normalized.ExplorationArea = WorkerExplorationAreaCatalog.Mines;
+            normalized.Exploration ??= new();
+            normalized.Exploration.Day = Math.Clamp(normalized.Exploration.Day, -1, Game1.Date.TotalDays);
+            normalized.Exploration.Minutes = Math.Clamp(normalized.Exploration.Minutes, 0, 960);
+            normalized.Exploration.LastObservedMinute = normalized.Exploration.LastObservedMinute is >= 360 and <= 1320
+                ? normalized.Exploration.LastObservedMinute : -1;
+            normalized.Exploration.CompletedRuns = Math.Clamp(normalized.Exploration.CompletedRuns, 0, WorkerExplorationPolicy.MaximumRunsPerDay);
             normalized.LastDefeatedDay = Math.Clamp(normalized.LastDefeatedDay, -1, Game1.Date.TotalDays);
 
             // Employment prices aren't save-editable contracts yet; normalize corrupt/older values.

@@ -79,6 +79,17 @@ internal static class WorkerExperiencePolicy
         return true;
     }
 
+    public static bool TryAwardExploration(WorkerRosterEntry worker, bool isHost, bool isWorldReady)
+    {
+        if (!isHost || !isWorldReady || worker.Profession != WorkerProfession.CombatWorker
+            || worker.AssignedTask != WorkerTaskKind.ExploreArea)
+            return false;
+        worker.Experience ??= new();
+        worker.Experience.Mining = AddExperience(worker.Experience.Mining, WorkerExplorationPolicy.MiningExperiencePerRun);
+        worker.Experience.Combat = AddExperience(worker.Experience.Combat, WorkerExplorationPolicy.CombatExperiencePerRun);
+        return true;
+    }
+
     private static int AddExperience(int current, int amount)
         => (int)Math.Min(int.MaxValue, (long)Math.Max(0, current) + amount);
 }

@@ -50,7 +50,94 @@ Equal(2, (int)WorkerProfession.CombatWorker, "profession save enum stable");
 Equal(8, (int)WorkerTaskKind.SlayMonsters, "combat task save enum stable");
 Check(WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.CombatWorker, WorkerTaskKind.SlayMonsters), "combat job allowed");
 Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Farmer, WorkerTaskKind.SlayMonsters), "farmer cannot slay");
-Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.CombatWorker, WorkerTaskKind.ClearDebris), "combat worker only slays");
+Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.CombatWorker, WorkerTaskKind.ClearDebris), "combat worker cannot clear debris");
+Equal(9, (int)WorkerTaskKind.ExploreArea, "exploration appended without changing existing task values");
+Check(WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.CombatWorker, WorkerTaskKind.ExploreArea), "combat worker can explore independently");
+Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Farmer, WorkerTaskKind.ExploreArea), "farmer cannot explore");
+Check(!WorkerTaskPolicy.IsTaskAllowed(WorkerProfession.Forager, WorkerTaskKind.ExploreArea), "forager cannot explore");
+Equal("Mine", WorkerExplorationAreaCatalog.Entrance(WorkerExplorationAreaCatalog.Mines), "exploration uses permanent mine entrance");
+Equal("SkullCave", WorkerExplorationAreaCatalog.Entrance(WorkerExplorationAreaCatalog.SkullCavern), "exploration uses permanent cavern entrance");
+Equal("IslandNorth", WorkerExplorationAreaCatalog.Entrance(WorkerExplorationAreaCatalog.Volcano), "volcano exploration stays outside dungeon floors");
+Check(WorkerExplorationPolicy.UnavailableReason("Volcano", true, true, true, false, true)!.Contains("boat"), "debug island arrival cannot bypass boat unlock");
+Check(WorkerExplorationPolicy.UnavailableReason("Volcano", true, true, true, true, false)!.Contains("north"), "volcano requires opening north island path");
+Check(WorkerExplorationPolicy.UnavailableReason("SkullCavern", true, false, true, true, true)!.Contains("bus"), "cavern exploration requires bus access");
+Check(WorkerExplorationPolicy.UnavailableReason("SkullCavern", true, true, false, true, true)!.Contains("Key"), "cavern exploration requires skull key");
+Check(WorkerExplorationPolicy.UnavailableReason("Mines", false, true, true, true, true) is not null, "early-game mine landslide blocks exploration");
+Check(WorkerExplorationPolicy.UnavailableReason("Volcano", true, true, true, true, true) is null, "unlocked volcano can be explored");
+
+var expedition = new WorkerRosterEntry { WorkerId = "explorer", Profession = WorkerProfession.CombatWorker, AssignedTask = WorkerTaskKind.ExploreArea };
+var progress = expedition.Exploration;
+Check(WorkerExplorationPolicy.ObserveClock(progress, 100, 600, false), "first arrival establishes time baseline");
+Equal(0, progress.Minutes, "no immediate arrival reward");
+WorkerExplorationPolicy.ObserveClock(progress, 100, 610, true);
+Equal(10, progress.Minutes, "ten minutes of active exploration accrue");
+Check(!WorkerExplorationPolicy.ObserveClock(progress, 100, 610, true), "repeated ticks do not add progress");
+WorkerExplorationPolicy.ObserveClock(progress, 100, 650, true);
+Equal(50, progress.Minutes, "HHMM minutes are converted without inventing forty minutes at hour boundary");
+WorkerExplorationPolicy.ObserveClock(progress, 100, 700, true);
+Equal(60, progress.Minutes, "one hour is ready for one batch");
+var staleProgress = progress.Clone();
+var initialLoot = new List<WorkerExplorationLoot> { new() { ItemId = "(O)378", Stack = 2 } };
+Check(WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 100, true, true, true, false), "host commits completed run and pending loot");
+Equal(1, expedition.Exploration.CompletedRuns, "one run completed");
+Equal(0, expedition.Exploration.Minutes, "completed run consumes its hour");
+Equal(5, expedition.Experience.Mining, "explorer gets five mining XP");
+Equal(5, expedition.Experience.Combat, "explorer gets five combat XP without a player kill");
+Check(!WorkerExplorationPolicy.TryQueueRun(expedition, staleProgress, initialLoot, 100, true, true, true, false), "stale completion cannot duplicate loot or XP");
+initialLoot[0].Stack = 99;
+Equal(2, expedition.Exploration.PendingLoot[0].Stack, "saved rewards do not alias rolled loot");
+progress = expedition.Exploration.Clone();
+WorkerExplorationPolicy.ObserveClock(progress, 100, 720, false);
+Equal(0, progress.Minutes, "paused or unpaid time grants no progress");
+WorkerExplorationPolicy.ObserveClock(progress, 100, 730, true);
+Equal(10, progress.Minutes, "only newly active time progresses");
+WorkerExplorationPolicy.ObserveClock(progress, 100, 700, true);
+WorkerExplorationPolicy.ObserveClock(progress, 100, 730, true);
+Equal(10, progress.Minutes, "rewinding time cannot re-credit an interval");
+WorkerExplorationPolicy.ObserveClock(progress, 100, 2400, false);
+Equal(1320, progress.LastObservedMinute, "nighttime is capped at the 22:00 work cutoff");
+WorkerExplorationPolicy.ObserveClock(progress, 101, 600, false);
+Equal(0, progress.CompletedRuns, "new day resets the run count");
+Equal(0, progress.Minutes, "unfinished previous-day progress does not carry over");
+Equal(1, progress.PendingLoot.Count, "new day preserves undelivered completed rewards");
+progress.Minutes = 60;
+expedition.Exploration = progress.Clone();
+Check(!WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 101, false, true, true, false), "clients cannot simulate reward batches");
+Check(!WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 101, true, false, true, false), "title-screen simulation cannot award");
+Check(!WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 101, true, true, false, false), "unpaid workers cannot earn simulated loot");
+Check(!WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 101, true, true, true, true), "defeated workers cannot explore");
+expedition.AssignedTask = WorkerTaskKind.Idle;
+Check(!WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 101, true, true, true, false), "Idle cancels pending completion");
+expedition.AssignedTask = WorkerTaskKind.ExploreArea;
+progress.CompletedRuns = WorkerExplorationPolicy.MaximumRunsPerDay;
+expedition.Exploration = progress.Clone();
+Check(!WorkerExplorationPolicy.TryQueueRun(expedition, progress, initialLoot, 101, true, true, true, false), "daily run limit prevents runaway clock rewards");
+
+var areaLootIds = new Dictionary<string, HashSet<string>>
+{
+    ["Mines"] = new() { "390", "378", "380", "384", "684", "766", "767", "769", "535", "536", "537", "382" },
+    ["SkullCavern"] = new() { "390", "384", "386", "768", "769", "749", "382" },
+    ["Volcano"] = new() { "390", "848", "384", "768", "537", "382" },
+};
+foreach (string area in WorkerExplorationAreaCatalog.GetAreas())
+for (int seed = 0; seed < 1000; seed++)
+{
+    var loot = WorkerExplorationPolicy.RollLoot(area, new Random(seed), 120);
+    Check(loot.All(drop => areaLootIds[area].Contains(drop.ItemId[3..]) && drop.Stack is >= 1 and <= 4), "every rolled reward belongs to its area's capped pool");
+    if (area == "Volcano") Check(loot.Any(drop => drop.ItemId == "(O)848"), "volcano batches always include cinder shards");
+    if (area == "SkullCavern") Check(loot.Any(drop => drop.ItemId == "(O)384"), "cavern batches include gold ore");
+    var shallowLoot = WorkerExplorationPolicy.RollLoot("Mines", new Random(seed), 39);
+    Check(shallowLoot.Any(drop => drop.ItemId == "(O)378") && !shallowLoot.Any(drop => drop.ItemId is "(O)380" or "(O)384" or "(O)386"), "shallow unlocked Mines give copper rather than advanced ores");
+}
+expedition.ExplorationArea = WorkerExplorationAreaCatalog.Volcano;
+var reloadedExpedition = JsonSerializer.Deserialize<WorkerRosterEntry>(JsonSerializer.Serialize(expedition))!;
+Equal(WorkerExplorationAreaCatalog.Volcano, reloadedExpedition.ExplorationArea, "independent exploration selection survives save/load");
+Equal(60, reloadedExpedition.Exploration.Minutes, "simulation progress survives save/load");
+Equal(1, reloadedExpedition.Exploration.PendingLoot.Count, "undelivered rewards survive save/load");
+Equal(5, reloadedExpedition.Experience.Combat, "failed completions never grant extra XP");
+var expeditionClone = reloadedExpedition.Clone();
+expeditionClone.Exploration.PendingLoot[0].Stack = 12;
+Equal(2, reloadedExpedition.Exploration.PendingLoot[0].Stack, "pending loot clone is independent");
 Check(WorkerCombatAreaCatalog.IsValid(WorkerCombatAreaCatalog.IslandFarm), "island farm allowed");
 Check(WorkerCombatAreaCatalog.IsValid(WorkerCombatAreaCatalog.VolcanoEntrance), "volcano entrance area allowed");
 Check(!WorkerCombatAreaCatalog.IsValid("VolcanoDungeon"), "volcano dungeon not offered");
@@ -274,6 +361,8 @@ Equal(0, legacy.Experience.Fishing, "legacy fishing defaults zero");
 Equal(0, legacy.Experience.Foraging, "legacy foraging defaults zero");
 Equal(0, legacy.Experience.Combat, "legacy combat defaults zero");
 Equal(WorkerCombatAreaCatalog.Farm, legacy.CombatArea, "legacy combat area defaults to farm");
+Equal(WorkerExplorationAreaCatalog.Mines, legacy.ExplorationArea, "legacy exploration area defaults to Mines");
+Equal(0, legacy.Exploration.PendingLoot.Count, "legacy workers have no synthetic pending rewards");
 Equal(-1, legacy.LastDefeatedDay, "legacy worker not defeated");
 var corrupt = JsonSerializer.Deserialize<WorkerRosterEntry>("{\"WorkerId\":\"old\",\"Experience\":{\"Farming\":-4}}")!;
 Equal(0, corrupt.Clone().Experience.Farming, "negative XP normalized on clone");

@@ -15,7 +15,7 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.ClearDebris, WorkerTaskKind.Idle,
     };
 
-    private static readonly WorkerTaskKind[] CombatTasks = { WorkerTaskKind.SlayMonsters, WorkerTaskKind.Idle };
+    private static readonly WorkerTaskKind[] CombatTasks = { WorkerTaskKind.SlayMonsters, WorkerTaskKind.ExploreArea, WorkerTaskKind.Idle };
 
     public const int WorkDayEndsAt = 2200;
 
@@ -78,6 +78,7 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.ChopHardwood => "Cut hardwood",
         WorkerTaskKind.ClearDebris => "Clear debris",
         WorkerTaskKind.SlayMonsters => "Slay monsters",
+        WorkerTaskKind.ExploreArea => "Explore Area",
         _ => idleLabel,
     };
 }

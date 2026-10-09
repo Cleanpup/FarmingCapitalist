@@ -40,6 +40,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private const int DestinationNextId = 90022;
     private const int DestinationRowIdBase = 92000;
     private const int ForageAreaId = 90023;
+    private const int ExplorationAreaId = 90025;
     private const int Padding = 20;
     private const int Gap = 12;
     private static readonly Color Ink = new(91, 48, 30);
@@ -72,6 +73,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private ClickableComponent destinationPreviousButton = null!;
     private ClickableComponent destinationNextButton = null!;
     private ClickableComponent forageAreaButton = null!;
+    private ClickableComponent explorationAreaButton = null!;
     private Rectangle headerBounds;
     private Rectangle rosterBounds;
     private Rectangle detailsBounds;
@@ -374,6 +376,22 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 }
                 return;
             }
+            if (selectedWorker is { Profession: WorkerProfession.CombatWorker } explorer && this.explorationAreaButton.containsPoint(x, y))
+            {
+                if (this.EnsureSelectedHostWorker())
+                {
+                    IReadOnlyList<string> areas = WorkerExplorationAreaCatalog.GetAreas();
+                    int current = 0;
+                    for (int i = 0; i < areas.Count; i++)
+                        if (areas[i] == explorer.ExplorationArea) current = i;
+                    bool success = this.workerBehaviorManager.TrySetExplorationArea(explorer.WorkerId,
+                        areas[(current + 1) % areas.Count], out string message);
+                    this.SetFeedback(message, !success);
+                    this.RefreshSnapshots();
+                    this.RebuildLayout(ExplorationAreaId);
+                }
+                return;
+            }
 
             IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
             for (int index = 0; index < this.orderButtons.Count; index++)
@@ -585,7 +603,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         this.orderButtons.Clear();
         bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker };
-        int ordersTop = this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 56 : 12) + (showForageArea ? 58 : 0);
+        bool showExplorationArea = this.GetSelectedWorker() is { Profession: WorkerProfession.CombatWorker };
+        int areaHeight = this.ordersBounds.Height >= 220 ? 48 : 32;
+        int areaRowHeight = areaHeight + 8;
+        int ordersTop = this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 56 : 8)
+            + (showForageArea ? areaRowHeight : 0) + (showExplorationArea ? areaRowHeight : 0);
         int cardGap = 8;
         int cardColumns = this.ordersBounds.Height < 220 ? 3 : 2;
         int cardWidth = Math.Max(1, (this.ordersBounds.Width - 28 - cardGap * (cardColumns - 1)) / cardColumns);
@@ -597,7 +619,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.orderButtons.Add(Button(OrderIdBase + i, new Rectangle(this.ordersBounds.X + 14 + (i % cardColumns) * (cardWidth + cardGap), ordersTop + (i / cardColumns) * (cardHeight + cardGap), cardWidth, cardHeight)));
         }
         this.forageAreaButton = Button(ForageAreaId, new Rectangle(this.ordersBounds.X + 18,
-            this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 60 : 8), this.ordersBounds.Width - 36, 48));
+            this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 60 : 8), this.ordersBounds.Width - 36, areaHeight));
+        this.explorationAreaButton = Button(ExplorationAreaId, new Rectangle(this.forageAreaButton.bounds.X,
+            this.forageAreaButton.bounds.Y + areaRowHeight, this.forageAreaButton.bounds.Width, areaHeight));
         bool tallStoragePanel = this.ordersBounds.Height >= 220;
         this.destinationDropdownButton = Button(DestinationDropdownId, new Rectangle(
             this.ordersBounds.X + 18, this.ordersBounds.Y + (tallStoragePanel ? 70 : 14),
@@ -651,6 +675,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 this.allClickableComponents.AddRange(this.orderButtons);
                 if (this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker })
                     this.allClickableComponents.Add(this.forageAreaButton);
+                if (this.GetSelectedWorker() is { Profession: WorkerProfession.CombatWorker })
+                    this.allClickableComponents.Add(this.explorationAreaButton);
             }
             if (this.currentTab == WorkerMenuTab.Storage)
             {
@@ -807,7 +833,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
         string status = worker.Profession == WorkerProfession.Forager
             ? $"{runtime.Status} • {WorkerForageAreaCatalog.GetDisplayName(worker.ForageLocationName)}"
             : worker.Profession == WorkerProfession.CombatWorker
-                ? $"{runtime.Status} • {WorkerCombatAreaCatalog.GetLabel(worker.CombatArea)}"
+                ? $"{runtime.Status} • {(runtime.AssignedTask == WorkerTaskKind.ExploreArea
+                    ? WorkerExplorationAreaCatalog.GetLabel(worker.ExplorationArea) : WorkerCombatAreaCatalog.GetLabel(worker.CombatArea))}"
             : runtime.Status;
         this.DrawText(b, status, new Rectangle(infoX, content.Y + 56, infoWidth, 24), MutedInk);
         if (showFarmingBadge)
@@ -895,6 +922,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
         {
             this.DrawButton(b, this.forageAreaButton,
                 $"Combat area: {WorkerCombatAreaCatalog.GetLabel(combat.CombatArea)}  >",
+                enabled, Color.White, WorkerMenuArt.Icon.Ledger);
+            this.DrawButton(b, this.explorationAreaButton,
+                $"Explore area: {WorkerExplorationAreaCatalog.GetLabel(combat.ExplorationArea)}  >",
                 enabled, Color.White, WorkerMenuArt.Icon.Ledger);
         }
         IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
@@ -1077,6 +1107,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerTaskKind.ChopHardwood => WorkerMenuArt.Icon.Ledger,
             WorkerTaskKind.ClearDebris => WorkerMenuArt.Icon.Tend,
             WorkerTaskKind.SlayMonsters => WorkerMenuArt.Icon.Ledger,
+            WorkerTaskKind.ExploreArea => WorkerMenuArt.Icon.Ledger,
             _ => WorkerMenuArt.Icon.Home,
         };
         if (button.bounds.Height < 90)
@@ -1108,6 +1139,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 WorkerTaskKind.ChopHardwood => "Clear hardwood sources",
                 WorkerTaskKind.ClearDebris => "Remove small litter",
                 WorkerTaskKind.SlayMonsters => "Fight monsters in selected area",
+                WorkerTaskKind.ExploreArea => "Explore for loot each hour",
                 _ => "Return to the house",
             };
             this.DrawText(b, description, new Rectangle(button.bounds.X + 18, button.bounds.Y + 75, button.bounds.Width - 36, Math.Max(1, button.bounds.Height - 88)), enabled ? MutedInk : MutedInk * 0.7f);
@@ -1310,7 +1342,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.ChopTrees => "Walk to the nearest reachable ordinary tree in the selected area, cut it down, and store its drops.",
         WorkerTaskKind.ChopHardwood => "Walk to the nearest reachable hardwood source, including mahogany trees and large stumps or logs.",
         WorkerTaskKind.ClearDebris => "Clear loose stones, weeds, and small fallen wood. Foragers work in their selected outdoor area; Farmers work on the farm.",
-        WorkerTaskKind.SlayMonsters => "Fight monsters in the selected area. Mines and Skull Cavern follow the host farmer; independent exploration is planned for later.",
+        WorkerTaskKind.SlayMonsters => "Fight real monsters in the combat area. Mines and Skull Cavern follow the host farmer onto active floors.",
+        WorkerTaskKind.ExploreArea => "Teleport to the selected dungeon entrance and explore independently for loot every in-game hour, from 6:00 to 22:00. Exploration is simulated; the worker stays at the entrance. Loot goes to shared storage. Completed runs grant this worker 5 Mining and 5 Combat XP.",
         _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",
     };
 }

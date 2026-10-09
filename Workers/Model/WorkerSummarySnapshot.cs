@@ -8,6 +8,7 @@ internal readonly record struct WorkerSummarySnapshot(
     WorkerProfession Profession,
     string ForageLocationName,
     string CombatArea,
+    string ExplorationArea,
     bool IsConfigured,
     bool IsSpawned,
     string? CurrentLocationName,

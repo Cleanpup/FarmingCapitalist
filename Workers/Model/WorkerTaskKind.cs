@@ -12,4 +12,5 @@ internal enum WorkerTaskKind
     ChopHardwood = 6,
     ClearDebris = 7,
     SlayMonsters = 8,
+    ExploreArea = 9,
 }

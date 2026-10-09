@@ -130,6 +130,7 @@ internal sealed class WorkerBehaviorManager
     private readonly WorkerNavigationManager navigationManager;
     private readonly WorkerShellManager workerShellManager;
     private readonly WorkerCombatManager combatManager;
+    private readonly WorkerExplorationManager explorationManager;
     private readonly Dictionary<string, WorkerRuntimeSnapshot> snapshots = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> completedToday = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Point> activeTargets = new(System.StringComparer.OrdinalIgnoreCase);
@@ -156,6 +157,7 @@ internal sealed class WorkerBehaviorManager
         this.workerShellManager = workerShellManager;
         this.combatManager = new WorkerCombatManager(workerShellManager, navigationManager, monitor,
             this.RecordCompletedWork);
+        this.explorationManager = new(workerShellManager, navigationManager, monitor);
         this.monitor = monitor;
     }
 
@@ -217,7 +219,11 @@ internal sealed class WorkerBehaviorManager
             }
 
             if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.CombatWorker)
+            {
                 this.combatManager.EnsureHealth(worker, workerId);
+                if (Game1.activeClickableMenu is null && Game1.CurrentEvent is null)
+                    this.explorationManager.DeliverPendingLoot(workerId);
+            }
 
             if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.CombatWorker
                 && WorkerCombatPolicy.MustBeHomeNow(Game1.timeOfDay) && this.combatManager.EnsureHomeByMidnight(worker))
@@ -252,6 +258,8 @@ internal sealed class WorkerBehaviorManager
                 continue;
 
             WorkerTaskKind assignment = this.workerShellManager.GetAssignedTask(workerId);
+            if (assignment == WorkerTaskKind.ExploreArea && !this.workerShellManager.CanWorkerWorkToday(workerId))
+                this.explorationManager.Suspend(workerId);
             if (assignment != WorkerTaskKind.Idle && this.workerShellManager.CanWorkerWorkToday(workerId))
             {
                 this.UpdateAssignedWork(worker, workerId, assignment);
@@ -285,6 +293,7 @@ internal sealed class WorkerBehaviorManager
         this.blockedHarvestTiles.Clear();
         this.navigationManager.Reset();
         this.combatManager.Reset();
+        this.explorationManager.Reset();
     }
 
     public bool TryAssignTask(string workerId, WorkerTaskKind task, out string message)
@@ -301,6 +310,12 @@ internal sealed class WorkerBehaviorManager
             message = $"{WorkerTaskPolicy.GetProfessionLabel(profession)} workers can't perform that job.";
             return false;
         }
+        if (task == WorkerTaskKind.ExploreArea && Context.IsMainPlayer
+            && WorkerExplorationManager.AccessReason(this.workerShellManager.GetExplorationArea(workerId)) is string reason)
+        {
+            message = reason + ".";
+            return false;
+        }
         if (!this.workerShellManager.TrySetAssignedTask(workerId, task))
         {
             message = "Only the host can assign worker tasks.";
@@ -308,6 +323,7 @@ internal sealed class WorkerBehaviorManager
         }
         this.navigationManager.StopTravel(worker);
         this.combatManager.Stop(workerId);
+        this.explorationManager.Stop(workerId);
         if (task == WorkerTaskKind.Idle)
             this.combatManager.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetCombatArea(workerId));
         if (!this.navigationManager.HasForeignController(worker))
@@ -339,6 +355,8 @@ internal sealed class WorkerBehaviorManager
 
     public void StopWorker(string workerId)
     {
+        this.explorationManager.DeliverPendingLoot(workerId);
+        this.explorationManager.Stop(workerId);
         if (this.workerShellManager.TryGetWorker(workerId, out NPC? worker) && worker is not null)
             this.navigationManager.StopWorker(worker);
         this.ClearActiveJobState(workerId);
@@ -396,6 +414,26 @@ internal sealed class WorkerBehaviorManager
         this.navigationManager.StopWorker(worker);
         this.combatManager.ExitGeneratedFloorForReturn(worker, previousArea);
         this.combatManager.Stop(workerId);
+        this.explorationManager.Stop(workerId);
+        this.ClearActiveJobState(workerId);
+        this.activePhases[workerId] = WorkerTravelPhase.None;
+        this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
+        return true;
+    }
+
+    public bool TrySetExplorationArea(string workerId, string area, out string message)
+    {
+        if (!this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
+        {
+            message = $"Worker '{workerId}' was not found.";
+            return false;
+        }
+        if (!this.workerShellManager.TrySetExplorationArea(workerId, area, out message))
+            return false;
+        this.navigationManager.StopWorker(worker);
+        this.combatManager.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetCombatArea(workerId));
+        this.combatManager.Stop(workerId);
+        this.explorationManager.Stop(workerId);
         this.ClearActiveJobState(workerId);
         this.activePhases[workerId] = WorkerTravelPhase.None;
         this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
@@ -407,7 +445,17 @@ internal sealed class WorkerBehaviorManager
         WorkerRuntimeSnapshot current = this.snapshots.TryGetValue(workerId, out WorkerRuntimeSnapshot snapshot)
             ? snapshot
             : new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId), "Idle", "Waiting for an assignment", 0, null);
-        return current with { CompletedToday = this.completedToday.GetValueOrDefault(workerId) };
+        WorkerExplorationProgress progress = this.workerShellManager.GetExplorationProgress(workerId);
+        if (!Context.IsMainPlayer && current.AssignedTask == WorkerTaskKind.ExploreArea)
+        {
+            string area = this.workerShellManager.GetExplorationArea(workerId);
+            this.workerShellManager.TryGetWorker(workerId, out NPC? worker);
+            bool atEntrance = worker?.currentLocation?.NameOrUniqueName == WorkerExplorationAreaCatalog.Entrance(area);
+            current = current with { State = atEntrance ? "Exploring" : "Idle", Status = atEntrance
+                ? $"Exploring {WorkerExplorationAreaCatalog.GetLabel(area)}: {progress.Minutes}/60 minutes" : "Away from exploration entrance" };
+        }
+        return current with { CompletedToday = this.completedToday.GetValueOrDefault(workerId)
+            + (progress.Day == Game1.Date.TotalDays ? progress.CompletedRuns : 0) };
     }
 
     public bool TryGetCombatHealth(string workerId, out int health, out int maxHealth)
@@ -702,6 +750,14 @@ internal sealed class WorkerBehaviorManager
 
     private void UpdateAssignedWork(NPC worker, string workerId, WorkerTaskKind assignment)
     {
+        if (assignment == WorkerTaskKind.ExploreArea)
+        {
+            if (this.explorationManager.Update(worker, workerId, out WorkerRuntimeSnapshot explorationSnapshot))
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            else
+                this.snapshots[workerId] = explorationSnapshot;
+            return;
+        }
         if (assignment == WorkerTaskKind.SlayMonsters)
         {
             if (this.combatManager.Update(worker, workerId, out WorkerRuntimeSnapshot combatSnapshot))

@@ -21,7 +21,8 @@ internal sealed class WorkerRosterEntry
     public string ForageLocationName { get; set; } = WorkerForageAreaCatalog.DefaultLocationName;
 
     public string CombatArea { get; set; } = WorkerCombatAreaCatalog.Farm;
-
+    public string ExplorationArea { get; set; } = WorkerExplorationAreaCatalog.Mines;
+    public WorkerExplorationProgress Exploration { get; set; } = new();
 
     public WorkerTaskKind AssignedTask { get; set; } = WorkerTaskKind.Idle;
 
@@ -59,6 +60,8 @@ internal sealed class WorkerRosterEntry
             Profession = this.Profession,
             ForageLocationName = this.ForageLocationName,
             CombatArea = this.CombatArea,
+            ExplorationArea = this.ExplorationArea,
+            Exploration = this.Exploration?.Clone() ?? new(),
             AssignedTask = this.AssignedTask,
             Experience = this.Experience?.Clone() ?? new WorkerSkillExperience(),
             DailyWage = this.DailyWage,

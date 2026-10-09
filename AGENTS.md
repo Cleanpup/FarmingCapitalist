@@ -10,6 +10,7 @@
 - `ModEntry.cs`: event wiring, console commands, lifecycle.
 - `Workers/WorkerShellManager.cs`: roster, spawning, identity, persistence and hiring.
 - `Workers/WorkerBehaviorManager.cs`: task selection and execution; `WorkerNavigationManager.cs`: routes/recovery.
+- `Workers/Combat/WorkerCombatManager.cs`: physical Slay monsters; `WorkerExplorationManager.cs` and `WorkerExplorationPolicy.cs`: entrance-only Explore Area simulation, timing/loot. `WorkerExplorationProgress` persists progress and pending loot; storage delivery is shared.
 - `Workers/WorkerControlMenu*.cs`: management UI and input; `WorkerCustomizationManager.cs`: appearance workflow.
 - `Workers/WorkerAppearance*.cs`, `WorkerSpriteSheetBuilder.cs`: farmer appearance and NPC sprite generation.
 - Search `Workers/` first. `SMAPI/` and `StardewValleyDecompiled/` are ignored local reference sources, not mod code.
@@ -21,6 +22,7 @@
 - Save worker identity, appearance and assignments in mod data; rebuild temporary runtime state from the live world.
 - Never serialize generated textures or path controllers; clean up transient workers and textures on lifecycle boundaries.
 - Never overwrite player objects, destroy obstacles, or teleport to a job to hide a failed route.
+- Explore Area explicitly teleports to a safe permanent dungeon entrance, simulates rewards there, and never enters generated floors. Keep its destination/timing separate from physical combat and preserve pending loot on cancellation/dismissal.
 - Revalidate a crop at execution, reserve jobs across workers, and recover from blocked/invalid destinations.
 - Preserve harvested items and vanilla crop/regrowth rules. Never silently discard produce.
 - Use existing NPC/game APIs where practical and keep policy, movement, persistence and UI separate.
@@ -31,6 +33,7 @@
 - Build with `dotnet build -p:EnableModDeploy=false`; use `$HOME/.dotnet/dotnet` if `dotnet` is absent from PATH.
 - Game path is normally detected; override with `-p:GamePath="/path/to/Stardew Valley"` when needed.
 - Disable mod deployment during validation. Keep generated binaries under ignored `bin/` and `obj/`.
+- Install builds only after confirming Stardew Valley/SMAPI have exited; overwriting a mapped DLL corrupted the running assembly during testing.
 - Compile against installed game assemblies; verify uncertain APIs against the local game/SMAPI sources.
 - Use focused tests for gameplay/data-loss/authority rules. A successful build is not an in-game playtest.
 - Finish with a brief change summary, actual verification results, and a concrete list of features to test in game.
@@ -69,6 +72,8 @@ workerstatus
 spawn
 spawn d
 delete
+workers assign <id> explore
+workers explore-area <id> <mines|skull|volcano>
 ```
 
 - `workerstatus` reports the primary worker and configured worker count.

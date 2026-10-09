@@ -196,10 +196,15 @@ for (int pose = 0; pose < WorkerCombatSwingPolicy.PoseCount; pose++)
     int frame = WorkerCombatSwingPolicy.SheetFrame(facing, pose);
     Check(frame >= 16 && frame < 40, "all sword poses lie after walking frames and inside sheet bounds");
 }
-Equal(24, WorkerCombatSwingPolicy.FarmerFrame(2, 0), "down swing uses the game's sword poses");
-Equal(36, WorkerCombatSwingPolicy.FarmerFrame(0, 0), "up swing uses the game's sword poses");
-Equal(WorkerCombatSwingPolicy.FarmerFrame(1, 2), WorkerCombatSwingPolicy.FarmerFrame(3, 2),
-    "left body poses mirror the right sword poses");
+Equal(232, WorkerCombatSwingPolicy.SwordAnimation(2), "down uses the native sword animation ID");
+Equal(240, WorkerCombatSwingPolicy.SwordAnimation(1), "right uses the native sword animation ID");
+Equal(248, WorkerCombatSwingPolicy.SwordAnimation(0), "up uses the native sword animation ID");
+Equal(256, WorkerCombatSwingPolicy.SwordAnimation(3), "left uses the native mirrored sword animation ID");
+Equal(2, WorkerCombatSwingPolicy.PoseAt(124), "first slash pose lasts the native 25 ms");
+Equal(3, WorkerCombatSwingPolicy.PoseAt(125), "second slash pose follows immediately");
+Equal(4, WorkerCombatSwingPolicy.PoseAt(150), "third slash pose follows at 150 ms");
+Equal(5, WorkerCombatSwingPolicy.PoseAt(175), "sword recovery starts after the native slash poses");
+Equal(305d, WorkerCombatSwingPolicy.DurationMilliseconds, "native Rusty Sword swing and recovery duration");
 bool Impact(double elapsed, bool applied = false, bool sameLocation = true, bool alive = true,
     bool present = true, bool inReach = true, bool revealed = true, bool invincible = false)
     => WorkerCombatSwingPolicy.CanApplyImpact(applied, elapsed, sameLocation, alive, present, inReach, revealed, invincible);

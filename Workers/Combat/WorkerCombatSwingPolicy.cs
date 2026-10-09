@@ -6,15 +6,18 @@ internal static class WorkerCombatSwingPolicy
     public const int PoseCount = 6;
     public const int FirstSheetFrame = 16;
     public const double ImpactMilliseconds = 100;
-    public const double DurationMilliseconds = 320;
+    // Native sword poses last 55, 45, 25, 25, 25 ms, then twice
+    // the Rusty Sword's 65 ms animation interval for recovery.
+    public const int SwordAnimationIntervalMilliseconds = 65;
+    public const double DurationMilliseconds = 305;
 
     public static int PoseAt(double elapsedMilliseconds) => elapsedMilliseconds switch
     {
         < 55 => 0,
         < 100 => 1,
-        < 140 => 2,
-        < 180 => 3,
-        < 220 => 4,
+        < 125 => 2,
+        < 150 => 3,
+        < 175 => 4,
         _ => 5,
     };
 
@@ -23,7 +26,10 @@ internal static class WorkerCombatSwingPolicy
 
     public static int SheetFrame(int facing, int pose) => FirstSheetFrame + DirectionRow(facing) * PoseCount + pose;
 
-    public static int FarmerFrame(int facing, int pose) => (facing switch { 2 => 24, 0 => 36, _ => 30 }) + pose;
+    // These are animation IDs, rather than texture-frame indices. Let the
+    // game supply the full pose metadata (especially its sword arm overlay).
+    public static int SwordAnimation(int facing) => facing switch { 2 => 232, 1 => 240, 0 => 248, 3 => 256,
+        _ => throw new ArgumentOutOfRangeException(nameof(facing)) };
 
     public static bool CanApplyImpact(bool alreadyApplied, double elapsedMilliseconds,
         bool sameLocation, bool alive, bool present, bool inReach, bool revealed, bool invincible)

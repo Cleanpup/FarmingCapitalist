@@ -88,13 +88,22 @@ internal sealed class WorkerSpriteSheetBuilder
             if (includeCombatFrames)
             {
                 for (int facing = 0; facing < 4; facing++)
-                for (int pose = 0; pose < WorkerCombatSwingPolicy.PoseCount; pose++)
                 {
-                    int index = WorkerCombatSwingPolicy.SheetFrame(facing, pose);
-                    this.DrawFrame(spriteBatch, renderWorker, new GeneratedFrameSpec(
-                        index % FramesPerRow, index / FramesPerRow, facing,
-                        WorkerCombatSwingPolicy.FarmerFrame(facing, pose), facing == 3),
-                        secondaryArm: facing is 1 or 3);
+                    renderWorker.FarmerSprite.getAnimationFromIndex(
+                        WorkerCombatSwingPolicy.SwordAnimation(facing), renderWorker.FarmerSprite,
+                        WorkerCombatSwingPolicy.SwordAnimationIntervalMilliseconds,
+                        WorkerCombatSwingPolicy.PoseCount, flip: false, secondaryArm: false);
+                    // Copy before DrawFrame replaces the renderer's animation.
+                    // Loading metadata does not execute any sword/damage callbacks.
+                    FarmerSprite.AnimationFrame[] poses = renderWorker.FarmerSprite.CurrentAnimation
+                        .Take(WorkerCombatSwingPolicy.PoseCount).ToArray();
+                    for (int pose = 0; pose < poses.Length; pose++)
+                    {
+                        int index = WorkerCombatSwingPolicy.SheetFrame(facing, pose);
+                        this.DrawFrame(spriteBatch, renderWorker, new GeneratedFrameSpec(
+                            index % FramesPerRow, index / FramesPerRow, facing,
+                            poses[pose].frame, poses[pose].flip), poses[pose]);
+                    }
                 }
             }
 
@@ -119,10 +128,19 @@ internal sealed class WorkerSpriteSheetBuilder
         return spriteSheet;
     }
 
-    private void DrawFrame(SpriteBatch spriteBatch, Farmer renderWorker, GeneratedFrameSpec frame, bool secondaryArm = false)
+    private void DrawFrame(SpriteBatch spriteBatch, Farmer renderWorker, GeneratedFrameSpec frame,
+        FarmerSprite.AnimationFrame? swordPose = null)
     {
         renderWorker.FacingDirection = frame.FacingDirection;
-        renderWorker.FarmerSprite.setCurrentSingleFrame(frame.FarmerFrame, 32000, secondaryArm: secondaryArm, flip: frame.Flip);
+        renderWorker.FarmerSprite.setCurrentSingleFrame(frame.FarmerFrame, 32000, secondaryArm: false, flip: frame.Flip);
+        if (swordPose is FarmerSprite.AnimationFrame nativePose)
+        {
+            // Preserve vanilla arm/flip/position metadata, but never attach its
+            // player damage or movement callbacks to a worker rendering proxy.
+            nativePose.frameStartBehavior = null;
+            nativePose.frameEndBehavior = null;
+            renderWorker.FarmerSprite.currentAnimation[0] = nativePose;
+        }
 
         Vector2 position = new(
             frame.Column * FrameWidth * BakeScale,

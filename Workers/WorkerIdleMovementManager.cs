@@ -9,15 +9,22 @@ namespace FarmingCapitalist.Workers;
 /// <summary>Host-owned, visual-only Farm activity for workers with no assigned job.</summary>
 internal sealed class WorkerIdleMovementManager
 {
-    private const int FarmSearchRadius = 14;
-    private const int WanderRadius = 8;
+    private const int MaximumFarmSearchTiles = 12000;
+    private const int MinimumWanderDistance = 12;
+    private const int MinimumWorkerSeparation = 7;
     private const int RetryDelayTicks = 180;
+    private const int FarmRegionRefreshTicks = 1800;
     private readonly WorkerNavigationManager navigation;
     private readonly WorkerShellManager shells;
     private readonly IMonitor monitor;
     private readonly Random random = new();
     private readonly Dictionary<string, int> nextMoveTicks = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Point> destinations = new(StringComparer.OrdinalIgnoreCase);
+    private Farm? cachedFarm;
+    private Point cachedDoor;
+    private List<Point>? cachedFarmTiles;
+    private int cachedDay = -1;
+    private int cachedUntilTick;
 
     public WorkerIdleMovementManager(WorkerNavigationManager navigation, WorkerShellManager shells, IMonitor monitor)
     {
@@ -30,6 +37,8 @@ internal sealed class WorkerIdleMovementManager
     {
         this.nextMoveTicks.Clear();
         this.destinations.Clear();
+        this.cachedFarm = null;
+        this.cachedFarmTiles = null;
     }
 
     public void Stop(string workerId)
@@ -54,12 +63,16 @@ internal sealed class WorkerIdleMovementManager
                 || !this.TryGetFarmEntranceRegion(worker, out Farm farm, out Point door, out List<Point> tiles))
                 continue;
 
-            Point[] choices = tiles.Where(tile => Distance(tile, door) >= 3 && Distance(tile, door) <= 10
-                    && this.IsAvailable(farm, worker, tile))
+            Point[] choices = tiles.Where(tile => Distance(tile, door) >= 8)
                 .OrderBy(_ => this.random.Next()).ToArray();
-            Point landing = choices.FirstOrDefault(tile => placed.All(other => Distance(tile, other) >= 3));
+            Point landing = choices.FirstOrDefault(tile => placed.All(other => Distance(tile, other) >= 12)
+                && this.IsAvailable(farm, worker, tile));
             if (landing == Point.Zero)
-                landing = choices.FirstOrDefault(tile => !placed.Contains(tile));
+                landing = choices.FirstOrDefault(tile => placed.All(other => Distance(tile, other) >= 5)
+                    && this.IsAvailable(farm, worker, tile));
+            if (landing == Point.Zero)
+                landing = choices.FirstOrDefault(tile => !placed.Contains(tile)
+                    && this.IsAvailable(farm, worker, tile));
             if (landing == Point.Zero)
             {
                 this.monitor.Log($"No clear Farm morning spawn point was available for {worker.displayName}; keeping the farmhouse position.", LogLevel.Trace);
@@ -90,7 +103,7 @@ internal sealed class WorkerIdleMovementManager
             if (!this.navigation.HasActiveRoute(workerId) && worker.controller is null && this.Ready(workerId)
                 && this.TryGetFarmEntranceRegion(worker, out Farm destination, out Point door, out List<Point> tiles))
             {
-                Point[] choices = tiles.Where(tile => Distance(tile, door) >= 3 && Distance(tile, door) <= 7
+                Point[] choices = tiles.Where(tile => Distance(tile, door) >= 3 && Distance(tile, door) <= 8
                         && this.IsAvailable(destination, worker, tile))
                     .OrderBy(_ => this.random.Next()).Take(4).ToArray();
                 HashSet<Point> allowed = choices.ToHashSet();
@@ -127,10 +140,21 @@ internal sealed class WorkerIdleMovementManager
         if (!this.Ready(workerId))
             return new WorkerRuntimeSnapshot(WorkerTaskKind.Idle, "Idle", "Looking around the Farm", 0, null);
 
-        List<Point> nearby = this.GetConnectedTiles(farm, worker, worker.TilePoint, WanderRadius);
-        Point[] candidates = nearby.Where(tile => Distance(tile, worker.TilePoint) >= 3
-                && this.IsAvailable(farm, worker, tile))
-            .OrderBy(_ => this.random.Next()).Take(6).ToArray();
+        if (!this.TryGetFarmEntranceRegion(worker, out _, out Point farmDoor, out List<Point> reachable))
+        {
+            this.nextMoveTicks[workerId] = Game1.ticks + RetryDelayTicks;
+            return new WorkerRuntimeSnapshot(WorkerTaskKind.Idle, "Idle", "Looking around the Farm", 0, null);
+        }
+
+        Point[] candidates = reachable.Where(tile => Distance(tile, worker.TilePoint) >= MinimumWanderDistance
+                && Distance(tile, farmDoor) >= 3 && this.IsSeparated(farm, worker, workerId, tile))
+            .OrderBy(_ => this.random.Next()).Take(30)
+            .Where(tile => this.IsAvailable(farm, worker, tile)).Take(6).ToArray();
+        if (candidates.Length == 0)
+            candidates = reachable.Where(tile => Distance(tile, worker.TilePoint) >= 3
+                    && Distance(tile, farmDoor) >= 3 && this.IsSeparated(farm, worker, workerId, tile, 3))
+                .OrderBy(_ => this.random.Next()).Take(20)
+                .Where(tile => this.IsAvailable(farm, worker, tile)).Take(4).ToArray();
         foreach (Point candidate in candidates)
         {
             if (!this.navigation.TryStartTravel(worker,
@@ -148,6 +172,13 @@ internal sealed class WorkerIdleMovementManager
     private bool TryGetFarmEntranceRegion(NPC worker, out Farm farm, out Point door, out List<Point> tiles)
     {
         farm = Game1.getFarm();
+        if (farm == this.cachedFarm && this.cachedFarmTiles is not null && this.cachedDay == Game1.Date.TotalDays
+            && Game1.ticks < this.cachedUntilTick)
+        {
+            door = this.cachedDoor;
+            tiles = this.cachedFarmTiles;
+            return true;
+        }
         try
         {
             door = farm.getWarpPointTo("FarmHouse", worker);
@@ -177,17 +208,23 @@ internal sealed class WorkerIdleMovementManager
         if (start == Point.Zero)
             return false;
 
-        tiles = this.GetConnectedTiles(farm, worker, start, FarmSearchRadius);
+        tiles = this.GetConnectedTiles(farm, worker, start);
+        this.cachedFarm = farm;
+        this.cachedDoor = door;
+        this.cachedFarmTiles = tiles;
+        this.cachedDay = Game1.Date.TotalDays;
+        this.cachedUntilTick = Game1.ticks + FarmRegionRefreshTicks;
+        this.monitor.Log($"Idle Farm reachability from {start}: {tiles.Count} connected tiles (Farmhouse door {door}).", LogLevel.Trace);
         return tiles.Count > 0;
     }
 
-    private List<Point> GetConnectedTiles(Farm farm, NPC worker, Point start, int radius)
+    private List<Point> GetConnectedTiles(Farm farm, NPC worker, Point start)
     {
         Queue<Point> pending = new();
         HashSet<Point> seen = new() { start };
         List<Point> connected = new();
         pending.Enqueue(start);
-        while (pending.Count > 0)
+        while (pending.Count > 0 && connected.Count < MaximumFarmSearchTiles)
         {
             Point tile = pending.Dequeue();
             connected.Add(tile);
@@ -197,8 +234,7 @@ internal sealed class WorkerIdleMovementManager
                 new Point(tile.X, tile.Y + 1), new Point(tile.X - 1, tile.Y),
             })
             {
-                if (Distance(neighbor, start) > radius || !seen.Add(neighbor)
-                    || !this.navigation.IsTraversableWorkTile(farm, worker, neighbor))
+                if (!seen.Add(neighbor) || !this.navigation.IsTraversableWorkTile(farm, worker, neighbor))
                     continue;
                 pending.Enqueue(neighbor);
             }
@@ -212,6 +248,23 @@ internal sealed class WorkerIdleMovementManager
             && !farm.objects.ContainsKey(tile.ToVector2())
             && (!farm.terrainFeatures.TryGetValue(tile.ToVector2(), out TerrainFeature? feature)
                 || feature is not HoeDirt);
+
+    private bool IsSeparated(Farm farm, NPC worker, string workerId, Point tile, int minimumDistance = MinimumWorkerSeparation)
+    {
+        foreach (NPC other in farm.characters)
+        {
+            if (other == worker || other.IsInvisible || Distance(tile, other.TilePoint) >= minimumDistance)
+                continue;
+            return false;
+        }
+        foreach ((string otherId, Point destination) in this.destinations)
+        {
+            if (!string.Equals(otherId, workerId, StringComparison.OrdinalIgnoreCase)
+                && Distance(tile, destination) < minimumDistance)
+                return false;
+        }
+        return true;
+    }
 
     private void FaceNearbyWork(NPC worker, Farm farm)
     {

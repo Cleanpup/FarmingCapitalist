@@ -1546,6 +1546,10 @@ internal sealed class WorkerBehaviorManager
             && ReferenceEquals(remaining, item);
         WorkerObstacleToolActionStatus actionStatus = WorkerObstacleToolProgressPolicy.Evaluate(
             toolActionCompleted, remains, durabilityBefore, durabilityAfter, clear.ToolActionCount, clear.MaxToolActions);
+        if (WorkerMiningPolicy.IsMiningTask(assignment) && item.IsBreakableStone()
+            && actionStatus is (WorkerObstacleToolActionStatus.Continue or WorkerObstacleToolActionStatus.Completed))
+            clear.Location.playSound(actionStatus == WorkerObstacleToolActionStatus.Completed ? "stoneCrack" : "hammer",
+                clear.ObstacleTile.ToVector2());
         if (actionStatus == WorkerObstacleToolActionStatus.Completed)
         {
             if (toolActionCompleted)

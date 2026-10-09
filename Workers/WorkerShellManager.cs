@@ -246,7 +246,56 @@ internal sealed class WorkerShellManager
             this.monitor, this.PersistRoster, out string error);
         if (!delivered)
             message = $"{entry.DisplayName} still has saved exploration loot; dismissal deferred: {error}";
+        if (delivered && !WorkerFishingStorage.TryDeliver(entry.Fishing, this.GetHarvestDestination(entry.WorkerId),
+            this.monitor, this.PersistRoster, out error))
+        {
+            message = $"{entry.DisplayName} still has saved fishing catches; dismissal deferred: {error}";
+            return false;
+        }
         return delivered;
+    }
+
+    public string GetFishingArea(string workerId) => this.GetWorkerEntry(workerId)?.FishingArea ?? WorkerFishingAreaCatalog.Forest;
+    public WorkerFishingProgress GetFishingProgress(string workerId) => this.GetWorkerEntry(workerId)?.Fishing?.Clone() ?? new();
+
+    public void RecordFishingProgress(string workerId, WorkerFishingProgress progress)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry) return;
+        entry.Fishing = progress.Clone();
+        this.PersistRoster();
+    }
+
+    public bool TryCompleteFishing(string workerId, WorkerFishingProgress progress, WorkerFishingCatch? catchItem)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry
+            || !WorkerFishingPolicy.TryQueueCatch(entry, progress, catchItem, Game1.Date.TotalDays,
+                Context.IsMainPlayer, Context.IsWorldReady, this.CanWorkerWorkToday(workerId))) return false;
+        this.PersistRoster();
+        return true;
+    }
+
+    public void CancelFishing(string workerId)
+    {
+        WorkerFishingProgress progress = this.GetFishingProgress(workerId);
+        if (progress.Minutes == 0 && progress.LastObservedMinute == -1) return;
+        progress.Minutes = 0;
+        progress.LastObservedMinute = -1;
+        this.RecordFishingProgress(workerId, progress);
+    }
+
+    public bool TrySetFishingArea(string workerId, string area, out string message)
+    {
+        if (!this.CanManageWorkers(out message)) return false;
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null || entry.Profession != WorkerProfession.Fisher || !WorkerFishingAreaCatalog.IsValid(area))
+        { message = "That fishing area is not available for this worker."; return false; }
+        if (WorkerFishingAreaCatalog.AccessReason(area) is string reason) { message = reason + "."; return false; }
+        this.CancelFishing(workerId);
+        entry.FishingArea = area;
+        entry.AssignedTask = WorkerTaskKind.Idle;
+        this.PersistRoster();
+        message = $"{entry.DisplayName} will fish at {WorkerFishingAreaCatalog.Label(area)}. Choose Fish to begin.";
+        return true;
     }
 
     public IReadOnlyList<WorkerRosterEntry> GetRosterEntries()
@@ -914,6 +963,7 @@ internal sealed class WorkerShellManager
                 entry.CombatArea,
                 entry.ExplorationArea,
                 entry.MiningArea,
+                entry.FishingArea,
                 IsConfigured: true,
                 IsSpawned: worker is not null,
                 CurrentLocationName: worker?.currentLocation?.NameOrUniqueName,
@@ -1058,6 +1108,9 @@ internal sealed class WorkerShellManager
             if (!WorkerExplorationAreaCatalog.IsValid(normalized.ExplorationArea))
                 normalized.ExplorationArea = WorkerExplorationAreaCatalog.Mines;
             normalized.Exploration ??= new();
+            if (!WorkerFishingAreaCatalog.IsValid(normalized.FishingArea)) normalized.FishingArea = WorkerFishingAreaCatalog.Forest;
+            normalized.Fishing ??= new();
+            WorkerFishingPolicy.Normalize(normalized.Fishing, Game1.Date.TotalDays);
             WorkerExplorationPolicy.TagLegacyPendingLoot(normalized.Exploration, normalized.ExplorationArea);
             normalized.Exploration.Day = Math.Clamp(normalized.Exploration.Day, -1, Game1.Date.TotalDays);
             normalized.Exploration.Minutes = Math.Clamp(normalized.Exploration.Minutes, 0, 960);

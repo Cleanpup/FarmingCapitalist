@@ -25,3 +25,8 @@ internal sealed class WorkerHarvestDestination
         TileY = this.TileY,
     };
 }
+
+internal static class WorkerFishingAreaCatalog
+{
+    public const string Forest = "Forest";
+}

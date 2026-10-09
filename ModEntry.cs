@@ -47,7 +47,10 @@ internal sealed class ModEntry : Mod
     private void OnRenderedWorld(object? sender, RenderedWorldEventArgs e)
     {
         if (Context.IsWorldReady)
+        {
             this.workerBehaviorManager.DrawCombatHealthBars(e.SpriteBatch);
+            this.workerBehaviorManager.DrawFishing(e.SpriteBatch);
+        }
     }
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
@@ -127,8 +130,9 @@ internal sealed class ModEntry : Mod
                 $"Press B or use 'workers' to manage your crew. Hire: {WorkerEmploymentTerms.HiringCost}g including today's wage; later {WorkerEmploymentTerms.DailyWage}g/day.\n"
                 + "workers status — list IDs, orders, activity and location\n"
                 + "workers hire [default] — hire with custom or default appearance\n"
-                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|ores|ladder|mine|slay|explore|idle> — assign a job\n"
+                + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|ores|ladder|mine|slay|explore|fish|idle> — assign a job\n"
                 + "workers combat-area <id> <farm|mines|skull|islandfarm|volcanoentrance> — set a combat worker's area\n"
+                + "workers fishing-area <id> <forest|mountain|town|beach|island> — set simulated fishing shore\n"
                 + "workers mining-area <id> <quarry|mines|skull|volcano> — set physical mining area\n"
                 + "workers explore-area <id> <mines|skull|volcano> — set simulated exploration area\n"
                 + "workers dismiss <id> — dismiss one worker\n"
@@ -167,16 +171,28 @@ internal sealed class ModEntry : Mod
                     "ores" or "gems" or "ore" => WorkerTaskKind.MineOreGems,
                     "ladder" or "findladder" => WorkerTaskKind.FindLadder,
                     "explore" or "explorearea" => WorkerTaskKind.ExploreArea,
+                    "fish" or "fishing" => WorkerTaskKind.Fish,
                     "idle" or "stop" => WorkerTaskKind.Idle,
                     _ => null,
                 };
                 if (task is null)
                 {
-                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, debris, ores, ladder, mine, slay, explore, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
+                    this.Monitor.Log("Choose water, harvest, tend, forage, trees, hardwood, debris, ores, ladder, mine, slay, explore, fish, or idle. Use 'workers status' to find worker IDs.", LogLevel.Info);
                     return;
                 }
                 bool assigned = this.workerBehaviorManager.TryAssignTask(args[1], task.Value, out string assignmentMessage);
                 this.Monitor.Log(assignmentMessage, assigned ? LogLevel.Info : LogLevel.Warn);
+                break;
+            case "fishing-area" when args.Length == 3:
+                if (!this.RequireHost()) return;
+                string fishingArea = args[2].ToLowerInvariant() switch
+                {
+                    "forest" => WorkerFishingAreaCatalog.Forest, "mountain" => WorkerFishingAreaCatalog.Mountain,
+                    "town" => WorkerFishingAreaCatalog.Town, "beach" => WorkerFishingAreaCatalog.Beach,
+                    "island" => WorkerFishingAreaCatalog.Island, _ => args[2],
+                };
+                bool fishingChanged = this.workerBehaviorManager.TrySetFishingArea(args[1], fishingArea, out string fishingMessage);
+                this.Monitor.Log(fishingMessage, fishingChanged ? LogLevel.Info : LogLevel.Warn);
                 break;
             case "mining-area" when args.Length == 3:
                 if (!this.RequireHost()) return;

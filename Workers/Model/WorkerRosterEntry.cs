@@ -24,6 +24,8 @@ internal sealed class WorkerRosterEntry
     public string MiningArea { get; set; } = WorkerMiningPolicy.DefaultArea;
     public string ExplorationArea { get; set; } = WorkerExplorationAreaCatalog.Mines;
     public WorkerExplorationProgress Exploration { get; set; } = new();
+    public string FishingArea { get; set; } = WorkerFishingAreaCatalog.Forest;
+    public WorkerFishingProgress Fishing { get; set; } = new();
 
     public WorkerTaskKind AssignedTask { get; set; } = WorkerTaskKind.Idle;
 
@@ -67,6 +69,8 @@ internal sealed class WorkerRosterEntry
             MiningArea = this.MiningArea,
             ExplorationArea = this.ExplorationArea,
             Exploration = this.Exploration?.Clone() ?? new(),
+            FishingArea = this.FishingArea,
+            Fishing = this.Fishing?.Clone() ?? new(),
             AssignedTask = this.AssignedTask,
             Experience = this.Experience?.Clone() ?? new WorkerSkillExperience(),
             HarvestDestination = this.HarvestDestination?.Clone(),

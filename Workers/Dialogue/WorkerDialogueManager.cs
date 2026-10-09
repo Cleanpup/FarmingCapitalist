@@ -149,6 +149,22 @@ internal sealed class WorkerDialogueManager
         }
 
         string taskKey = task.ToString();
+        if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Fisher)
+        {
+            string area = this.workerShellManager.GetFishingArea(workerId);
+            string context = task == WorkerTaskKind.Fish ? $"Fisher.{area}." : "Fisher.Idle.";
+            if (dialogue is not null)
+            {
+                KeyValuePair<string, string>[] lines = dialogue.Where(pair => pair.Key.StartsWith(context, StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(pair.Value)).OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray();
+                if (lines.Length > 0)
+                {
+                    int index = (int)((GetStableWorkerOffset(workerId) + (uint)Game1.Date.TotalDays) % (uint)lines.Length);
+                    return (lines[index].Key, lines[index].Value);
+                }
+            }
+            return ("FisherFallback", task == WorkerTaskKind.Fish ? "I'll keep casting while the fish are biting." : "My rod's ready whenever you need me.");
+        }
         string[] prefixes =
         {
             $"{workerId}.{taskKey}.",

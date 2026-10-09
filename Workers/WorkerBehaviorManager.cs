@@ -138,6 +138,7 @@ internal sealed class WorkerBehaviorManager
     private readonly Dictionary<string, int> miningTransitionRetry = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, WorkerMiningWorkMode> miningModes = new(StringComparer.OrdinalIgnoreCase);
     private readonly WorkerExplorationManager explorationManager;
+    private readonly WorkerFishingManager fishingManager;
     private readonly WorkerWorkAnimationManager workAnimations;
     private readonly Dictionary<string, WorkerRuntimeSnapshot> snapshots = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> completedToday = new(System.StringComparer.OrdinalIgnoreCase);
@@ -167,6 +168,7 @@ internal sealed class WorkerBehaviorManager
         this.combatManager = new WorkerCombatManager(workerShellManager, navigationManager, monitor,
             this.RecordCompletedWork, this.dungeonTravel);
         this.explorationManager = new(workerShellManager, navigationManager, monitor);
+        this.fishingManager = new(workerShellManager, navigationManager, monitor);
         this.workAnimations = new(workerShellManager, monitor);
         this.monitor = monitor;
     }
@@ -224,6 +226,7 @@ internal sealed class WorkerBehaviorManager
         this.navigationManager.Update();
         this.combatManager.UpdateClientAnimations();
         this.workAnimations.Update();
+        this.fishingManager.UpdateVisuals();
 
         if (!Context.IsWorldReady)
         {
@@ -236,7 +239,14 @@ internal sealed class WorkerBehaviorManager
         }
 
         if (!Game1.shouldTimePass() || Game1.activeClickableMenu is not null || Game1.CurrentEvent is not null)
+        {
+            // Observe paused clock changes, preventing a menu/event gap from paying out later.
+            foreach (NPC pausedWorker in this.workerShellManager.GetSpawnedWorkers(recoverStale: false))
+                if (this.workerShellManager.TryGetWorkerId(pausedWorker, out string pausedId)
+                    && this.workerShellManager.GetAssignedTask(pausedId) == WorkerTaskKind.Fish)
+                    this.fishingManager.Suspend(pausedId);
             return;
+        }
 
         this.UpdateDropCollectionZones();
 
@@ -254,10 +264,14 @@ internal sealed class WorkerBehaviorManager
                     this.explorationManager.DeliverPendingLoot(workerId);
             }
 
-            if (this.workerShellManager.GetWorkerProfession(workerId) is WorkerProfession.CombatWorker or WorkerProfession.Miner
+            if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Fisher)
+                this.fishingManager.Deliver(workerId);
+
+            if (this.workerShellManager.GetWorkerProfession(workerId) is WorkerProfession.CombatWorker or WorkerProfession.Miner or WorkerProfession.Fisher
                 && WorkerCombatPolicy.MustBeHomeNow(Game1.timeOfDay) && this.combatManager.EnsureHomeByMidnight(worker))
             {
                 this.activePhases[workerId] = WorkerTravelPhase.RestingAtFarmhouse;
+                this.fishingManager.Stop(workerId);
                 this.ClearActiveJobState(workerId);
                 this.snapshots[workerId] = new WorkerRuntimeSnapshot(this.workerShellManager.GetAssignedTask(workerId),
                     "Idle", "Home for the night", 0, null);
@@ -294,6 +308,8 @@ internal sealed class WorkerBehaviorManager
                 continue;
 
             WorkerTaskKind assignment = this.workerShellManager.GetAssignedTask(workerId);
+            if (assignment == WorkerTaskKind.Fish && !this.workerShellManager.CanWorkerWorkToday(workerId))
+                this.fishingManager.Suspend(workerId);
             if (assignment == WorkerTaskKind.ExploreArea && !this.workerShellManager.CanWorkerWorkToday(workerId))
                 this.explorationManager.Suspend(workerId);
             if (assignment != WorkerTaskKind.Idle && this.workerShellManager.CanWorkerWorkToday(workerId))
@@ -330,6 +346,7 @@ internal sealed class WorkerBehaviorManager
         this.navigationManager.Reset();
         this.combatManager.Reset();
         this.explorationManager.Reset();
+        this.fishingManager.Reset();
         this.workAnimations.Reset();
         this.miningTransitionRetry.Clear();
         this.miningLocations.Clear();
@@ -350,6 +367,9 @@ internal sealed class WorkerBehaviorManager
             message = $"{WorkerTaskPolicy.GetProfessionLabel(profession)} workers can't perform that job.";
             return false;
         }
+        if (task == WorkerTaskKind.Fish && Context.IsMainPlayer
+            && WorkerFishingAreaCatalog.AccessReason(this.workerShellManager.GetFishingArea(workerId)) is string fishingReason)
+        { message = fishingReason + "."; return false; }
         if (task == WorkerTaskKind.ExploreArea && Context.IsMainPlayer
             && WorkerExplorationManager.AccessReason(this.workerShellManager.GetExplorationArea(workerId)) is string reason)
         {
@@ -370,6 +390,7 @@ internal sealed class WorkerBehaviorManager
         this.navigationManager.StopTravel(worker);
         this.combatManager.Stop(workerId);
         this.explorationManager.Stop(workerId);
+        this.fishingManager.Stop(workerId);
         if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Miner && task == WorkerTaskKind.Idle)
             this.dungeonTravel.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetMiningArea(workerId));
         else if (task == WorkerTaskKind.Idle)
@@ -407,7 +428,9 @@ internal sealed class WorkerBehaviorManager
     public void StopWorker(string workerId)
     {
         this.explorationManager.DeliverPendingLoot(workerId);
+        this.fishingManager.Deliver(workerId);
         this.explorationManager.Stop(workerId);
+        this.fishingManager.Stop(workerId);
         if (this.workerShellManager.TryGetWorker(workerId, out NPC? worker) && worker is not null)
             this.navigationManager.StopWorker(worker);
         this.ClearActiveJobState(workerId);
@@ -470,6 +493,7 @@ internal sealed class WorkerBehaviorManager
         this.combatManager.ExitGeneratedFloorForReturn(worker, previousArea);
         this.combatManager.Stop(workerId);
         this.explorationManager.Stop(workerId);
+        this.fishingManager.Stop(workerId);
         this.ClearActiveJobState(workerId);
         this.activePhases[workerId] = WorkerTravelPhase.None;
         this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
@@ -494,6 +518,19 @@ internal sealed class WorkerBehaviorManager
         return true;
     }
 
+    public bool TrySetFishingArea(string workerId, string area, out string message)
+    {
+        if (!this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
+        { message = $"Worker '{workerId}' was not found."; return false; }
+        if (!this.workerShellManager.TrySetFishingArea(workerId, area, out message)) return false;
+        this.fishingManager.Stop(workerId);
+        this.navigationManager.StopWorker(worker);
+        this.ClearActiveJobState(workerId);
+        this.activePhases[workerId] = WorkerTravelPhase.None;
+        this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
+        return true;
+    }
+
     public bool TrySetExplorationArea(string workerId, string area, out string message)
     {
         if (!this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
@@ -507,6 +544,7 @@ internal sealed class WorkerBehaviorManager
         this.combatManager.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetCombatArea(workerId));
         this.combatManager.Stop(workerId);
         this.explorationManager.Stop(workerId);
+        this.fishingManager.Stop(workerId);
         this.ClearActiveJobState(workerId);
         this.activePhases[workerId] = WorkerTravelPhase.None;
         this.BeginReturnHome(worker, workerId, ReturnHomeReason.ExplicitIdle);
@@ -527,7 +565,17 @@ internal sealed class WorkerBehaviorManager
             current = current with { State = atEntrance ? "Exploring" : "Idle", Status = atEntrance
                 ? $"Exploring {WorkerExplorationAreaCatalog.GetLabel(area)}: {progress.Minutes}/60 minutes" : "Away from exploration entrance" };
         }
+        WorkerFishingProgress fishing = this.workerShellManager.GetFishingProgress(workerId);
+        if (!Context.IsMainPlayer && current.AssignedTask == WorkerTaskKind.Fish)
+        {
+            this.workerShellManager.TryGetWorker(workerId, out NPC? worker);
+            bool casting = worker?.modData.ContainsKey(WorkerFishingManager.VisualKey) == true;
+            current = current with { State = casting ? "Fishing" : "Idle", Status = casting
+                ? $"Fishing at {WorkerFishingAreaCatalog.Label(this.workerShellManager.GetFishingArea(workerId))}: {fishing.Minutes}/{WorkerFishingPolicy.MinutesPerCatch} minutes"
+                : "Away from fishing shore" };
+        }
         return current with { CompletedToday = this.completedToday.GetValueOrDefault(workerId)
+            + (fishing.Day == Game1.Date.TotalDays ? fishing.CompletedCatches : 0)
             + (progress.Day == Game1.Date.TotalDays ? progress.CompletedRuns : 0) };
     }
 
@@ -536,6 +584,8 @@ internal sealed class WorkerBehaviorManager
 
     public void DrawCombatHealthBars(Microsoft.Xna.Framework.Graphics.SpriteBatch batch)
         => this.combatManager.DrawHealthBars(batch);
+
+    public void DrawFishing(Microsoft.Xna.Framework.Graphics.SpriteBatch batch) => this.fishingManager.Draw(batch);
 
     public void RegisterCombatAnimations(HarmonyLib.Harmony harmony)
     {
@@ -844,6 +894,13 @@ internal sealed class WorkerBehaviorManager
 
     private void UpdateAssignedWork(NPC worker, string workerId, WorkerTaskKind assignment)
     {
+        if (assignment == WorkerTaskKind.Fish)
+        {
+            if (this.fishingManager.Update(worker, workerId, out WorkerRuntimeSnapshot fishingSnapshot))
+                this.BeginReturnHome(worker, workerId, ReturnHomeReason.WorkComplete);
+            else this.snapshots[workerId] = fishingSnapshot;
+            return;
+        }
         if (assignment == WorkerTaskKind.ExploreArea)
         {
             if (this.explorationManager.Update(worker, workerId, out WorkerRuntimeSnapshot explorationSnapshot))

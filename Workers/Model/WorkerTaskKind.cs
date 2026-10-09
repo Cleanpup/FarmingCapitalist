@@ -16,4 +16,5 @@ internal enum WorkerTaskKind
     MineRocks = 10,
     MineOreGems = 11,
     FindLadder = 12,
+    Fish = 13,
 }

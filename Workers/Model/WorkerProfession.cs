@@ -7,4 +7,5 @@ internal enum WorkerProfession
     Forager = 1,
     CombatWorker = 2,
     Miner = 3,
+    Fisher = 4,
 }

@@ -43,8 +43,8 @@ internal sealed class WorkerSpriteSheetBuilder
     {
         GraphicsDevice graphicsDevice = Game1.graphics.GraphicsDevice;
         int outputWidth = FrameWidth * FramesPerRow;
-        int outputHeight = FrameHeight * ((WorkerWorkAnimationPolicy.FirstSheetFrame
-            + WorkerWorkAnimationPolicy.BodyKinds * 4 * WorkerWorkAnimationPolicy.FramesPerDirection) / FramesPerRow);
+        int outputHeight = FrameHeight * ((WorkerFishingAnimationPolicy.FirstSheetFrame
+            + WorkerFishingAnimationPolicy.FramesPerDirection * 4) / FramesPerRow);
 
         using RenderTarget2D renderTarget = new(
             graphicsDevice,
@@ -124,6 +124,16 @@ internal sealed class WorkerSpriteSheetBuilder
                             index % FramesPerRow, index / FramesPerRow, facing, native.frame, native.flip), native);
                     }
                 }
+            }
+
+            // Raw fishing frames only; no vanilla rod animation callbacks run.
+            for (int facing = 0; facing < 4; facing++)
+            for (int pose = 0; pose < WorkerFishingAnimationPolicy.FramesPerDirection; pose++)
+            {
+                int index = WorkerFishingAnimationPolicy.FirstSheetFrame
+                    + WorkerCombatSwingPolicy.DirectionRow(facing) * WorkerFishingAnimationPolicy.FramesPerDirection + pose;
+                this.DrawFrame(spriteBatch, renderWorker, new GeneratedFrameSpec(index % FramesPerRow,
+                    index / FramesPerRow, facing, WorkerFishingAnimationPolicy.NativeFrame(facing, pose), facing == 3));
             }
 
             spriteBatch.End();

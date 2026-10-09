@@ -7,7 +7,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="ExperienceTests.cs" />
+    <Compile Include="FishingChecks.cs" />
     <Compile Include="../Workers/Model/WorkerFishingProgress.cs" />
     <Compile Include="../Workers/Fishing/WorkerFishingPolicy.cs" />
     <Compile Include="../Workers/Fishing/WorkerFishingCatchCatalog.cs" />

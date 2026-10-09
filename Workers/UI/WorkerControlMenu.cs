@@ -359,6 +359,19 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 }
                 return;
             }
+            if (selectedWorker is { Profession: WorkerProfession.Fisher } fisher && this.forageAreaButton.containsPoint(x, y))
+            {
+                if (this.EnsureSelectedHostWorker())
+                {
+                    int current = WorkerFishingAreaCatalog.Areas.ToList().IndexOf(fisher.FishingArea);
+                    string next = WorkerFishingAreaCatalog.Areas[(current + 1) % WorkerFishingAreaCatalog.Areas.Count];
+                    bool success = this.workerBehaviorManager.TrySetFishingArea(fisher.WorkerId, next, out string message);
+                    this.SetFeedback(message, !success);
+                    this.RefreshSnapshots();
+                    this.RebuildLayout(ForageAreaId);
+                }
+                return;
+            }
             if (selectedWorker is { Profession: WorkerProfession.Miner } miner && this.forageAreaButton.containsPoint(x, y))
             {
                 if (this.EnsureSelectedHostWorker())
@@ -615,7 +628,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.workerRows.Add(Button(WorkerRowIdBase + i, new Rectangle(this.rosterBounds.X + 14, rowsTop + (i - this.firstVisibleWorker) * (rowHeight + 6), this.rosterBounds.Width - 28, rowHeight)));
         }
         this.orderButtons.Clear();
-        bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker or WorkerProfession.Miner };
+        bool showForageArea = this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker or WorkerProfession.Miner or WorkerProfession.Fisher };
         bool showExplorationArea = this.GetSelectedWorker() is { Profession: WorkerProfession.CombatWorker };
         int areaHeight = this.ordersBounds.Height >= 220 ? 48 : 32;
         int areaRowHeight = areaHeight + 8;
@@ -686,7 +699,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             if (this.currentTab == WorkerMenuTab.Jobs)
             {
                 this.allClickableComponents.AddRange(this.orderButtons);
-                if (this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker or WorkerProfession.Miner })
+                if (this.GetSelectedWorker() is { Profession: WorkerProfession.Forager or WorkerProfession.CombatWorker or WorkerProfession.Miner or WorkerProfession.Fisher })
                     this.allClickableComponents.Add(this.forageAreaButton);
                 if (this.GetSelectedWorker() is { Profession: WorkerProfession.CombatWorker })
                     this.allClickableComponents.Add(this.explorationAreaButton);
@@ -818,6 +831,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerProfession.Forager => "Foraging",
             WorkerProfession.CombatWorker => "Combat",
             WorkerProfession.Miner => "Mining",
+            WorkerProfession.Fisher => "Fishing",
             _ => "Farming",
         };
         int skillExperience = worker.Profession switch
@@ -825,6 +839,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerProfession.Forager => experience.Foraging,
             WorkerProfession.CombatWorker => experience.Combat,
             WorkerProfession.Miner => experience.Mining,
+            WorkerProfession.Fisher => experience.Fishing,
             _ => experience.Farming,
         };
         int skillLevel = WorkerExperiencePolicy.GetLevel(skillExperience);
@@ -933,6 +948,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 $"Forage area: {WorkerForageAreaCatalog.GetDisplayName(forager.ForageLocationName)}  >",
                 enabled, Color.White, WorkerMenuArt.Icon.Sprout);
         }
+        if (selectedWorker is { Profession: WorkerProfession.Fisher } fisher)
+            this.DrawButton(b, this.forageAreaButton, $"Fishing area: {WorkerFishingAreaCatalog.Label(fisher.FishingArea)}  >",
+                Context.IsMainPlayer, Color.White, WorkerMenuArt.Icon.Water);
         if (selectedWorker is { Profession: WorkerProfession.Miner } miner)
         {
             this.DrawButton(b, this.forageAreaButton, $"Mining area: {WorkerMiningPolicy.GetLabel(miner.MiningArea)}  >",
@@ -1135,6 +1153,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerTaskKind.MineRocks or WorkerTaskKind.MineOreGems or WorkerTaskKind.FindLadder => WorkerMenuArt.Icon.Tend,
             WorkerTaskKind.SlayMonsters => WorkerMenuArt.Icon.Ledger,
             WorkerTaskKind.ExploreArea => WorkerMenuArt.Icon.Ledger,
+            WorkerTaskKind.Fish => WorkerMenuArt.Icon.Water,
             _ => WorkerMenuArt.Icon.Home,
         };
         if (button.bounds.Height < 90)
@@ -1170,6 +1189,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 WorkerTaskKind.FindLadder => "Break stones until an exit appears",
                 WorkerTaskKind.SlayMonsters => "Fight monsters in selected area",
                 WorkerTaskKind.ExploreArea => "Explore for loot each hour",
+                WorkerTaskKind.Fish => "Cast for fish until midnight",
                 _ => "Return to the house",
             };
             this.DrawText(b, description, new Rectangle(button.bounds.X + 18, button.bounds.Y + 75, button.bounds.Width - 36, Math.Max(1, button.bounds.Height - 88)), enabled ? MutedInk : MutedInk * 0.7f);
@@ -1376,6 +1396,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerTaskKind.MineOreGems => "Mine ore, gem, coal, geode and cinder-shard nodes, and gather loose quartz, fire quartz, frozen tears and earth crystals. Once these resources are exhausted in Mines or Skull Cavern, break stones to find a ladder or shaft, then wait for the host to descend. Quarry has no deeper floor. Volcano uses fixed exits and player-operated gates and lava crossings; it has no hidden ladders.",
         WorkerTaskKind.FindLadder => "Break stones until a real ladder or shaft is available in Mines or Skull Cavern, then follow when the host descends. Infested floors require the player to defeat monsters; terminal floors, Quarry and Volcano have no hidden ladder to uncover. Workers never create stairs, open gates or advance alone.",
         WorkerTaskKind.SlayMonsters => "Fight real monsters in the combat area. Mines and Skull Cavern follow the host farmer onto active floors.",
+        WorkerTaskKind.Fish => "Teleport to a clear shore in the selected area and repeatedly cast until midnight. Catches are simulated every 30 active in-game minutes using location, season, time and weather. Legendary fish are excluded. Fish go to this worker's chest or shipping fallback and grant worker Fishing XP.",
         WorkerTaskKind.ExploreArea => "Teleport to the selected dungeon entrance and explore independently for loot every in-game hour, from 6:00 to 22:00. Exploration is simulated; the worker stays at the entrance. Loot goes to this worker's selected chest or shipping-bin fallback. Completed runs grant this worker 5 Combat XP; only monster drops are collected, with stone excluded.",
         _ => "Stop the current order and return to the worker's home tile. Daily wages still apply while hired.",
     };

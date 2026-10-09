@@ -1,0 +1,19 @@
+# Fishing worker simulation
+
+Fisher is a separately saved profession; Fish and Idle are its only orders. Areas are Forest **river**, Mountain, Town, Beach, and IslandSouth beach. The Island destination requires boat repair. A bounded shore search validates dry land, navigation clearance, nearby escape land, adjacent fishable water, warp/touch-action exclusion and actor occupancy. Forest casts also require the vanilla `River` fish-area ID. The worker explicitly teleports to that shore, stays visibly present and simulates its catch; no game fishing action or minigame runs.
+
+The work window is 06:00 inclusive to 24:00 exclusive. One catch attempt costs 30 active game minutes. Arrival, menus, events, unpaid time and clock rewinds grant no extra progress. Idle/area changes cancel partial time, retain completed catches and begin return home. Midnight stops casting and uses the existing safe home deadline. Completed catch counts and Fishing XP belong to the worker; normal-quality fish use its chest or shipping overflow. Attempt count, XP and pending catch are persisted before delivery. A failed attempt consumes time and advances its deterministic seed without a catch, count or XP.
+
+The catalog is backed by the installed Stardew Valley 1.6 `Data/Locations` and `Data/Fish` assets and `GameLocation.getFish` / `FishingRod` implementation. It includes standard season-specific location entries only, all with spawn chance 1 and precedence 0. The location spawn season governs eligibility (vanilla does not apply the legacy Data/Fish season column). A fish must also pass its Data/Fish time and weather gate. Fish time ends are exclusive; Halibut and Albacore have separate morning/evening windows. All included species have minimum Fishing level zero.
+
+Within each eligible pool, shuffle the fish entries; roll each in order until the first success. At the deliberately fixed water depth 4, each fish bite probability is:
+
+`min(0.9, baseChance * (1 - max(0, maxDepth - 4) * depthMultiplier) + workerFishingLevel / 50)`
+
+If every fish roll fails, the attempt produces nothing. This preserves bite failures without simulating trash. Exact per-species metadata and area/season membership are in `WorkerFishingCatchCatalog.cs`; changing worker Fishing level changes probabilities, not eligibility. Base Fishing XP is the game's normal-quality `max(1, 3 + difficulty / 3)` for that species. Simulation omits bait/lures, luck, tutorial boosts, minigame quality/perfect catches, treasure, quest/event/festival overrides and modded fish. Fixed depth is a balancing assumption, independent of the displayed adjacent bobber tile.
+
+All ten legendary/Legendary II IDs (159, 160, 163, 682, 775, 898–902) are excluded by a conservative species whitelist. Algae, jelly, trash and position-specific Forest Goby are excluded. Forest pond fish never enter the river pool. IslandSouth has no distinct fish-area ID and uses its all-season ocean entries.
+
+Body sprites bake raw vanilla cast/held frames (up 76/38/63/62/63/76, right 48/49/50/51/52/72, down 66/67/68/69/70/74, left mirrors right). A mirrored transient host phase chooses the cast, held and reversed reel poses. Rod/line/bobber drawing is read-only. Vanilla rod `beginUsing`, casting callbacks and `FishingRod.draw` are never called. Generated textures and runtime shoreline/cast state are rebuilt, never saved.
+
+Automated checks: `dotnet run --project Tests/FishingChecks.csproj`. Manual checks: TESTING.md 76–79. Build success and policy checks do not establish an in-game playtest.

@@ -18,6 +18,8 @@ internal static class WorkerTaskPolicy
     private static readonly WorkerTaskKind[] CombatTasks = { WorkerTaskKind.SlayMonsters, WorkerTaskKind.ExploreArea, WorkerTaskKind.Idle };
     private static readonly WorkerTaskKind[] MinerTasks = { WorkerTaskKind.MineOreGems, WorkerTaskKind.FindLadder, WorkerTaskKind.MineRocks, WorkerTaskKind.Idle };
 
+    private static readonly WorkerTaskKind[] FisherTasks = { WorkerTaskKind.Fish, WorkerTaskKind.Idle };
+
     public const int WorkDayEndsAt = 2200;
 
     public static bool IsWithinWorkHours(int timeOfDay) => timeOfDay >= 600 && timeOfDay < WorkDayEndsAt;
@@ -48,6 +50,7 @@ internal static class WorkerTaskPolicy
             WorkerProfession.Forager => ForagerTasks,
             WorkerProfession.CombatWorker => CombatTasks,
             WorkerProfession.Miner => MinerTasks,
+            WorkerProfession.Fisher => FisherTasks,
             _ => FarmerTasks,
         };
 
@@ -68,6 +71,7 @@ internal static class WorkerTaskPolicy
             WorkerProfession.Forager => "Forager",
             WorkerProfession.CombatWorker => "Combat Worker",
             WorkerProfession.Miner => "Miner",
+            WorkerProfession.Fisher => "Fisher",
             _ => "Farmer",
         };
 
@@ -85,6 +89,7 @@ internal static class WorkerTaskPolicy
         WorkerTaskKind.MineRocks => "Mine any stone",
         WorkerTaskKind.MineOreGems => "Mine ores/gems",
         WorkerTaskKind.FindLadder => "Find ladder",
+        WorkerTaskKind.Fish => "Fish",
         _ => idleLabel,
     };
 }

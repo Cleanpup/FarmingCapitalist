@@ -84,6 +84,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
     private Rectangle foragerProfessionBounds;
     private Rectangle combatProfessionBounds;
     private Rectangle minerProfessionBounds;
+    private Rectangle fisherProfessionBounds;
 
     public WorkerAppearanceMenu(
         WorkerAppearanceData initialAppearance,
@@ -159,6 +160,13 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
             if (this.combatProfessionBounds.Contains(x, y))
             {
                 this.selectedProfession = WorkerProfession.CombatWorker;
+                this.professionDropdownOpen = false;
+                Game1.playSound("smallSelect");
+                return;
+            }
+            if (this.fisherProfessionBounds.Contains(x, y))
+            {
+                this.selectedProfession = WorkerProfession.Fisher;
                 this.professionDropdownOpen = false;
                 Game1.playSound("smallSelect");
                 return;
@@ -434,6 +442,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.foragerProfessionBounds = new Rectangle(professionX, this.farmerProfessionBounds.Bottom + 2, professionWidth, 48);
         this.combatProfessionBounds = new Rectangle(professionX, this.foragerProfessionBounds.Bottom + 2, professionWidth, 48);
         this.minerProfessionBounds = new Rectangle(professionX, this.combatProfessionBounds.Bottom + 2, professionWidth, 48);
+        this.fisherProfessionBounds = new Rectangle(professionX, this.minerProfessionBounds.Bottom + 2, professionWidth, 48);
         this.SyncColorPickersFromPreview();
     }
 
@@ -471,6 +480,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.DrawProfessionRow(b, this.foragerProfessionBounds, "Forager", this.selectedProfession == WorkerProfession.Forager);
         this.DrawProfessionRow(b, this.combatProfessionBounds, "Combat Worker", this.selectedProfession == WorkerProfession.CombatWorker);
         this.DrawProfessionRow(b, this.minerProfessionBounds, "Miner", this.selectedProfession == WorkerProfession.Miner);
+        this.DrawProfessionRow(b, this.fisherProfessionBounds, "Fisher", this.selectedProfession == WorkerProfession.Fisher);
     }
 
     private void DrawProfessionRow(SpriteBatch b, Rectangle bounds, string text, bool selected)

@@ -24,5 +24,12 @@
   "Default.1": "I'm ready when you need me.",
   "ExploreArea.1": "I'll bring back what I find and send the haul to our storage.",
   "ExploreArea.2": "Another expedition, another chance to find useful supplies.",
-  "Default.2": "What needs doing today?"
+  "Default.2": "What needs doing today?",
+  "Fisher.Forest.1": "The river's got a good rhythm. I'll see what bites today.",
+  "Fisher.Mountain.1": "It's peaceful by the lake. I'll keep my line out until midnight.",
+  "Fisher.Town.1": "There's plenty happening in town, but I'm watching the river.",
+  "Fisher.Beach.1": "A sea breeze and a steady line. Let's see what the tide brings.",
+  "Fisher.IslandSouth.1": "These warm waters have a few surprises. I'll bring the catch back safely.",
+  "Fisher.Idle.1": "I've reeled in my line. My rod's ready whenever you need me.",
+  "Fish.1": "I'll keep casting and send the fish to my storage."
 }

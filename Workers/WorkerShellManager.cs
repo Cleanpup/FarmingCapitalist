@@ -21,6 +21,7 @@ internal sealed class WorkerShellManager
     private readonly WorkerSpriteSheetBuilder spriteSheetBuilder;
     private readonly List<WorkerRosterEntry> savedWorkers = new();
     private readonly Dictionary<string, Texture2D> generatedSpriteSheets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Texture2D> generatedPortraits = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, NPC> runtimeWorkers = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly List<(NPC Worker, GameLocation Location)> detachedWorkers = new();
@@ -1183,7 +1184,8 @@ internal sealed class WorkerShellManager
         {
             NPC? worker = this.FindWorkerById(entry.WorkerId);
             if (worker is null || (this.clientAppearanceWorkers.TryGetValue(entry.WorkerId, out NPC? previous) && previous == worker
-                && this.generatedSpriteSheets.TryGetValue(entry.WorkerId, out Texture2D? expected) && worker.Sprite?.spriteTexture == expected))
+                && this.generatedSpriteSheets.TryGetValue(entry.WorkerId, out Texture2D? expected) && worker.Sprite?.spriteTexture == expected
+                && this.generatedPortraits.TryGetValue(entry.WorkerId, out Texture2D? portrait) && worker.Portrait == portrait))
             {
                 continue;
             }
@@ -1266,7 +1268,7 @@ internal sealed class WorkerShellManager
 
     private NPC CreateWorkerShell(WorkerRosterEntry entry, GameLocation location, Vector2 spawnTile)
     {
-        Texture2D portrait = Game1.content.Load<Texture2D>(TestWorkerDefinition.ShellPortraitAssetName);
+        Texture2D portrait = this.GetWorkerPortrait(entry.WorkerId);
         NPC worker = new(
             this.CreateWorkerSprite(entry.WorkerId),
             spawnTile * Game1.tileSize,
@@ -1309,7 +1311,7 @@ internal sealed class WorkerShellManager
         worker.displayName = entry.DisplayName;
         worker.SimpleNonVillagerNPC = true;
         worker.Sprite = this.CreateWorkerSprite(entry.WorkerId);
-        worker.Portrait = Game1.content.Load<Texture2D>(TestWorkerDefinition.ShellPortraitAssetName);
+        worker.Portrait = this.GetWorkerPortrait(entry.WorkerId);
         worker.modData[this.workerIdDataKey] = entry.WorkerId;
 
         if (worker.Sprite is not null)
@@ -1471,6 +1473,11 @@ internal sealed class WorkerShellManager
         return sprite;
     }
 
+    private Texture2D GetWorkerPortrait(string workerId)
+        => this.generatedPortraits.TryGetValue(workerId, out Texture2D? portrait)
+            ? portrait
+            : Game1.content.Load<Texture2D>(TestWorkerDefinition.ShellPortraitAssetName);
+
     private void EnsureGeneratedSpriteSheet(WorkerRosterEntry entry)
     {
         if (!this.generatedSpriteSheets.ContainsKey(entry.WorkerId))
@@ -1505,13 +1512,16 @@ internal sealed class WorkerShellManager
             return;
         }
 
-        Texture2D newSheet;
+        Texture2D? newSheet = null;
+        Texture2D newPortrait;
         try
         {
             newSheet = this.spriteSheetBuilder.BuildSheet(entry.Appearance);
+            newPortrait = this.spriteSheetBuilder.BuildPortrait(newSheet);
         }
         catch (Exception ex)
         {
+            newSheet?.Dispose();
             this.monitor.Log($"Failed to rebuild the generated sprite sheet for {entry.DisplayName}: {ex.Message}", LogLevel.Warn);
             return;
         }
@@ -1522,7 +1532,10 @@ internal sealed class WorkerShellManager
             previousSheet = existingSheet;
         }
 
+        this.generatedPortraits.TryGetValue(entry.WorkerId, out Texture2D? previousPortrait);
+
         this.generatedSpriteSheets[entry.WorkerId] = newSheet;
+        this.generatedPortraits[entry.WorkerId] = newPortrait;
 
         NPC? existingWorker = this.FindWorkerById(entry.WorkerId);
         if (existingWorker is not null)
@@ -1532,6 +1545,7 @@ internal sealed class WorkerShellManager
                 int currentFrame = existingWorker.Sprite?.CurrentFrame ?? 0;
                 existingWorker.Sprite = this.CreateWorkerSprite(entry.WorkerId);
                 existingWorker.Sprite.CurrentFrame = currentFrame;
+                existingWorker.Portrait = newPortrait;
             }
             else
             {
@@ -1540,6 +1554,7 @@ internal sealed class WorkerShellManager
         }
 
         previousSheet?.Dispose();
+        previousPortrait?.Dispose();
     }
 
     private void DisposeAllGeneratedSpriteSheets()
@@ -1550,10 +1565,24 @@ internal sealed class WorkerShellManager
         }
 
         this.generatedSpriteSheets.Clear();
+        foreach (Texture2D portrait in this.generatedPortraits.Values)
+        {
+            portrait.Dispose();
+        }
+
+        this.generatedPortraits.Clear();
     }
 
     private void DisposeGeneratedSpriteSheet(string workerId)
     {
+        if (this.generatedPortraits.Remove(workerId, out Texture2D? portrait))
+        {
+            NPC? portraitWorker = Context.IsWorldReady ? this.FindWorkerById(workerId) : null;
+            if (portraitWorker?.Portrait == portrait)
+                portraitWorker.Portrait = Game1.content.Load<Texture2D>(TestWorkerDefinition.ShellPortraitAssetName);
+            portrait.Dispose();
+        }
+
         if (!this.generatedSpriteSheets.Remove(workerId, out Texture2D? texture))
         {
             return;
@@ -1599,6 +1628,7 @@ internal sealed class WorkerShellManager
         worker.Sprite.spriteTexture = sheet;
         worker.Sprite.textureUsesFlippedRightForLeft = false;
         worker.Sprite.UpdateSourceRect();
+        worker.Portrait = this.GetWorkerPortrait(workerId);
     }
 
     private int GetNextWorkerNumber(IEnumerable<WorkerRosterEntry> entries)

@@ -157,6 +157,27 @@ internal sealed class WorkerSpriteSheetBuilder
         return spriteSheet;
     }
 
+    public Texture2D BuildPortrait(Texture2D spriteSheet)
+    {
+        const int faceSize = 16;
+        const int portraitSize = 64;
+        Color[] sheetPixels = new Color[spriteSheet.Width * spriteSheet.Height];
+        spriteSheet.GetData(sheetPixels);
+        Color[] portraitPixels = new Color[portraitSize * portraitSize];
+        Color background = new(104, 70, 48);
+
+        for (int y = 0; y < portraitSize; y++)
+        for (int x = 0; x < portraitSize; x++)
+        {
+            Color facePixel = sheetPixels[(y / (portraitSize / faceSize)) * spriteSheet.Width + x / (portraitSize / faceSize)];
+            portraitPixels[y * portraitSize + x] = Color.Lerp(background, facePixel, facePixel.A / 255f);
+        }
+
+        Texture2D portrait = new(Game1.graphics.GraphicsDevice, portraitSize, portraitSize);
+        portrait.SetData(portraitPixels);
+        return portrait;
+    }
+
     private void DrawFrame(SpriteBatch spriteBatch, Farmer renderWorker, GeneratedFrameSpec frame,
         FarmerSprite.AnimationFrame? workPose = null)
     {

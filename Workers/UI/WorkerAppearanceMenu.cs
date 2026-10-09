@@ -179,6 +179,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
                 return;
             }
             this.professionDropdownOpen = false;
+            return;
         }
 
         if (this.okButton.containsPoint(x, y))
@@ -315,8 +316,6 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         this.femaleButton.draw(b);
         this.randomButton.draw(b);
 
-        this.DrawProfessionSelector(b);
-
         ClickableTextureComponent selectedGenderButton = this.previewFarmer.IsMale ? this.maleButton : this.femaleButton;
         b.Draw(Game1.mouseCursors, selectedGenderButton.bounds, Game1.getSourceRectForStandardTileSheet(Game1.mouseCursors, 34), Color.White);
 
@@ -352,6 +351,8 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
         b.End();
         b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
 
+        // Draw the expanded list above the color controls and character preview.
+        this.DrawProfessionSelector(b);
         this.drawMouse(b);
     }
 

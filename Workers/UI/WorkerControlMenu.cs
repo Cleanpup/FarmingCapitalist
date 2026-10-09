@@ -937,7 +937,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         if (this.ordersBounds.Height >= 220)
         {
-            this.DrawSectionHeading(b, this.ordersBounds, "DAILY ORDERS", "repeat each day");
+            this.DrawSectionHeading(b, this.ordersBounds, "DAILY ORDERS", string.Empty);
         }
         bool enabled = Context.IsMainPlayer && this.selectedWorkerId is not null;
         WorkerTaskKind? assigned = this.selectedWorkerId is not null && this.runtimeSnapshots.TryGetValue(this.selectedWorkerId, out WorkerRuntimeSnapshot runtime) ? runtime.AssignedTask : null;

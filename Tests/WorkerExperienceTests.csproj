@@ -9,8 +9,10 @@
   <ItemGroup>
     <Compile Include="ExperienceTests.cs" />
     <Compile Include="StaminaChecks.cs" />
+    <Compile Include="PerkChecks.cs" />
     <Compile Include="../Workers/Model/WorkerStaminaState.cs" />
     <Compile Include="../Workers/Skills/WorkerStaminaPolicy.cs" />
+    <Compile Include="../Workers/Skills/WorkerPerkPolicy.cs" />
     <Compile Include="../Workers/Model/WorkerFishingProgress.cs" />
     <Compile Include="../Workers/Fishing/WorkerFishingPolicy.cs" />
     <Compile Include="../Workers/Fishing/WorkerFishingCatchCatalog.cs" />

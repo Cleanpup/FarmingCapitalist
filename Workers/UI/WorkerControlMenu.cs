@@ -917,7 +917,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawVitalBar(b, new Rectangle(bounds.X, bounds.Y, bounds.Width, rowHeight),
             "Health", health, maxHealth, healthBar: true);
         this.DrawVitalBar(b, new Rectangle(bounds.X, bounds.Y + rowHeight + 4, bounds.Width, rowHeight),
-            "Stamina", stamina.Current, WorkerStaminaPolicy.Maximum, healthBar: false);
+            "Stamina", stamina.Current, stamina.Maximum, healthBar: false);
     }
 
     private void DrawVitalBar(SpriteBatch b, Rectangle row, string label, float current, float maximum,
@@ -1001,7 +1001,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             Rectangle staminaRow = new(healthRow.X, top + rowHeight + gap, healthRow.Width, rowHeight);
             bool large = rowHeight >= 48;
             this.DrawVitalBar(b, healthRow, "Health", health, maxHealth, healthBar: true, large: large);
-            this.DrawVitalBar(b, staminaRow, "Stamina", stamina.Current, WorkerStaminaPolicy.Maximum, healthBar: false, large: large);
+            this.DrawVitalBar(b, staminaRow, "Stamina", stamina.Current, stamina.Maximum, healthBar: false, large: large);
             if (this.ordersBounds.Height >= 330)
             {
                 Rectangle orderSummary = new(this.ordersBounds.X + 38, this.ordersBounds.Bottom - 90, this.ordersBounds.Width - 76, 63);
@@ -1072,7 +1072,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         if (this.showWorkerPerks)
         {
-            this.DrawText(b, "No worker perks are available yet.", content, MutedInk, centered: true);
+            this.DrawWorkerPerks(b, content, this.workerShellManager.GetWorkerExperience(selected.Value.WorkerId));
             return;
         }
 
@@ -1096,6 +1096,31 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 rowWidth, rowHeight);
             this.DrawSkillRow(b, row, skills[index].Name, skills[index].Experience);
         }
+    }
+
+    private void DrawWorkerPerks(SpriteBatch b, Rectangle content, WorkerSkillExperience experience)
+    {
+        int gap = content.Height < 160 ? 8 : 12;
+        int rowHeight = Math.Max(1, Math.Min(128, (content.Height - gap) / 2));
+        bool compact = rowHeight < 72;
+        Rectangle stamina = new(content.X, content.Y, content.Width, rowHeight);
+        Rectangle health = new(content.X, stamina.Bottom + gap, content.Width, rowHeight);
+        this.DrawPerkCard(b, stamina, "Endurance", WorkerPerkPolicy.HasStaminaPerk(experience),
+            compact ? "Any work skill Lv. 5: stamina 270 → 540"
+                : "Farming, Mining, Fishing or Foraging Lv. 5\nMaximum stamina: 270 → 540. Applies once.");
+        this.DrawPerkCard(b, health, "Vitality", WorkerPerkPolicy.HasHealthPerk(experience),
+            "Combat Lv. 5: maximum health 100 → 200");
+    }
+
+    private void DrawPerkCard(SpriteBatch b, Rectangle row, string name, bool unlocked, string description)
+    {
+        this.DrawCard(b, row, unlocked ? new Color(244, 221, 165) : Paper, unlocked);
+        int inset = row.Height < 72 ? 8 : 14;
+        int titleHeight = Math.Min(28, Math.Max(1, (row.Height - inset * 2) / 2));
+        this.DrawText(b, $"{name} — {(unlocked ? "Unlocked" : "Locked • Lv. 5")}",
+            new Rectangle(row.X + inset, row.Y + inset, row.Width - inset * 2, titleHeight), unlocked ? Leaf : Ink);
+        this.DrawText(b, description, new Rectangle(row.X + inset, row.Y + inset + titleHeight + 2,
+            row.Width - inset * 2, Math.Max(1, row.Height - inset * 2 - titleHeight - 2)), MutedInk);
     }
 
     private void DrawSkillRow(SpriteBatch b, Rectangle row, string name, int experience)

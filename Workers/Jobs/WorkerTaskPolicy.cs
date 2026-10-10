@@ -103,7 +103,7 @@ internal static class WorkerTaskPolicy
         => profession switch
         {
             WorkerProfession.Forager => "Forager",
-            WorkerProfession.CombatWorker => "Combat Worker",
+            WorkerProfession.CombatWorker => "Fighter",
             WorkerProfession.Miner => "Miner",
             WorkerProfession.Fisher => "Fisher",
             _ => "Farmer",

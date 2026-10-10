@@ -132,7 +132,7 @@ internal sealed class ModEntry : Mod
                 + "workers status — list IDs, orders, activity and location\n"
                 + "workers hire [default] — hire with custom or default appearance\n"
                 + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|ores|ladder|mine|slay|explore|fish|idle> — assign a job\n"
-                + "workers combat-area <id> <farm|mines|skull|islandfarm|volcanoentrance> — set a combat worker's area\n"
+                + "workers combat-area <id> <farm|mines|skull|islandfarm|volcanoentrance> — set a Fighter's area\n"
                 + "workers fishing-area <id> <forest|mountain|town|beach|island> — set simulated fishing shore\n"
                 + "workers mining-area <id> <quarry|mines|skull|volcano> — set physical mining area\n"
                 + "workers explore-area <id> <mines|skull|volcano> — set simulated exploration area\n"
@@ -281,7 +281,7 @@ internal sealed class ModEntry : Mod
         {
             var activity = this.workerBehaviorManager.GetRuntimeSnapshot(worker.WorkerId);
             var stamina = this.workerShellManager.GetWorkerStamina(worker.WorkerId);
-            this.Monitor.Log($"{worker.DisplayName} [{worker.WorkerId}] — {worker.Profession}, {this.workerShellManager.GetAssignedTask(worker.WorkerId)}; {activity}; stamina: {stamina.Current:0.#}/{WorkerStaminaPolicy.Maximum:0}; location: {worker.CurrentLocationName ?? "not spawned"}, tile: {worker.CurrentTile?.ToString() ?? "unknown"}; paid today: {this.workerShellManager.CanWorkerWorkToday(worker.WorkerId)}.", LogLevel.Info);
+            this.Monitor.Log($"{worker.DisplayName} [{worker.WorkerId}] — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}, {this.workerShellManager.GetAssignedTask(worker.WorkerId)}; {activity}; stamina: {stamina.Current:0.#}/{stamina.Maximum:0}; location: {worker.CurrentLocationName ?? "not spawned"}, tile: {worker.CurrentTile?.ToString() ?? "unknown"}; paid today: {this.workerShellManager.CanWorkerWorkToday(worker.WorkerId)}.", LogLevel.Info);
         }
     }
 

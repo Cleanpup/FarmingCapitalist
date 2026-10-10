@@ -314,7 +314,7 @@ internal sealed class WorkerBehaviorManager
                 if (withinHours)
                 {
                     this.snapshots[workerId] = new(currentAssignment, "Resting",
-                        $"Recovering stamina; resumes at {WorkerStaminaPolicy.ResumeAt:0}", 0, null);
+                        $"Recovering stamina; resumes at {WorkerStaminaPolicy.ResumeThreshold(this.workerShellManager.GetWorkerStamina(workerId)):0}", 0, null);
                     continue;
                 }
                 if (this.activePhases.GetValueOrDefault(workerId) == WorkerTravelPhase.None)
@@ -670,7 +670,7 @@ internal sealed class WorkerBehaviorManager
         bool withinStaminaWorkHours = current.AssignedTask == WorkerTaskKind.Fish
             ? WorkerFishingPolicy.IsWithinWorkHours(Game1.timeOfDay) : WorkerTaskPolicy.IsWithinWorkHours(Game1.timeOfDay);
         if (withinStaminaWorkHours && this.workerShellManager.GetWorkerStamina(workerId).Resting)
-            current = current with { State = "Resting", Status = $"Recovering stamina; resumes at {WorkerStaminaPolicy.ResumeAt:0}" };
+            current = current with { State = "Resting", Status = $"Recovering stamina; resumes at {WorkerStaminaPolicy.ResumeThreshold(this.workerShellManager.GetWorkerStamina(workerId)):0}" };
         return current with { CompletedToday = this.completedToday.GetValueOrDefault(workerId)
             + (fishing.Day == Game1.Date.TotalDays ? fishing.CompletedCatches : 0)
             + (progress.Day == Game1.Date.TotalDays ? progress.CompletedRuns : 0) };
@@ -682,11 +682,12 @@ internal sealed class WorkerBehaviorManager
     public void GetWorkerHealth(string workerId, out int health, out int maxHealth)
     {
         if (this.combatManager.TryGetHealth(workerId, out health, out maxHealth)) return;
+        int maximum = this.workerShellManager.GetWorkerMaxHealth(workerId);
         if (this.workerShellManager.TryGetCombatHealthToday(workerId, out health, out maxHealth))
-            health = WorkerCombatPolicy.NormalizeHealth(health, maxHealth);
+            health = WorkerCombatPolicy.NormalizeHealth(health, maxHealth, maximum);
         else
-            health = WorkerCombatPolicy.MaxHealth;
-        maxHealth = WorkerCombatPolicy.MaxHealth;
+            health = maximum;
+        maxHealth = maximum;
     }
 
     public void DrawCombatHealthBars(Microsoft.Xna.Framework.Graphics.SpriteBatch batch)

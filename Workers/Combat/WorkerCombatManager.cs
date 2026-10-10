@@ -74,8 +74,8 @@ internal sealed class WorkerCombatManager
     {
         if (this.states.TryGetValue(workerId, out CombatState? state) && state.MaxHealth > 0)
         {
-            health = WorkerCombatPolicy.NormalizeHealth(state.Health, state.MaxHealth);
-            maxHealth = WorkerCombatPolicy.MaxHealth;
+            maxHealth = this.shell.GetWorkerMaxHealth(workerId);
+            health = WorkerCombatPolicy.NormalizeHealth(state.Health, state.MaxHealth, maxHealth);
             return true;
         }
         if (this.shell.TryGetWorker(workerId, out NPC? worker) && worker is not null
@@ -84,8 +84,9 @@ internal sealed class WorkerCombatManager
             && int.TryParse(storedHealth, out health) && int.TryParse(storedMaxHealth, out maxHealth)
             && maxHealth > 0)
         {
-            health = WorkerCombatPolicy.NormalizeHealth(health, maxHealth);
-            maxHealth = WorkerCombatPolicy.MaxHealth;
+            int previousMaximum = maxHealth;
+            maxHealth = this.shell.GetWorkerMaxHealth(workerId);
+            health = WorkerCombatPolicy.NormalizeHealth(health, previousMaximum, maxHealth);
             return true;
         }
         health = 0;
@@ -146,12 +147,12 @@ internal sealed class WorkerCombatManager
             return;
         CombatState state = this.states.TryGetValue(workerId, out CombatState? existing)
             ? existing : this.states[workerId] = new CombatState();
-        const int newMaximum = WorkerCombatPolicy.MaxHealth;
+        int newMaximum = this.shell.GetWorkerMaxHealth(workerId);
         if (state.MaxHealth == 0)
         {
             if (this.shell.TryGetCombatHealthToday(workerId, out int savedHealth, out int savedMaximum))
             {
-                state.Health = WorkerCombatPolicy.NormalizeHealth(savedHealth, savedMaximum);
+                state.Health = WorkerCombatPolicy.NormalizeHealth(savedHealth, savedMaximum, newMaximum);
                 state.MaxHealth = newMaximum;
             }
             else
@@ -159,18 +160,18 @@ internal sealed class WorkerCombatManager
         }
         else if (newMaximum != state.MaxHealth)
         {
-            state.Health = WorkerCombatPolicy.NormalizeHealth(state.Health, state.MaxHealth);
+            state.Health = WorkerCombatPolicy.NormalizeHealth(state.Health, state.MaxHealth, newMaximum);
             state.MaxHealth = newMaximum;
         }
         else
-            state.Health = WorkerCombatPolicy.ClampHealth(state.Health);
+            state.Health = WorkerCombatPolicy.ClampHealth(state.Health, newMaximum);
         string healthText = state.Health.ToString();
         string maxHealthText = state.MaxHealth.ToString();
         if (!worker.modData.TryGetValue(HealthDataKey, out string? publishedHealth) || publishedHealth != healthText)
             worker.modData[HealthDataKey] = healthText;
         if (!worker.modData.TryGetValue(MaxHealthDataKey, out string? publishedMax) || publishedMax != maxHealthText)
             worker.modData[MaxHealthDataKey] = maxHealthText;
-        this.shell.RecordCombatHealth(workerId, state.Health);
+        this.shell.RecordCombatHealth(workerId, state.Health, state.MaxHealth);
     }
 
     public bool IsDefeatedToday(string workerId)
@@ -662,9 +663,9 @@ internal sealed class WorkerCombatManager
         if (contact is null)
             return;
         state.NextContactTick = Game1.ticks + 90;
-        state.Health = WorkerCombatPolicy.HealthAfterContact(state.Health, contact.DamageToFarmer);
+        state.Health = WorkerCombatPolicy.HealthAfterContact(state.Health, contact.DamageToFarmer, state.MaxHealth);
         worker.modData[HealthDataKey] = state.Health.ToString();
-        this.shell.RecordCombatHealth(workerId, state.Health);
+        this.shell.RecordCombatHealth(workerId, state.Health, state.MaxHealth);
         if (state.Health > 0)
         {
             this.PrioritizeAttacker(worker, workerId, state, location, contact);

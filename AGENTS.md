@@ -31,6 +31,7 @@
 - Use existing NPC/game APIs where practical and keep policy, movement, persistence and UI separate.
 - Storage choices belong to each worker, including combat/exploration/dismissal delivery; schema 4 migrates shared choices from older and combat schema-3 saves.
 - `WorkerStaminaPolicy` owns the default 270-point pool, vanilla uncharged tool/cast costs using worker skill levels, and idle recovery. Charge validated tool impacts (each hit), not windups/draw hooks; swords, scythes, harvesting and picking up forage/loose gems are free. Fishing saves its charged cast flag with progress. Save/mirror stamina per worker; only the host may spend or recover it. Exhausted workers keep their assignment and resume after resting; menu/event time cannot recover energy.
+- `WorkerPerkPolicy` derives automatic level-five Endurance (any noncombat work skill, 540 stamina once) and Vitality (Combat, 200 HP) from worker XP. Preserve remaining fractions on unlock/reload and use worker maxima in recovery, contact damage, saves and displays. Fighter is the display label; keep the CombatWorker saved enum stable.
 - Completed daytime orders switch to saved Idle for Farm wandering; `NextDayTask` and `CompletedTaskDay` restore the original order the next morning, never on a same-day reload. Explicit job/area changes clear the remembered order. Stamina rests and dungeon-floor waiting do not complete an order.
 - Treat legacy roster saves as supported input. Avoid duplicate workers and repeated daily charges.
 

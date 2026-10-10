@@ -528,7 +528,7 @@ internal sealed class WorkerAppearanceMenu : IClickableMenu
 
         this.DrawProfessionRow(b, this.farmerProfessionBounds, "Farmer", this.selectedProfession == WorkerProfession.Farmer);
         this.DrawProfessionRow(b, this.foragerProfessionBounds, "Forager", this.selectedProfession == WorkerProfession.Forager);
-        this.DrawProfessionRow(b, this.combatProfessionBounds, "Combat Worker", this.selectedProfession == WorkerProfession.CombatWorker);
+        this.DrawProfessionRow(b, this.combatProfessionBounds, "Fighter", this.selectedProfession == WorkerProfession.CombatWorker);
         this.DrawProfessionRow(b, this.minerProfessionBounds, "Miner", this.selectedProfession == WorkerProfession.Miner);
         this.DrawProfessionRow(b, this.fisherProfessionBounds, "Fisher", this.selectedProfession == WorkerProfession.Fisher);
     }

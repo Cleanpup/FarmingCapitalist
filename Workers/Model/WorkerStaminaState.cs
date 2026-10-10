@@ -4,6 +4,7 @@ namespace FarmingCapitalist.Workers;
 internal sealed class WorkerStaminaState
 {
     public float Current { get; set; } = WorkerStaminaPolicy.Maximum;
+    public float Maximum { get; set; } = WorkerStaminaPolicy.Maximum;
     public int Day { get; set; } = -1;
     public int LastObservedMinute { get; set; } = -1;
     public bool WasRecovering { get; set; }
@@ -11,7 +12,8 @@ internal sealed class WorkerStaminaState
 
     public WorkerStaminaState Clone() => new()
     {
-        Current = float.IsFinite(this.Current) ? Math.Clamp(this.Current, 0, WorkerStaminaPolicy.Maximum) : 0,
+        Current = float.IsFinite(this.Current) ? Math.Clamp(this.Current, 0, WorkerStaminaPolicy.ValidMaximum(this.Maximum)) : 0,
+        Maximum = WorkerStaminaPolicy.ValidMaximum(this.Maximum),
         Day = this.Day,
         LastObservedMinute = this.LastObservedMinute,
         WasRecovering = this.WasRecovering,

@@ -2,6 +2,7 @@ using System.Text.Json;
 using FarmingCapitalist.Workers;
 
 StaminaChecks.Run();
+PerkChecks.Run();
 
 static void Equal<T>(T expected, T actual, string scenario)
 {
@@ -278,7 +279,7 @@ Check(WorkerShellLifecyclePolicy.ShouldRecoverCachedWorker(true, true, false), "
 Check(!WorkerShellLifecyclePolicy.ShouldRecoverCachedWorker(false, false, true), "ordinary attached worker is retained");
 Equal(0, WorkerCombatPolicy.HealthAfterContact(3, 4), "contact damage depletes HP");
 Equal(9, WorkerCombatPolicy.HealthAfterContact(10, 0), "contact damage has minimum one");
-Equal(100, WorkerCombatPolicy.MaxHealth, "combat worker maximum is fixed at 100 HP");
+Equal(100, WorkerCombatPolicy.MaxHealth, "worker base maximum is 100 HP");
 Equal(100, WorkerCombatPolicy.ClampHealth(200), "combat health cannot exceed 100");
 Equal(0, WorkerCombatPolicy.ClampHealth(-2), "negative combat health clamps to zero");
 Equal(99, WorkerCombatPolicy.HealthAfterContact(200, 1), "contact clamps legacy overfull HP before damage");

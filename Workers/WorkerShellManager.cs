@@ -283,6 +283,7 @@ internal sealed class WorkerShellManager
         if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry
             || !WorkerFishingPolicy.TryQueueCatch(entry, progress, catchItem, Game1.Date.TotalDays,
                 Context.IsMainPlayer, Context.IsWorldReady, this.CanWorkerWorkToday(workerId))) return false;
+        ApplyWorkerPerks(entry);
         this.PersistRoster();
         return true;
     }
@@ -332,12 +333,34 @@ internal sealed class WorkerShellManager
         => this.GetWorkerEntry(workerId)?.Experience?.Clone() ?? new WorkerSkillExperience();
 
     public WorkerStaminaState GetWorkerStamina(string workerId)
-        => this.GetWorkerEntry(workerId)?.Stamina?.Clone() ?? new();
+    {
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        WorkerStaminaState state = entry?.Stamina?.Clone() ?? new();
+        WorkerStaminaPolicy.SynchronizeMaximum(state, WorkerPerkPolicy.MaximumStamina(entry?.Experience));
+        return state;
+    }
+
+    public int GetWorkerMaxHealth(string workerId)
+        => WorkerPerkPolicy.MaximumHealth(this.GetWorkerEntry(workerId)?.Experience);
+
+    private static bool ApplyWorkerPerks(WorkerRosterEntry entry)
+    {
+        bool changed = WorkerStaminaPolicy.SynchronizeMaximum(entry.Stamina, WorkerPerkPolicy.MaximumStamina(entry.Experience));
+        int maximumHealth = WorkerPerkPolicy.MaximumHealth(entry.Experience);
+        if (entry.CombatHealth >= 0 && entry.CombatMaxHealth > 0 && entry.CombatMaxHealth != maximumHealth)
+        {
+            entry.CombatHealth = WorkerCombatPolicy.NormalizeHealth(entry.CombatHealth, entry.CombatMaxHealth, maximumHealth);
+            entry.CombatMaxHealth = maximumHealth;
+            changed = true;
+        }
+        return changed;
+    }
 
     public void ObserveWorkerStamina(string workerId, bool recovering)
     {
         if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry) return;
-        if (WorkerStaminaPolicy.Observe(entry.Stamina, Game1.Date.TotalDays, Game1.timeOfDay, recovering))
+        bool perksChanged = ApplyWorkerPerks(entry);
+        if (WorkerStaminaPolicy.Observe(entry.Stamina, Game1.Date.TotalDays, Game1.timeOfDay, recovering) || perksChanged)
             this.PersistRoster();
     }
 
@@ -345,9 +368,10 @@ internal sealed class WorkerShellManager
     {
         if (this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry) return false;
         float before = entry.Stamina.Current;
+        float maximumBefore = entry.Stamina.Maximum;
         bool resting = entry.Stamina.Resting;
         bool allowed = WorkerStaminaPolicy.TryUse(entry, action, Context.IsMainPlayer, Context.IsWorldReady, spend);
-        if (entry.Stamina.Current != before || entry.Stamina.Resting != resting) this.PersistRoster();
+        if (entry.Stamina.Current != before || entry.Stamina.Maximum != maximumBefore || entry.Stamina.Resting != resting) this.PersistRoster();
         return allowed;
     }
 
@@ -359,6 +383,7 @@ internal sealed class WorkerShellManager
                 Context.IsWorldReady, confirmedCropChange, itemsCollected))
             return false;
 
+        ApplyWorkerPerks(entry);
         this.PersistRoster();
         return true;
     }
@@ -370,6 +395,7 @@ internal sealed class WorkerShellManager
                 Context.IsWorldReady, action))
             return false;
 
+        ApplyWorkerPerks(entry);
         this.PersistRoster();
         return true;
     }
@@ -380,6 +406,7 @@ internal sealed class WorkerShellManager
         if (entry is null || !WorkerExperiencePolicy.TryAwardCombatKill(entry, Context.IsMainPlayer,
                 Context.IsWorldReady, confirmedWorkerKill: true, monsterExperience))
             return false;
+        ApplyWorkerPerks(entry);
         this.PersistRoster();
         return true;
     }
@@ -447,6 +474,7 @@ internal sealed class WorkerShellManager
             return false;
         // Persist completion and its undelivered items together before delivery;
         // saving/reloading can't re-roll or credit the same simulated run twice.
+        ApplyWorkerPerks(entry);
         this.PersistRoster();
         return true;
     }
@@ -496,12 +524,12 @@ internal sealed class WorkerShellManager
         return false;
     }
 
-    public void RecordCombatHealth(string workerId, int health)
+    public void RecordCombatHealth(string workerId, int health, int maximum)
     {
         if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry)
             return;
-        entry.CombatHealth = WorkerCombatPolicy.ClampHealth(health);
-        entry.CombatMaxHealth = WorkerCombatPolicy.MaxHealth;
+        entry.CombatHealth = WorkerCombatPolicy.ClampHealth(health, maximum);
+        entry.CombatMaxHealth = maximum;
         entry.LastCombatHealthDay = Game1.Date.TotalDays;
     }
 
@@ -646,6 +674,7 @@ internal sealed class WorkerShellManager
         foreach (WorkerRosterEntry entry in this.savedWorkers)
         {
             changed |= WorkerTaskPolicy.RestoreDailyOrder(entry, today);
+            changed |= ApplyWorkerPerks(entry);
             changed |= WorkerStaminaPolicy.Observe(entry.Stamina, today, Game1.timeOfDay, recovering: false);
             if (!WorkerWagePolicy.ShouldAttemptPayment(entry.LastPaidDay, entry.LastWageAttemptDay, today, retryUnpaid))
             {
@@ -1128,6 +1157,7 @@ internal sealed class WorkerShellManager
             WorkerRosterEntry normalized = entry.Clone();
             normalized.Experience = entry.Experience?.Clone() ?? new WorkerSkillExperience();
             normalized.Stamina = entry.Stamina?.Clone() ?? new();
+            ApplyWorkerPerks(normalized);
             WorkerStaminaPolicy.Observe(normalized.Stamina, Game1.Date.TotalDays, Game1.timeOfDay, recovering: false);
             // Loading establishes a fresh clock baseline; offline/menu time earns no recovery.
             normalized.Stamina.LastObservedMinute = WorkerStaminaPolicy.Minute(Game1.timeOfDay);

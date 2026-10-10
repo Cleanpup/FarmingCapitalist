@@ -231,6 +231,7 @@ internal sealed class WorkerBehaviorManager
 
     public void Update()
     {
+        if (!this.workerShellManager.IsFeatureUnlocked) return;
         this.navigationManager.Update();
         this.combatManager.UpdateClientAnimations();
         this.workAnimations.Update();
@@ -384,6 +385,22 @@ internal sealed class WorkerBehaviorManager
         }
     }
 
+    /// <summary>Pause an existing crew without deleting saved orders or pending rewards.</summary>
+    public void SuspendForAccessGate()
+    {
+        foreach (NPC worker in this.workerShellManager.GetSpawnedWorkers(recoverStale: false, includeLocked: true))
+            if (this.workerShellManager.TryGetWorkerId(worker, out string workerId))
+            {
+                this.PreserveCancelledDrops(worker, workerId, this.workerShellManager.GetAssignedTask(workerId));
+                this.StopWorker(workerId);
+                this.workerShellManager.ObserveWorkerStamina(workerId, recovering: false);
+            }
+        // Finish delivery of drops already produced before detaching the crew;
+        // generated mine floors may disappear while the feature gate is closed.
+        this.UpdateDropCollectionZones(collectImmediately: true);
+        this.workerShellManager.RemoveWorkersForSaving();
+    }
+
     public void Reset()
     {
         this.staminaRestingWorkers.Clear();
@@ -422,6 +439,8 @@ internal sealed class WorkerBehaviorManager
     {
         message = "Only the host can change worker professions.";
         if (!Context.IsWorldReady || !Context.IsMainPlayer) return false;
+        if (!this.workerShellManager.IsFeatureUnlocked)
+        { message = WorkerUnlockPolicy.LockedMessage; return false; }
         if (!Enum.IsDefined(typeof(WorkerProfession), profession)
             || !this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
         { message = "That worker or profession is not available."; return false; }
@@ -2274,7 +2293,7 @@ internal sealed class WorkerBehaviorManager
         return false;
     }
 
-    private void UpdateDropCollectionZones()
+    private void UpdateDropCollectionZones(bool collectImmediately = false)
     {
         if (this.dropCollectionZones.Count == 0)
             return;
@@ -2285,7 +2304,7 @@ internal sealed class WorkerBehaviorManager
         for (int i = this.dropCollectionZones.Count - 1; i >= 0; i--)
         {
             DropCollectionZone zone = this.dropCollectionZones[i];
-            if (Game1.ticks >= zone.CollectAfterTick)
+            if (collectImmediately || Game1.ticks >= zone.CollectAfterTick)
             {
                 for (int debrisIndex = zone.Location.debris.Count - 1; debrisIndex >= 0; debrisIndex--)
                 {

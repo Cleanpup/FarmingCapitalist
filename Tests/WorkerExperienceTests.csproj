@@ -11,6 +11,11 @@
     <Compile Include="StaminaChecks.cs" />
     <Compile Include="PerkChecks.cs" />
     <Compile Include="ProfessionChecks.cs" />
+    <Compile Include="WorkerUnlockChecks.cs" />
+    <Compile Include="WorkerAccessServiceChecks.cs" />
+    <Compile Include="WorkerAccessStubs.cs" />
+    <Compile Include="../Workers/Access/WorkerAccessManager.cs" />
+    <Compile Include="../Workers/Access/WorkerUnlockPolicy.cs" />
     <Compile Include="../Workers/Model/WorkerStaminaState.cs" />
     <Compile Include="../Workers/Skills/WorkerStaminaPolicy.cs" />
     <Compile Include="../Workers/Skills/WorkerPerkPolicy.cs" />

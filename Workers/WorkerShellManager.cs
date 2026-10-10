@@ -13,6 +13,7 @@ namespace FarmingCapitalist.Workers;
 internal sealed class WorkerShellManager
 {
     private readonly IModHelper helper;
+    private readonly Func<bool> featuresAvailable;
     private readonly IMonitor monitor;
     private readonly string legacyAppearanceSaveDataKey;
     private readonly string rosterSaveDataKey;
@@ -29,9 +30,10 @@ internal sealed class WorkerShellManager
     private string? lastMirrorPayload;
     private int nextWorkerNumber = 1;
 
-    public WorkerShellManager(IModHelper helper, IManifest manifest, IMonitor monitor)
+    public WorkerShellManager(IModHelper helper, IManifest manifest, IMonitor monitor, Func<bool> featuresAvailable)
     {
         this.helper = helper;
+        this.featuresAvailable = featuresAvailable;
         this.monitor = monitor;
         this.legacyAppearanceSaveDataKey = $"{manifest.UniqueID}.TestWorkerAppearance";
         this.rosterSaveDataKey = $"{manifest.UniqueID}.WorkerRoster";
@@ -39,6 +41,8 @@ internal sealed class WorkerShellManager
         this.rosterMirrorDataKey = $"{manifest.UniqueID}/WorkerRoster";
         this.spriteSheetBuilder = new WorkerSpriteSheetBuilder(monitor);
     }
+
+    public bool IsFeatureUnlocked => Context.IsWorldReady && this.featuresAvailable();
 
     public Vector2 GetExpectedSpawnTile()
     {
@@ -360,12 +364,13 @@ internal sealed class WorkerShellManager
     {
         if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry) return;
         bool perksChanged = ApplyWorkerPerks(entry);
-        if (WorkerStaminaPolicy.Observe(entry.Stamina, Game1.Date.TotalDays, Game1.timeOfDay, recovering) || perksChanged)
+        if (WorkerStaminaPolicy.Observe(entry.Stamina, Game1.Date.TotalDays, Game1.timeOfDay, recovering && this.IsFeatureUnlocked) || perksChanged)
             this.PersistRoster();
     }
 
     public bool TryUseWorkerStamina(string workerId, WorkerStaminaAction action, bool spend = true)
     {
+        if (!this.IsFeatureUnlocked) return false;
         if (this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry) return false;
         float before = entry.Stamina.Current;
         float maximumBefore = entry.Stamina.Maximum;
@@ -378,6 +383,7 @@ internal sealed class WorkerShellManager
     /// <summary>Only the host can change persistent skill progress.</summary>
     public bool TryAwardFarmingHarvestExperience(string workerId, bool confirmedCropChange, int itemsCollected)
     {
+        if (!this.IsFeatureUnlocked) return false;
         WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
         if (entry is null || !WorkerExperiencePolicy.TryAwardFarmingHarvest(entry, Context.IsMainPlayer,
                 Context.IsWorldReady, confirmedCropChange, itemsCollected))
@@ -390,6 +396,7 @@ internal sealed class WorkerShellManager
 
     public bool TryAwardCompletedActionExperience(string workerId, WorkerExperienceAction action)
     {
+        if (!this.IsFeatureUnlocked) return false;
         WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
         if (entry is null || !WorkerExperiencePolicy.TryAwardCompletedAction(entry, Context.IsMainPlayer,
                 Context.IsWorldReady, action))
@@ -402,6 +409,7 @@ internal sealed class WorkerShellManager
 
     public bool TryAwardCombatKillExperience(string workerId, int monsterExperience)
     {
+        if (!this.IsFeatureUnlocked) return false;
         WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
         if (entry is null || !WorkerExperiencePolicy.TryAwardCombatKill(entry, Context.IsMainPlayer,
                 Context.IsWorldReady, confirmedWorkerKill: true, monsterExperience))
@@ -593,7 +601,7 @@ internal sealed class WorkerShellManager
 
     public bool TryAcknowledgeObstacleReport(string workerId, string reportId)
     {
-        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry
+        if (!this.IsFeatureUnlocked || !Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry
             || !WorkerObstacleReportPolicy.MatchesAcknowledgment(entry.PendingObstacleReport, reportId))
             return false;
 
@@ -669,7 +677,7 @@ internal sealed class WorkerShellManager
 
     public bool CanWorkerWorkToday(string workerId)
     {
-        return Context.IsWorldReady && this.GetWorkerEntry(workerId)?.LastPaidDay == Game1.Date.TotalDays;
+        return this.IsFeatureUnlocked && this.GetWorkerEntry(workerId)?.LastPaidDay == Game1.Date.TotalDays;
     }
 
     /// <summary>Charge each employee at most once per day, including repeated DayStarted callbacks.</summary>
@@ -773,7 +781,7 @@ internal sealed class WorkerShellManager
         }
 
         foreach (WorkerRosterEntry entry in this.savedWorkers)
-            this.FindWorkerById(entry.WorkerId);
+            this.FindWorkerById(entry.WorkerId, recoverStale: this.IsFeatureUnlocked);
 
         Utility.ForEachLocation(location =>
         {
@@ -793,7 +801,7 @@ internal sealed class WorkerShellManager
 
     public void RestoreWorkersAfterSaving()
     {
-        if (!Context.IsMainPlayer)
+        if (!Context.IsMainPlayer || !this.IsFeatureUnlocked)
         {
             return;
         }
@@ -929,9 +937,9 @@ internal sealed class WorkerShellManager
         return worker is not null;
     }
 
-    public IReadOnlyList<NPC> GetSpawnedWorkers(bool recoverStale = true)
+    public IReadOnlyList<NPC> GetSpawnedWorkers(bool recoverStale = true, bool includeLocked = false)
     {
-        if (!Context.IsWorldReady || this.savedWorkers.Count == 0)
+        if (!Context.IsWorldReady || (!includeLocked && !this.IsFeatureUnlocked) || this.savedWorkers.Count == 0)
         {
             return Array.Empty<NPC>();
         }
@@ -1261,6 +1269,11 @@ internal sealed class WorkerShellManager
             return false;
         }
 
+        if (!this.IsFeatureUnlocked)
+        {
+            message = WorkerUnlockPolicy.LockedMessage;
+            return false;
+        }
         message = string.Empty;
         return true;
     }
@@ -1285,6 +1298,7 @@ internal sealed class WorkerShellManager
 
     private NPC? EnsureWorkerPresent(WorkerRosterEntry entry, bool respawnAtSpawn)
     {
+        if (!this.IsFeatureUnlocked) return null;
         GameLocation? targetLocation = Game1.getLocationFromName(TestWorkerDefinition.LocationName);
         if (targetLocation is null)
         {

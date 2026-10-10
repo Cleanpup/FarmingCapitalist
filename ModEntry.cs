@@ -1,4 +1,5 @@
 using FarmingCapitalist.Workers;
+using FarmingCapitalist.Integrations;
 using HarmonyLib;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
@@ -14,10 +15,19 @@ internal sealed class ModEntry : Mod
     private WorkerCustomizationManager workerCustomizationManager = null!;
     private WorkerDialogueManager workerDialogueManager = null!;
     private WorkerShellManager workerShellManager = null!;
+    private WorkerAccessManager workerAccess = null!;
+    private WorkerPermitEventManager workerPermitEvent = null!;
+    private ModConfig config = new();
+    private bool workerFeaturesActive;
 
     public override void Entry(IModHelper helper)
     {
-        this.workerShellManager = new WorkerShellManager(helper, this.ModManifest, this.Monitor);
+        this.config = helper.ReadConfig<ModConfig>();
+        this.workerAccess = new WorkerAccessManager(helper, this.ModManifest, this.Monitor, this.config.BypassWorkerUnlockEvent);
+        this.workerPermitEvent = new WorkerPermitEventManager(helper, this.Monitor,
+            () => this.workerAccess.IsUnlocked, this.workerAccess.GrantPermission);
+        this.workerShellManager = new WorkerShellManager(helper, this.ModManifest, this.Monitor,
+            () => this.workerAccess.IsUnlocked);
         WorkerNavigationManager navigation = new(this.workerShellManager, this.Monitor);
         this.workerBehaviorManager = new WorkerBehaviorManager(navigation, this.workerShellManager, this.Monitor);
         this.workerDialogueManager = new WorkerDialogueManager(helper, this.workerShellManager, this.Monitor, this.ModManifest.UniqueID);
@@ -28,11 +38,13 @@ internal sealed class ModEntry : Mod
         this.workerCustomizationManager = new WorkerCustomizationManager(this.Monitor, this.workerShellManager, this.workerBehaviorManager);
         this.workerControlMenuController = new WorkerControlMenuController(helper.Input, this.workerShellManager, this.workerCustomizationManager, this.workerBehaviorManager);
 
+        helper.ConsoleCommands.Add("workerpermit", "Queue Lewis's standalone farmhand-permission cutscene early. Host only; stand on the Farm and close menus to let the visit begin.", this.OnWorkerPermitCommand);
         helper.ConsoleCommands.Add("workers", "Manage hired workers. Use 'workers help' for commands, or 'workers' to open the menu.", this.OnWorkersCommand);
         helper.ConsoleCommands.Add("workerstatus", "List every worker's ID, assignment, activity and location.", (_, _) => this.LogWorkerStatus());
         helper.ConsoleCommands.Add("spawn", "Hire a worker with custom appearance (500g), or 'spawn d' for the default appearance.", this.OnWorkerHireCommand);
         helper.ConsoleCommands.Add("delete", "Use 'delete all' to dismiss all workers, or 'workers dismiss <id>' for one worker.", this.OnWorkerDeleteCommand);
 
+        helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
         helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
         helper.Events.GameLoop.DayStarted += this.OnDayStarted;
         helper.Events.GameLoop.Saving += this.OnSaving;
@@ -46,40 +58,75 @@ internal sealed class ModEntry : Mod
 
     private void OnRenderedWorld(object? sender, RenderedWorldEventArgs e)
     {
-        if (Context.IsWorldReady)
+        if (this.workerAccess.IsUnlocked)
         {
             this.workerBehaviorManager.DrawCombatHealthBars(e.SpriteBatch);
             this.workerBehaviorManager.DrawFishing(e.SpriteBatch);
         }
     }
 
+    private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
+    {
+        try
+        {
+            IGenericModConfigMenuApi? menu = this.Helper.ModRegistry.GetApi<IGenericModConfigMenuApi>("spacechase0.GenericModConfigMenu");
+            if (menu is null) return;
+            menu.Register(this.ModManifest, reset: () => this.config = new ModConfig(), save: () =>
+            {
+                this.Helper.WriteConfig(this.config);
+                this.workerAccess.SetBypass(this.config.BypassWorkerUnlockEvent);
+            });
+            menu.AddBoolOption(this.ModManifest, getValue: () => this.config.BypassWorkerUnlockEvent,
+                setValue: value => this.config.BypassWorkerUnlockEvent = value,
+                name: () => "Skip farmhand permission event",
+                tooltip: () => "Enable Farm Crew immediately without waiting for Lewis's Spring 8 visit. The host's setting applies to the whole farm. Turning this off requires the visit unless this farm has already completed it.",
+                fieldId: "BypassWorkerUnlockEvent");
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Optional Generic Mod Config Menu integration is unavailable: {ex.Message}", LogLevel.Warn);
+        }
+    }
+
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        this.workerPermitEvent.Reset();
+        this.workerAccess.Load();
         this.workerShellManager.ReloadWorkerAppearance();
-        if (!Context.IsMainPlayer)
-            return;
-        this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
-        this.workerBehaviorManager.HandleConfiguredWorkersInitialized("save loaded");
+        this.workerFeaturesActive = this.workerAccess.IsUnlocked;
+        if (!Context.IsMainPlayer) return;
+        if (this.workerFeaturesActive) this.ActivateWorkers("save loaded", morning: false);
+        else this.workerBehaviorManager.SuspendForAccessGate();
     }
 
     private void OnDayStarted(object? sender, DayStartedEventArgs e)
     {
+        this.workerAccess.Synchronize();
+        this.workerFeaturesActive = this.workerAccess.IsUnlocked;
         if (!Context.IsMainPlayer)
         {
             this.workerShellManager.RefreshClientRoster();
             return;
         }
         this.workerBehaviorManager.Reset();
+        if (this.workerFeaturesActive) this.ActivateWorkers("day started", morning: true);
+        else this.workerBehaviorManager.SuspendForAccessGate();
+    }
+
+    private void ActivateWorkers(string reason, bool morning)
+    {
+        this.workerShellManager.RestoreWorkersAfterSaving();
         this.workerShellManager.ProcessDailyWages();
-        this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: true);
-        this.workerBehaviorManager.PlaceWorkersOnFarmForMorning();
-        this.workerBehaviorManager.HandleConfiguredWorkersInitialized("day started");
+        this.workerShellManager.EnsureConfiguredWorkerPresent(respawnAtSpawn: morning);
+        if (morning) this.workerBehaviorManager.PlaceWorkersOnFarmForMorning();
+        this.workerBehaviorManager.HandleConfiguredWorkersInitialized(reason);
     }
 
     private void OnSaving(object? sender, SavingEventArgs e)
     {
         if (!Context.IsMainPlayer)
             return;
+        this.workerAccess.Save();
         this.workerShellManager.SaveRoster();
         this.workerShellManager.RemoveWorkersForSaving();
     }
@@ -92,15 +139,31 @@ internal sealed class ModEntry : Mod
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
-        if (!Context.IsWorldReady)
-            return;
-        if (!Context.IsMainPlayer && e.IsMultipleOf(60))
+        if (!Context.IsWorldReady) return;
+        this.workerAccess.Synchronize();
+        this.workerPermitEvent.Update();
+        bool unlocked = this.workerAccess.IsUnlocked;
+        bool changed = unlocked != this.workerFeaturesActive;
+        if (changed && Context.IsMainPlayer)
+        {
+            if (unlocked) this.ActivateWorkers("worker features unlocked", morning: false);
+            else
+            {
+                this.workerControlMenuController.Reset();
+                this.workerBehaviorManager.SuspendForAccessGate();
+            }
+        }
+        this.workerFeaturesActive = unlocked;
+        if (!Context.IsMainPlayer && (changed || e.IsMultipleOf(60)))
             this.workerShellManager.RefreshClientRoster();
-        this.workerBehaviorManager.Update();
+        if (unlocked) this.workerBehaviorManager.Update();
     }
 
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
     {
+        this.workerFeaturesActive = false;
+        this.workerAccess.Reset();
+        this.workerPermitEvent.Reset();
         this.workerControlMenuController.Reset();
         this.workerCustomizationManager.Reset();
         this.workerDialogueManager.Reset();
@@ -110,7 +173,7 @@ internal sealed class ModEntry : Mod
 
     private void OnWarped(object? sender, WarpedEventArgs e)
     {
-        if (!e.IsLocalPlayer || !Context.IsWorldReady)
+        if (!e.IsLocalPlayer || !Context.IsWorldReady || !this.workerAccess.IsUnlocked)
             return;
         if (!Context.IsMainPlayer)
             this.workerShellManager.RefreshClientRoster();
@@ -122,13 +185,30 @@ internal sealed class ModEntry : Mod
         }
     }
 
+    private void OnWorkerPermitCommand(string command, string[] args)
+    {
+        if (args.Length != 0)
+        {
+            this.Monitor.Log("Use workerpermit with no arguments while on the Farm.", LogLevel.Info);
+            return;
+        }
+        bool queued = this.workerPermitEvent.TryStartEarly(out string message);
+        this.Monitor.Log(message, queued ? LogLevel.Info : LogLevel.Warn);
+    }
+
     private void OnWorkersCommand(string command, string[] args)
     {
         string action = args.Length == 0 ? "menu" : args[0].ToLowerInvariant();
+        if (action == "permit" && args.Length == 1)
+        {
+            this.OnWorkerPermitCommand(command, Array.Empty<string>());
+            return;
+        }
         if (action == "help")
         {
             this.Monitor.Log(
                 $"Press B or use 'workers' to manage your crew. Hire: {WorkerEmploymentTerms.HiringCost}g including today's wage; later {WorkerEmploymentTerms.DailyWage}g/day.\n"
+                + "workerpermit — queue Lewis's standalone permission cutscene early; host on the Farm\n"
                 + "workers status — list IDs, orders, activity and location\n"
                 + "workers hire [default] — hire with custom or default appearance\n"
                 + "workers assign <id> <water|harvest|tend|forage|trees|hardwood|debris|ores|ladder|mine|slay|explore|fish|idle> — assign a job\n"
@@ -312,7 +392,11 @@ internal sealed class ModEntry : Mod
     private bool RequireWorld()
     {
         if (Context.IsWorldReady)
-            return true;
+        {
+            if (this.workerAccess.IsUnlocked) return true;
+            this.Monitor.Log(WorkerUnlockPolicy.LockedMessage, LogLevel.Info);
+            return false;
+        }
         this.Monitor.Log("Load a save before managing workers.", LogLevel.Info);
         return false;
     }

@@ -87,7 +87,7 @@ internal sealed class WorkerDialogueManager
 
     private bool TryHandleDialogue(NPC worker, Farmer who, GameLocation location)
     {
-        if (!Context.IsWorldReady
+        if (!Context.IsWorldReady || !this.workerShellManager.IsFeatureUnlocked
             || !who.IsLocalPlayer
             || !who.CanMove
             || Game1.dialogueUp

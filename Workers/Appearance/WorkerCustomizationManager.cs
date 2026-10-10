@@ -72,6 +72,12 @@ internal sealed class WorkerCustomizationManager
             return false;
         }
 
+        if (!this.workerShellManager.IsFeatureUnlocked)
+        {
+            this.monitor.Log(WorkerUnlockPolicy.LockedMessage, LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage(WorkerUnlockPolicy.LockedMessage, HUDMessage.error_type));
+            return false;
+        }
         return true;
     }
 

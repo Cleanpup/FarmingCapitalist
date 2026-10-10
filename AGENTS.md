@@ -20,6 +20,8 @@
 - Inspect only the specific reference API needed; do not recursively dump decompiled source or generated output.
 
 ## Invariants
+- `WorkerAccessManager` owns the saved per-farm mayor permit and host-mirrored feature access. `WorkerUnlockPolicy` gates the whole mod until Lewis's standalone native visit from Spring 8 year 1 (catch-up supported), or the host's `BypassWorkerUnlockEvent` config/optional GMCM toggle. Date/start alone never grants permission; native completion/skip plus finished scene cleanup does. Turning bypass off cannot revoke a completed permit. Clients ignore their own bypass and use the host mirror. Locked crews retain roster/orders/XP/perks/storage/pending loot, with no spawning, jobs or wages.
+- `WorkerPermitEventManager` owns the independent event/script, clear actor staging, native skip/end and queued `workerpermit` early/replay command (alias `workers permit`). Do not replace vanilla events or move real Lewis. Explicit visits still require host on Farm, safe/free player and no festival/event/menu/fade/tool/warp; leaving Farm or title cancels a pending command.
 - Host owns hiring, wages, tasks, movement, crop changes and save writes. Clients only observe mirrored state.
 - Guard game access with `Context.IsWorldReady`; stop work during menus, events and inactive game time.
 - Save worker identity, appearance and assignments in mod data; rebuild temporary runtime state from the live world.
@@ -80,10 +82,12 @@ workerstatus
 spawn
 spawn d
 delete
+workerpermit
 workers assign <id> explore
 workers explore-area <id> <mines|skull|volcano>
 ```
 
+- `workerpermit` queues the standalone permission cutscene early or replays it, host only while on the Farm. Close menus and stand still on clear ground for it to begin. Actual completion/skip grants permission; the command never directly unlocks.
 - `workerstatus` reports the primary worker and configured worker count.
 - `spawn` opens appearance customization; saving adds a worker. `spawn d` adds one with the default appearance.
 - `delete` removes all worker shells and clears the saved roster.

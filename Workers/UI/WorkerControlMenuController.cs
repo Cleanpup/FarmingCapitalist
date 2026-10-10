@@ -57,6 +57,11 @@ internal sealed class WorkerControlMenuController
             return false;
         }
 
+        if (!this.workerShellManager.IsFeatureUnlocked)
+        {
+            Game1.addHUDMessage(new HUDMessage(WorkerUnlockPolicy.LockedMessage, HUDMessage.error_type));
+            return false;
+        }
         Game1.activeClickableMenu = new WorkerControlMenu(this.workerShellManager, this.workerBehaviorManager, this.workerCustomizationManager);
         Game1.playSound("bigSelect");
         return true;

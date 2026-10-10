@@ -4,6 +4,8 @@ using FarmingCapitalist.Workers;
 StaminaChecks.Run();
 PerkChecks.Run();
 ProfessionChecks.Run();
+WorkerUnlockChecks.Run();
+WorkerAccessServiceChecks.Run();
 
 static void Equal<T>(T expected, T actual, string scenario)
 {

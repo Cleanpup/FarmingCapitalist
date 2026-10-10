@@ -827,7 +827,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerRuntimeSnapshot runtime = this.runtimeSnapshots[worker.WorkerId];
         WorkerSkillExperience experience = this.workerShellManager.GetWorkerExperience(worker.WorkerId);
         WorkerStaminaState stamina = this.workerShellManager.GetWorkerStamina(worker.WorkerId);
-        string energy = $"Stamina {stamina.Current:0.#}/{WorkerStaminaPolicy.Maximum:0}";
+        this.workerBehaviorManager.GetWorkerHealth(worker.WorkerId, out int health, out int maxHealth);
         string skillName = worker.Profession switch
         {
             WorkerProfession.Forager => "Foraging",
@@ -846,50 +846,62 @@ internal sealed class WorkerControlMenu : IClickableMenu
         };
         int skillLevel = WorkerExperiencePolicy.GetLevel(skillExperience);
         string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
+        int vitalsWidth = Math.Min(220, Math.Max(96, content.Width / 3));
+        vitalsWidth = Math.Min(vitalsWidth, content.Width / 2);
+        Rectangle vitals = new(content.Right - vitalsWidth, content.Y, vitalsWidth, content.Height);
+        int profileRight = vitals.Left - Gap;
         if (this.detailsBounds.Height < 160)
         {
-            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)} | {energy}\n{runtime.Status}\n{skillName} Lv. {skillLevel} | {location} | Done: {runtime.CompletedToday}", content, Ink);
+            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)}\n{runtime.Status}\n{skillName} Lv. {skillLevel} | {location}",
+                new Rectangle(content.X, content.Y, Math.Max(1, profileRight - content.X), content.Height), Ink);
+            this.DrawWorkerVitals(b, vitals, health, maxHealth, stamina);
             return;
         }
-        Rectangle portraitFrame = new(content.X, content.Y + 4, 74, 74);
+        int metricsY = this.detailsBounds.Bottom - 44;
+        int portraitSize = Math.Min(74, Math.Max(32, metricsY - content.Y - 16));
+        Rectangle portraitFrame = new(content.X, content.Y + 4, portraitSize, portraitSize);
         this.DrawCard(b, portraitFrame, Paper, false);
-        this.DrawWorkerFace(b, worker.WorkerId, new Rectangle(portraitFrame.X + 11, portraitFrame.Y + 11, 52, 52));
+        this.DrawWorkerFace(b, worker.WorkerId, new Rectangle(portraitFrame.X + 11, portraitFrame.Y + 11, portraitSize - 22, portraitSize - 22));
         int infoX = portraitFrame.Right + 16;
-        int infoWidth = Math.Max(1, content.Right - infoX);
-        bool showFarmingBadge = (this.currentTab == WorkerMenuTab.Roster || worker.Profession == WorkerProfession.CombatWorker)
-            && infoWidth >= 320;
-        int badgeWidth = showFarmingBadge ? Math.Min(270, infoWidth / 2) : 0;
-        int topLineWidth = showFarmingBadge ? infoWidth - badgeWidth - 16 : infoWidth;
-        this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}", new Rectangle(infoX, content.Y, topLineWidth, 30), Ink);
-        this.DrawText(b, $"{GetTaskLabel(runtime.AssignedTask)} • {energy}", new Rectangle(infoX, content.Y + 34, topLineWidth, 28), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
+        int infoWidth = Math.Max(1, profileRight - infoX);
+        this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}",
+            new Rectangle(infoX, content.Y, infoWidth, 28), Ink);
+        this.DrawText(b, $"{GetTaskLabel(runtime.AssignedTask)} • {skillName} Lv. {skillLevel}",
+            new Rectangle(infoX, content.Y + 28, infoWidth, 24), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
         string status = worker.Profession == WorkerProfession.Forager
             ? $"{runtime.Status} • {WorkerForageAreaCatalog.GetDisplayName(worker.ForageLocationName)}"
             : worker.Profession == WorkerProfession.CombatWorker
                 ? $"{runtime.Status} • {(runtime.AssignedTask == WorkerTaskKind.ExploreArea
                     ? WorkerExplorationAreaCatalog.GetLabel(worker.ExplorationArea) : WorkerCombatAreaCatalog.GetLabel(worker.CombatArea))}"
             : runtime.Status;
-        this.DrawText(b, status, new Rectangle(infoX, content.Y + 56, infoWidth, 24), MutedInk);
-        if (showFarmingBadge)
-        {
-            Rectangle badge = new(content.Right - badgeWidth, content.Y + 4, badgeWidth, 42);
-            this.DrawCard(b, badge, Paper, false);
-            if (worker.Profession == WorkerProfession.CombatWorker
-                && this.workerBehaviorManager.TryGetCombatHealth(worker.WorkerId, out int health, out int maxHealth))
-            {
-                this.DrawText(b, $"Combat Lv. {skillLevel}   HP {health}/{maxHealth}",
-                    new Rectangle(badge.X + 8, badge.Y + 3, badge.Width - 16, 25), Leaf, centered: true);
-                Rectangle hpBar = new(badge.X + 12, badge.Bottom - 11, badge.Width - 24, 5);
-                DrawRect(b, hpBar, Color.DarkRed);
-                DrawRect(b, new Rectangle(hpBar.X, hpBar.Y,
-                    (int)(hpBar.Width * (long)Math.Clamp(health, 0, maxHealth) / maxHealth), hpBar.Height), Leaf);
-            }
-            else
-                this.DrawText(b, $"{skillName} Lv. {skillLevel}", new Rectangle(badge.X + 12, badge.Y + 6, badge.Width - 24, badge.Height - 12), Leaf, centered: true);
-        }
-        int metricsY = this.detailsBounds.Bottom - 44;
+        this.DrawText(b, status, new Rectangle(infoX, content.Y + 52, infoWidth, 24), MutedInk);
+        vitals.Height = Math.Max(1, metricsY - content.Y - 10);
+        this.DrawWorkerVitals(b, vitals, health, maxHealth, stamina);
         DrawRect(b, new Rectangle(this.detailsBounds.X + 20, metricsY - 8, this.detailsBounds.Width - 40, 2), PaperShade);
-        this.DrawText(b, location, new Rectangle(this.detailsBounds.X + 22, metricsY, Math.Max(1, this.detailsBounds.Width - 215), 30), MutedInk);
-        this.DrawText(b, $"Done today  {runtime.CompletedToday}", new Rectangle(this.detailsBounds.Right - 185, metricsY, 163, 30), Ink, centered: true);
+        this.DrawText(b, location, new Rectangle(this.detailsBounds.X + 22, metricsY, this.detailsBounds.Width - 44, 30), MutedInk);
+    }
+
+    private void DrawWorkerVitals(SpriteBatch b, Rectangle bounds, int health, int maxHealth, WorkerStaminaState stamina)
+    {
+        int rowHeight = Math.Max(1, (bounds.Height - 4) / 2);
+        this.DrawVitalBar(b, new Rectangle(bounds.X, bounds.Y, bounds.Width, rowHeight),
+            "Health", health, maxHealth, new Color(171, 58, 48));
+        this.DrawVitalBar(b, new Rectangle(bounds.X, bounds.Y + rowHeight + 4, bounds.Width, rowHeight),
+            "Stamina", stamina.Current, WorkerStaminaPolicy.Maximum,
+            stamina.Resting ? new Color(207, 142, 43) : Leaf);
+    }
+
+    private void DrawVitalBar(SpriteBatch b, Rectangle row, string label, float current, float maximum, Color fill)
+    {
+        int barHeight = Math.Clamp(row.Height / 4, 4, 10);
+        this.DrawText(b, $"{label}  {current:0.#}/{maximum:0}",
+            new Rectangle(row.X, row.Y, row.Width, Math.Max(1, row.Height - barHeight - 3)), Ink);
+        Rectangle bar = new(row.X, row.Bottom - barHeight, row.Width, barHeight);
+        DrawRect(b, bar, Wood);
+        Rectangle inner = new(bar.X + 1, bar.Y + 1, Math.Max(1, bar.Width - 2), Math.Max(1, bar.Height - 2));
+        DrawRect(b, inner, PaperShade);
+        float fraction = maximum > 0 ? Math.Clamp(current / maximum, 0, 1) : 0;
+        DrawRect(b, new Rectangle(inner.X, inner.Y, (int)(inner.Width * fraction), inner.Height), fill);
     }
 
     private void DrawOrders(SpriteBatch b)
@@ -1030,7 +1042,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private void DrawStoragePanel(SpriteBatch b)
     {
         if (this.ordersBounds.Height >= 220)
-            this.DrawSectionHeading(b, this.ordersBounds, "HARVEST STORAGE", $"{this.chestOptions.Count} chests found");
+            this.DrawSectionHeading(b, this.ordersBounds, "HARVEST STORAGE", string.Empty);
 
         WorkerHarvestDestination? destination = this.selectedWorkerId is null
             ? null

@@ -268,9 +268,9 @@ internal sealed class WorkerBehaviorManager
                 continue;
             }
 
+            this.combatManager.EnsureHealth(worker, workerId);
             if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.CombatWorker)
             {
-                this.combatManager.EnsureHealth(worker, workerId);
                 if (Game1.activeClickableMenu is null && Game1.CurrentEvent is null)
                     this.explorationManager.DeliverPendingLoot(workerId);
             }
@@ -675,6 +675,16 @@ internal sealed class WorkerBehaviorManager
 
     public bool TryGetCombatHealth(string workerId, out int health, out int maxHealth)
         => this.combatManager.TryGetHealth(workerId, out health, out maxHealth);
+
+    public void GetWorkerHealth(string workerId, out int health, out int maxHealth)
+    {
+        if (this.combatManager.TryGetHealth(workerId, out health, out maxHealth)) return;
+        if (this.workerShellManager.TryGetCombatHealthToday(workerId, out health, out maxHealth))
+            health = WorkerCombatPolicy.NormalizeHealth(health, maxHealth);
+        else
+            health = WorkerCombatPolicy.MaxHealth;
+        maxHealth = WorkerCombatPolicy.MaxHealth;
+    }
 
     public void DrawCombatHealthBars(Microsoft.Xna.Framework.Graphics.SpriteBatch batch)
         => this.combatManager.DrawHealthBars(batch);

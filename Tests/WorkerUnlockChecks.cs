@@ -1,5 +1,5 @@
 using System.Text.Json;
-using FarmingCapitalist.Workers;
+using HireSkilledHelpers.Workers;
 
 internal static class WorkerUnlockChecks
 {

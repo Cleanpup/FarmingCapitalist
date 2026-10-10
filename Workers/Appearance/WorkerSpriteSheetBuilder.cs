@@ -4,7 +4,7 @@ using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal sealed class WorkerSpriteSheetBuilder
 {

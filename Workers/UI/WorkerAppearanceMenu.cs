@@ -8,7 +8,7 @@ using StardewValley;
 using StardewValley.BellsAndWhistles;
 using StardewValley.Menus;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal sealed class WorkerAppearanceMenu : IClickableMenu
 {

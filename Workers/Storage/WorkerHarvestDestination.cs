@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>A saved chest address. Null means the farm shipping bin.</summary>
 internal sealed class WorkerHarvestDestination

@@ -1,4 +1,6 @@
-# Worker dialogue
+# Hire Skilled Helpers dialogue
+
+The public asset path retains its original identity for compatibility with existing content packs.
 
 Workers use the game-content asset `Mods/Cleanpup.FarmingCapitalist/WorkerDialogue`. Talking to the same worker repeatedly on one day gives the same line; the selected line advances predictably between days.
 

@@ -2,7 +2,7 @@ using System;
 using StardewModdingAPI;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal sealed class WorkerCustomizationManager
 {

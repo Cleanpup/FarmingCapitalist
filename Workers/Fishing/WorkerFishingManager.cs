@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Host simulation at permanent shores, with read-only rod/line rendering on every peer.</summary>
 internal sealed class WorkerFishingManager

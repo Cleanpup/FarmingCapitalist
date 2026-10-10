@@ -1,4 +1,4 @@
-using FarmingCapitalist.Workers;
+using HireSkilledHelpers.Workers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using xTile;

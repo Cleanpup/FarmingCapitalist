@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal readonly record struct WorkerRuntimeSnapshot(
     WorkerTaskKind AssignedTask,

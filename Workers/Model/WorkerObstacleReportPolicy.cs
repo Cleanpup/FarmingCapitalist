@@ -1,6 +1,6 @@
 using System;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal static class WorkerObstacleReportPolicy
 {

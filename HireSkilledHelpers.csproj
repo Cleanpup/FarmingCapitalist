@@ -4,8 +4,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>FarmingCapitalistFull</AssemblyName>
-    <RootNamespace>FarmingCapitalist</RootNamespace>
+    <AssemblyName>HireSkilledHelpers</AssemblyName>
+    <RootNamespace>HireSkilledHelpers</RootNamespace>
+    <ModFolderName>HireSkilledHelpers</ModFolderName>
     <EnableHarmony>true</EnableHarmony>
     <!-- Reference source and test harnesses are not part of the shipped mod. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);StardewValleyDecompiled/**;SMAPI/**;Tests/**</DefaultItemExcludes>

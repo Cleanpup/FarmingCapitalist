@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Simulation timing, access and area-specific loot; no live monster or farmer rewards.</summary>
 internal static class WorkerExplorationPolicy

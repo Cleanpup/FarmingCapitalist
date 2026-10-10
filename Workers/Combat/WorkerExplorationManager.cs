@@ -2,7 +2,7 @@ using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Host-owned simulated expeditions with a visible, stationary worker at an entrance.</summary>
 internal sealed class WorkerExplorationManager

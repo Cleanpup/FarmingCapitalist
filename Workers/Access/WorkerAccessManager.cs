@@ -1,7 +1,7 @@
 using StardewModdingAPI;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Per-save permit, separate from the host's optional global bypass configuration.</summary>
 internal sealed class WorkerAccessManager

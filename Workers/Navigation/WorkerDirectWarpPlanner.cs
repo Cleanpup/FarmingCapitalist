@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal sealed record WorkerWarpOption<TLeg>(Point WarpTile, Func<(TLeg Leg, int Steps)?> BuildLeg) where TLeg : class;
 

@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Find the main walkable Farm area near the farmhouse without mistaking its porch for the whole Farm.</summary>
 internal static class WorkerIdleRegionPolicy

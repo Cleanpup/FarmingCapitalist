@@ -1,6 +1,6 @@
 using StardewModdingAPI;
 
-namespace FarmingCapitalist.Integrations;
+namespace HireSkilledHelpers.Integrations;
 
 // Minimal API surface from Generic Mod Config Menu's public interface:
 // https://github.com/spacechase0/StardewValleyMods/blob/develop/framework/GenericModConfigMenu/IGenericModConfigMenuApi.cs

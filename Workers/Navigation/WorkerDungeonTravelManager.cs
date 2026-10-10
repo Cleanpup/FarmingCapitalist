@@ -4,7 +4,7 @@ using StardewValley;
 using StardewValley.Extensions;
 using StardewValley.Locations;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Shared physical dungeon staging, floor following, and safe landing geometry.</summary>
 internal sealed class WorkerDungeonTravelManager

@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal static class WorkerCombatPolicy
 {

@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Vanilla 1.6 location spawn seasons and Data/Fish bite gates; excludes boss/special fish.</summary>
 internal static class WorkerFishingCatchCatalog

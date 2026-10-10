@@ -5,7 +5,7 @@ using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Tools;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Replays the host's swing signal locally; drawing never invokes tool or damage logic.</summary>
 internal sealed class WorkerCombatAnimationManager

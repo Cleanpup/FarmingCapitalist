@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal sealed class WorkerRosterSaveData
 {

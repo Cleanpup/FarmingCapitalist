@@ -8,7 +8,7 @@ using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Locations;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal sealed class WorkerShellManager
 {

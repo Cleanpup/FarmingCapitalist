@@ -6,7 +6,7 @@ using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Menus;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Host-owned hiring and orders, with a read-only roster for farmhands.</summary>
 internal sealed class WorkerControlMenu : IClickableMenu

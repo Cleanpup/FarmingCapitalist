@@ -9,7 +9,7 @@ using StardewValley.Locations;
 using StardewValley.TerrainFeatures;
 using StardewValley.Tools;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal sealed class WorkerBehaviorManager
 {

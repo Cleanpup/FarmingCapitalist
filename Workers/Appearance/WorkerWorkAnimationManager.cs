@@ -6,7 +6,7 @@ using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Tools;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Transient host action timing and mirrored work poses. Drawing never executes an action or vanilla callback.</summary>
 internal sealed class WorkerWorkAnimationManager

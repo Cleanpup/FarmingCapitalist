@@ -4,7 +4,7 @@ using StardewValley;
 using StardewValley.Locations;
 using StardewValley.TerrainFeatures;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Host-owned, visual-only Farm activity for workers with no assigned job.</summary>
 internal sealed class WorkerIdleMovementManager

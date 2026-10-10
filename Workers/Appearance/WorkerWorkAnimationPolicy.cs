@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal enum WorkerWorkAnimationKind { Water, Gather, Axe, Pickaxe, Scythe }
 

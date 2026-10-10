@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 // Game-facing appearance and storage values are irrelevant to these pure roster tests.
 internal sealed class WorkerAppearanceData

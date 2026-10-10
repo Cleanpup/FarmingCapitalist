@@ -1,7 +1,7 @@
 using HarmonyLib;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Prevents vanilla tool actions performed for workers from crediting a farmer.</summary>
 internal static class WorkerExperienceSuppression

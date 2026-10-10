@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Automatic level-five perks derived from each worker's saved XP, without duplicate unlock state.</summary>
 internal static class WorkerPerkPolicy

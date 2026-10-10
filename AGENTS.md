@@ -1,7 +1,7 @@
-# FarmingCapitalist — repository context
+# Hire Skilled Helpers — repository context
 
 ## Goal and scope
-- Stardew Valley 1.6 / SMAPI mod in C#, targeting .NET 6; entry DLL is `FarmingCapitalistFull.dll`.
+- Stardew Valley 1.6 / SMAPI mod in C#, targeting .NET 6; entry DLL is `HireSkilledHelpers.dll`.
 - Build hirable NPC workers who visibly travel to assigned jobs and perform real farm work.
 - Read `Plan.txt` for milestone status and `TESTING.md` for the current manual checks.
 - Keep this file concise. Update facts when architecture or commands change; avoid task transcripts.
@@ -20,6 +20,7 @@
 - Inspect only the specific reference API needed; do not recursively dump decompiled source or generated output.
 
 ## Invariants
+- Branding/project/assembly/install folder use Hire Skilled Helpers / HireSkilledHelpers. Keep the legacy manifest UniqueID `Cleanpup.FarmingCapitalist`, saved/mod-data keys, native permit event ID and public dialogue asset path stable so existing farms, multiplayer identities and Content Patcher integrations survive the rename.
 - `WorkerAccessManager` owns the saved per-farm mayor permit and host-mirrored feature access. `WorkerUnlockPolicy` gates the whole mod until Lewis's standalone native visit from Spring 8 year 1 (catch-up supported), or the host's `BypassWorkerUnlockEvent` config/optional GMCM toggle. Date/start alone never grants permission; native completion/skip plus finished scene cleanup does. Turning bypass off cannot revoke a completed permit. Clients ignore their own bypass and use the host mirror. Locked crews retain roster/orders/XP/perks/storage/pending loot, with no spawning, jobs or wages.
 - `WorkerPermitEventManager` owns the independent event/script, clear actor staging, native skip/end and queued `workerpermit` early/replay command (alias `workers permit`). Do not replace vanilla events or move real Lewis. Explicit visits still require host on Farm, safe/free player and no festival/event/menu/fade/tool/warp; leaving Farm or title cancels a pending command.
 - Host owns hiring, wages, tasks, movement, crop changes and save writes. Clients only observe mirrored state.
@@ -73,7 +74,7 @@ debug where Robin
 debug fin "galaxy sword"
 ```
 
-## FarmingCapitalist commands
+## Hire Skilled Helpers commands
 
 These are registered by this mod in `ModEntry.cs`, so enter them directly without `debug`:
 

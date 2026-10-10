@@ -2,7 +2,7 @@ using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Objects;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal static class WorkerItemStorage
 {

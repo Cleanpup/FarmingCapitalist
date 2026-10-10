@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Worker skill thresholds and awards, independent of player skills.</summary>
 internal static class WorkerExperiencePolicy

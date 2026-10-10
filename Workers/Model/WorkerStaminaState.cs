@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Saved energy and recovery clock for one worker, independent of the player.</summary>
 internal sealed class WorkerStaminaState

@@ -1,4 +1,4 @@
-using FarmingCapitalist.Workers;
+using HireSkilledHelpers.Workers;
 using Microsoft.Xna.Framework;
 
 // Model the engine collision result, including terrain occupancy that does not

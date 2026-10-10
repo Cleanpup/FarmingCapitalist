@@ -7,7 +7,7 @@ using StardewValley;
 using StardewValley.Pathfinding;
 using StardewValley.TerrainFeatures;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal sealed class WorkerNavigationManager
 {

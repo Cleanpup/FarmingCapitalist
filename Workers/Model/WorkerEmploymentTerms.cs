@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Shared, visible employment terms used by the roster, menus, and commands.</summary>
 internal static class WorkerEmploymentTerms

@@ -5,7 +5,7 @@ using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Offers the host a native, skippable mayor visit once the farm is eligible.</summary>
 internal sealed class WorkerPermitEventManager

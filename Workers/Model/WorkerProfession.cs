@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Persistent worker professions. Numeric values must remain stable in existing saves.</summary>
 internal enum WorkerProfession

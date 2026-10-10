@@ -1,5 +1,5 @@
 using System.Text.Json;
-using FarmingCapitalist.Workers;
+using HireSkilledHelpers.Workers;
 
 StaminaChecks.Run();
 PerkChecks.Run();

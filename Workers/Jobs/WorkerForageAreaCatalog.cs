@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using StardewModdingAPI;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Outdoor mainland areas which vanilla NPC schedule pathing can reach on foot.</summary>
 internal static class WorkerForageAreaCatalog

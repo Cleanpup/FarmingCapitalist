@@ -1,4 +1,4 @@
-using FarmingCapitalist.Workers;
+using HireSkilledHelpers.Workers;
 using Microsoft.Xna.Framework;
 
 Point door = new(5, 2);

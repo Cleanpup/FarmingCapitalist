@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Pure task decisions, separated from game objects for inexpensive regression checks.</summary>
 internal static class WorkerTaskPolicy

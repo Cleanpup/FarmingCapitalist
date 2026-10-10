@@ -1,4 +1,4 @@
-using FarmingCapitalist.Workers;
+using HireSkilledHelpers.Workers;
 using Microsoft.Xna.Framework;
 
 string[] candidates = Enumerable.Range(0, 96).Select(index => index.ToString()).ToArray();

@@ -6,7 +6,7 @@ using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Provides normal portrait dialogue for managed workers without turning their custom shells into vanilla villagers.</summary>
 internal sealed class WorkerDialogueManager

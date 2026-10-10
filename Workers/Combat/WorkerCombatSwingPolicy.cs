@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Visual-only sword poses and the single impact point of a worker swing.</summary>
 internal static class WorkerCombatSwingPolicy

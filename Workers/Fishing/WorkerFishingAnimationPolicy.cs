@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Callback-free vanilla farmer cast frames, held pose, and reversed reel motion.</summary>
 internal static class WorkerFishingAnimationPolicy

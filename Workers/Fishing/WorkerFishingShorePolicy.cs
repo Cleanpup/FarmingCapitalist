@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Short, cardinal casts cross only water, including nonfishable decorative shore borders.</summary>
 internal static class WorkerFishingShorePolicy

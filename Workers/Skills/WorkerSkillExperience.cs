@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Mod-owned experience for one worker across the five standard skills.</summary>
 internal sealed class WorkerSkillExperience

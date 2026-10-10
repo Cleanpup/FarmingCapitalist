@@ -1,5 +1,5 @@
 using System.Text.Json;
-using FarmingCapitalist.Workers;
+using HireSkilledHelpers.Workers;
 using StardewModdingAPI;
 using StardewValley;
 

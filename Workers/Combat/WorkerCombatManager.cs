@@ -6,7 +6,7 @@ using StardewValley.Extensions;
 using StardewValley.Locations;
 using StardewValley.Monsters;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Host-owned monster work. Never passes a farmer to the damage or kill path.</summary>
 internal sealed class WorkerCombatManager

@@ -1,4 +1,4 @@
-namespace FarmingCapitalist;
+namespace HireSkilledHelpers;
 
 internal sealed class ModConfig
 {

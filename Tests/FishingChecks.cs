@@ -1,4 +1,4 @@
-using FarmingCapitalist.Workers;
+using HireSkilledHelpers.Workers;
 
 static void Check(bool condition, string message)
 {

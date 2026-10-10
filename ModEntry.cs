@@ -1,11 +1,11 @@
-using FarmingCapitalist.Workers;
-using FarmingCapitalist.Integrations;
+using HireSkilledHelpers.Workers;
+using HireSkilledHelpers.Integrations;
 using HarmonyLib;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
 
-namespace FarmingCapitalist;
+namespace HireSkilledHelpers;
 
 /// <summary>Connects worker services to SMAPI; decisions live in the worker runtime.</summary>
 internal sealed class ModEntry : Mod

@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Curated ordinary-monster rewards, normalized for an hourly worker expedition.
 /// Chances here are worker balance, NOT vanilla per-kill chances. Each bonus rolls independently.</summary>

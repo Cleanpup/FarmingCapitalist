@@ -1,7 +1,7 @@
 using Microsoft.Xna.Framework;
 using StardewValley;
 
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 internal static class WorkerFishingAreaCatalog
 {

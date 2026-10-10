@@ -1,10 +1,10 @@
 {
-  "Name": "FarmingCapitalist",
+  "Name": "Hire Skilled Helpers",
   "Author": "Cleanpup",
-  "Version": "1.8.3",
-  "Description": "The Big One",
+  "Version": "1.9.0",
+  "Description": "Hire skilled helpers to farm, forage, mine, fish, and fight.",
   "UniqueID": "Cleanpup.FarmingCapitalist",
-  "EntryDll": "FarmingCapitalistFull.dll",
+  "EntryDll": "HireSkilledHelpers.dll",
   "MinimumApiVersion": "4.0.0",
   "UpdateKeys": [],
   "Dependencies": [

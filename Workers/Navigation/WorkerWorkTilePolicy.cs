@@ -1,4 +1,4 @@
-namespace FarmingCapitalist.Workers;
+namespace HireSkilledHelpers.Workers;
 
 /// <summary>Safety conditions shared by job approaches, obstacle searches, and warp landings.</summary>
 internal static class WorkerWorkTilePolicy

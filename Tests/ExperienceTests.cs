@@ -3,6 +3,7 @@ using FarmingCapitalist.Workers;
 
 StaminaChecks.Run();
 PerkChecks.Run();
+ProfessionChecks.Run();
 
 static void Equal<T>(T expected, T actual, string scenario)
 {

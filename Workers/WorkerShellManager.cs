@@ -654,6 +654,19 @@ internal sealed class WorkerShellManager
         return true;
     }
 
+    public bool TrySetProfession(string workerId, WorkerProfession profession)
+    {
+        if (!this.CanManageWorkers(out _)) return false;
+        WorkerRosterEntry? entry = this.GetWorkerEntry(workerId);
+        if (entry is null || !Enum.IsDefined(typeof(WorkerProfession), profession)) return false;
+        if (entry.Profession == profession) return true;
+        if (!WorkerTaskPolicy.TryChangeProfession(entry, profession, Game1.Date.TotalDays,
+            Context.IsMainPlayer, Context.IsWorldReady)) return false;
+        this.RebuildGeneratedSpriteSheet(entry);
+        this.PersistRoster();
+        return true;
+    }
+
     public bool CanWorkerWorkToday(string workerId)
     {
         return Context.IsWorldReady && this.GetWorkerEntry(workerId)?.LastPaidDay == Game1.Date.TotalDays;

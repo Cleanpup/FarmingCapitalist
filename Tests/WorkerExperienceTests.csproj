@@ -10,6 +10,7 @@
     <Compile Include="ExperienceTests.cs" />
     <Compile Include="StaminaChecks.cs" />
     <Compile Include="PerkChecks.cs" />
+    <Compile Include="ProfessionChecks.cs" />
     <Compile Include="../Workers/Model/WorkerStaminaState.cs" />
     <Compile Include="../Workers/Skills/WorkerStaminaPolicy.cs" />
     <Compile Include="../Workers/Skills/WorkerPerkPolicy.cs" />

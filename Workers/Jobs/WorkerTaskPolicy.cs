@@ -38,6 +38,17 @@ internal static class WorkerTaskPolicy
         entry.AssignedTask = task;
     }
 
+    /// <summary>Changing roles cancels orders, but never changes identity, skills, vitals or saved loot.</summary>
+    public static bool TryChangeProfession(WorkerRosterEntry entry, WorkerProfession profession, int today,
+        bool isHost, bool worldReady)
+    {
+        if (!isHost || !worldReady || !Enum.IsDefined(typeof(WorkerProfession), profession)) return false;
+        if (entry.Profession == profession) return true;
+        entry.Profession = profession;
+        AssignTask(entry, WorkerTaskKind.Idle, today);
+        return true;
+    }
+
     public static void NormalizeCompletedOrder(WorkerRosterEntry entry, int today)
     {
         if (entry.AssignedTask != WorkerTaskKind.Idle || entry.NextDayTask is not WorkerTaskKind task

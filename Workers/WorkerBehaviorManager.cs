@@ -269,13 +269,10 @@ internal sealed class WorkerBehaviorManager
             }
 
             this.combatManager.EnsureHealth(worker, workerId);
-            if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.CombatWorker)
-            {
-                if (Game1.activeClickableMenu is null && Game1.CurrentEvent is null)
-                    this.explorationManager.DeliverPendingLoot(workerId);
-            }
-
-            if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Fisher)
+            // Finished rewards remain deliverable after changing to a different profession.
+            if (this.workerShellManager.GetExplorationProgress(workerId).PendingLoot.Count > 0)
+                this.explorationManager.DeliverPendingLoot(workerId);
+            if (this.workerShellManager.GetFishingProgress(workerId).PendingCatches.Count > 0)
                 this.fishingManager.Deliver(workerId);
 
             if (this.workerShellManager.GetWorkerProfession(workerId) is WorkerProfession.CombatWorker or WorkerProfession.Miner or WorkerProfession.Fisher
@@ -421,6 +418,24 @@ internal sealed class WorkerBehaviorManager
         this.miningModes.Clear();
     }
 
+    public bool TryChangeProfession(string workerId, WorkerProfession profession, out string message)
+    {
+        message = "Only the host can change worker professions.";
+        if (!Context.IsWorldReady || !Context.IsMainPlayer) return false;
+        if (!Enum.IsDefined(typeof(WorkerProfession), profession)
+            || !this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
+        { message = "That worker or profession is not available."; return false; }
+        if (this.workerShellManager.GetWorkerProfession(workerId) == profession)
+        { message = $"{worker.displayName} is already a {WorkerTaskPolicy.GetProfessionLabel(profession)}."; return true; }
+
+        // Exit old dungeon floors and stop old tools/casts before changing role metadata.
+        if (!this.TryAssignTask(workerId, WorkerTaskKind.Idle, out message)) return false;
+        if (!this.workerShellManager.TrySetProfession(workerId, profession))
+        { message = "The worker's profession could not be changed."; return false; }
+        message = $"{worker.displayName} is now a {WorkerTaskPolicy.GetProfessionLabel(profession)}. Choose a new order.";
+        return true;
+    }
+
     public bool TryAssignTask(string workerId, WorkerTaskKind task, out string message)
         => this.TryAssignTask(workerId, task, out message, preserveDailyOrder: false);
 
@@ -453,11 +468,13 @@ internal sealed class WorkerBehaviorManager
             message = miningReason + ".";
             return false;
         }
+        WorkerTaskKind previousTask = this.workerShellManager.GetAssignedTask(workerId);
         if (!this.workerShellManager.TrySetAssignedTask(workerId, task, preserveDailyOrder))
         {
             message = "Only the host can assign worker tasks.";
             return false;
         }
+        this.PreserveCancelledDrops(worker, workerId, previousTask);
         this.navigationManager.StopTravel(worker);
         this.idleMovement.Stop(workerId);
         this.staminaRestingWorkers.Remove(workerId);
@@ -500,6 +517,26 @@ internal sealed class WorkerBehaviorManager
         this.LogState(workerId, worker, $"assignment changed to {task}");
         message = $"{worker.displayName} is now assigned to {WorkerTaskPolicy.GetTaskLabel(task)}.";
         return true;
+    }
+
+    private void PreserveCancelledDrops(NPC worker, string workerId, WorkerTaskKind previousTask)
+    {
+        if (this.activeObstacleClears.TryGetValue(workerId, out ActiveObstacleClear? clear)
+            && clear.CapturedDebris.Count > 0)
+            this.dropCollectionZones.Add(new DropCollectionZone(clear.Location, clear.ObstacleTile,
+                new HashSet<Debris>(), Game1.ticks + 1, Game1.ticks + 60, workerId, worker.displayName,
+                previousTask, ForagerTargetKind.RouteDebris,
+                this.workerShellManager.GetHarvestDestination(workerId), clear.CapturedDebris));
+        if (this.activeForagerActions.TryGetValue(workerId, out ActiveForagerAction? action)
+            && Game1.getLocationFromName(action.Target.LocationName) is GameLocation location)
+        {
+            HashSet<Debris> drops = WorkerDebrisCapture.CaptureNew(action.ExistingDebris, location.debris);
+            drops.RemoveWhere(debris => !this.IsDebrisNear(debris, action.Target.ResourceTile, 9));
+            if (drops.Count > 0)
+                this.dropCollectionZones.Add(new DropCollectionZone(location, action.Target.ResourceTile,
+                    action.ExistingDebris, Game1.ticks + 1, Game1.ticks + 60, workerId, worker.displayName,
+                    action.Assignment, action.Target.Kind, this.workerShellManager.GetHarvestDestination(workerId), drops));
+        }
     }
 
     public void StopWorker(string workerId)

@@ -43,6 +43,12 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private const int ExplorationAreaId = 90025;
     private const int SkillLevelsId = 90026;
     private const int WorkerPerksId = 90027;
+    private const int ProfessionDropdownId = 90028;
+    private const int ProfessionRowIdBase = 93000;
+    private static readonly WorkerProfession[] ProfessionOptions =
+        { WorkerProfession.Farmer, WorkerProfession.Forager, WorkerProfession.CombatWorker, WorkerProfession.Miner, WorkerProfession.Fisher };
+    private readonly record struct ProfileLayout(Rectangle Content, Rectangle Portrait, Rectangle Name,
+        Rectangle Profession, Rectangle Wage, Rectangle Location, Rectangle Vitals);
     // drawDialogueBox starts its visible top border 64 pixels below its supplied Y.
     private const int FrameTopOffset = 64;
     private const int ResizeHitPadding = 12;
@@ -64,6 +70,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private readonly List<ClickableComponent> orderButtons = new();
     private readonly List<WorkerChestOption> chestOptions = new();
     private readonly List<ClickableComponent> destinationRows = new();
+    private readonly List<ClickableComponent> professionRows = new();
     private ClickableComponent hireButton = null!;
     private ClickableComponent previousButton = null!;
     private ClickableComponent nextButton = null!;
@@ -82,6 +89,9 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private ClickableComponent explorationAreaButton = null!;
     private ClickableComponent skillLevelsButton = null!;
     private ClickableComponent workerPerksButton = null!;
+    private ClickableComponent professionDropdownButton = null!;
+    private Rectangle professionPopupBounds;
+    private bool professionDropdownOpen;
     private Rectangle headerBounds;
     private Rectangle rosterBounds;
     private Rectangle detailsBounds;
@@ -135,7 +145,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.RefreshSnapshots();
         }
 
-        if (this.pendingDismissalId is null && this.currentlySnappedComponent is { } component)
+        if (this.pendingDismissalId is null && !this.professionDropdownOpen && this.currentlySnappedComponent is { } component)
         {
             int index = component.myID - WorkerRowIdBase;
             if (index >= 0 && index < this.workerSnapshots.Count)
@@ -156,7 +166,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     public override void snapToDefaultClickableComponent()
     {
-        int id = this.pendingDismissalId is not null
+        int id = this.professionDropdownOpen ? ProfessionDropdownId : this.pendingDismissalId is not null
             ? CancelId
             : this.workerRows.Count > 0 ? this.workerRows[0].myID : HireId;
         this.currentlySnappedComponent = this.getComponentWithID(id);
@@ -168,6 +178,12 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     public void RequestClose()
     {
+        if (this.professionDropdownOpen)
+        {
+            this.professionDropdownOpen = false;
+            this.RebuildLayout(ProfessionDropdownId);
+            return;
+        }
         if (this.pendingDismissalId is not null)
         {
             this.CancelDismissal();
@@ -179,13 +195,13 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     public override void receiveKeyPress(Keys key)
     {
-        if (key == Keys.Escape)
+        if (key == Keys.Escape || Game1.options.doesInputListContain(Game1.options.menuButton, key))
         {
             this.RequestClose();
             return;
         }
 
-        if (this.pendingDismissalId is null && (key == Keys.PageDown || key == Keys.PageUp))
+        if (this.pendingDismissalId is null && !this.professionDropdownOpen && (key == Keys.PageDown || key == Keys.PageUp))
         {
             if (this.currentTab == WorkerMenuTab.Storage && this.destinationDropdownOpen)
                 this.ScrollDestinations(key == Keys.PageDown ? 1 : -1);
@@ -199,6 +215,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     public override void receiveScrollWheelAction(int direction)
     {
+        if (this.professionDropdownOpen) return;
         if (this.pendingDismissalId is null && this.currentTab == WorkerMenuTab.Storage
             && this.destinationDropdownOpen && this.ordersBounds.Contains(Game1.getMouseX(), Game1.getMouseY()))
         {
@@ -228,6 +245,40 @@ internal sealed class WorkerControlMenu : IClickableMenu
             else if (this.confirmButton.containsPoint(x, y))
             {
                 this.ConfirmDismissal();
+            }
+            return;
+        }
+
+        if (this.professionDropdownOpen)
+        {
+            foreach (ClickableComponent row in this.professionRows)
+                if (row.containsPoint(x, y))
+                {
+                    WorkerProfession profession = ProfessionOptions[row.myID - ProfessionRowIdBase];
+                    if (this.EnsureSelectedHostWorker())
+                    {
+                        bool success = this.workerBehaviorManager.TryChangeProfession(this.selectedWorkerId!, profession, out string message);
+                        this.SetFeedback(message, !success);
+                    }
+                    this.professionDropdownOpen = false;
+                    this.RefreshSnapshots();
+                    this.RebuildLayout(ProfessionDropdownId);
+                    return;
+                }
+            this.professionDropdownOpen = false;
+            this.RebuildLayout(ProfessionDropdownId);
+            Game1.playSound("smallSelect");
+            return;
+        }
+        if (this.professionDropdownButton.containsPoint(x, y))
+        {
+            if (this.EnsureSelectedHostWorker())
+            {
+                this.professionDropdownOpen = true;
+                this.destinationDropdownOpen = false;
+                int selected = Array.IndexOf(ProfessionOptions, this.GetSelectedWorker()!.Value.Profession);
+                this.RebuildLayout(ProfessionRowIdBase + Math.Max(0, selected));
+                Game1.playSound("smallSelect");
             }
             return;
         }
@@ -527,6 +578,14 @@ internal sealed class WorkerControlMenu : IClickableMenu
         {
             return;
         }
+        if (this.professionDropdownOpen) return;
+        if (this.professionDropdownButton.containsPoint(x, y) && this.GetSelectedWorker() is not null)
+        {
+            this.hoverText = Context.IsMainPlayer
+                ? "Change profession. Skills and perks stay; choose a new order afterward."
+                : "Only the host can change professions.";
+            return;
+        }
         if (this.resizeEdges != ResizeEdges.None || this.GetResizeEdges(x, y) != ResizeEdges.None)
         {
             this.hoverText = "Drag this border or corner to resize the menu.";
@@ -568,11 +627,12 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawFooter(b);
         this.DrawResizeGrips(b);
         base.draw(b);
+        if (this.professionDropdownOpen) this.DrawProfessionPopup(b);
         if (this.pendingDismissalId is not null)
         {
             this.DrawDismissalConfirmation(b);
         }
-        else if (this.resizeEdges == ResizeEdges.None && this.hoverText.Length > 0)
+        else if (!this.professionDropdownOpen && this.resizeEdges == ResizeEdges.None && this.hoverText.Length > 0)
         {
             IClickableMenu.drawHoverText(b, this.hoverText, Game1.smallFont);
         }
@@ -605,7 +665,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
         {
             for (int i = 0; i < latest.Count; i++)
             {
-                changed |= latest[i].WorkerId != this.workerSnapshots[i].WorkerId;
+                changed |= latest[i].WorkerId != this.workerSnapshots[i].WorkerId
+                    || latest[i].Profession != this.workerSnapshots[i].Profession;
             }
         }
         this.workerSnapshots.Clear();
@@ -618,6 +679,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         if (this.GetSelectedWorker() is null)
         {
             this.selectedWorkerId = this.workerSnapshots.Count > 0 ? this.workerSnapshots[0].WorkerId : null;
+            this.professionDropdownOpen = false;
         }
         if (changed && this.hireButton is not null)
         {
@@ -647,6 +709,19 @@ internal sealed class WorkerControlMenu : IClickableMenu
         int detailHeight = Math.Clamp((int)(bodyHeight * 0.46f), Math.Min(120, bodyHeight / 2), 190);
         this.detailsBounds = new Rectangle(detailLeft, bodyTop, detailWidth, detailHeight);
         this.ordersBounds = new Rectangle(detailLeft, this.detailsBounds.Bottom + Gap, detailWidth, Math.Max(1, bodyHeight - detailHeight - Gap));
+        this.professionDropdownButton = Button(ProfessionDropdownId, this.GetProfileLayout().Profession);
+        int popupWidth = Math.Max(160, this.professionDropdownButton.bounds.Width);
+        int popupHeight = ProfessionOptions.Length * 36 + 12;
+        int popupX = Math.Clamp(this.professionDropdownButton.bounds.X, this.detailsBounds.X,
+            Math.Max(this.detailsBounds.X, this.detailsBounds.Right - popupWidth));
+        int popupY = Math.Clamp(this.professionDropdownButton.bounds.Bottom + 4,
+            this.headerBounds.Bottom, Math.Max(this.headerBounds.Bottom, this.footerBounds.Bottom - popupHeight));
+        this.professionPopupBounds = new Rectangle(popupX, popupY, popupWidth, popupHeight);
+        this.professionRows.Clear();
+        if (this.professionDropdownOpen)
+            for (int i = 0; i < ProfessionOptions.Length; i++)
+                this.professionRows.Add(Button(ProfessionRowIdBase + i,
+                    new Rectangle(popupX + 6, popupY + 6 + i * 36, popupWidth - 12, 34)));
         int hireWidth = Math.Min(240, this.headerBounds.Width / 3);
         this.hireButton = Button(HireId, new Rectangle(right - hireWidth, this.headerBounds.Y + 4, hireWidth, 56));
         int tabWidth = Math.Min(150, Math.Max(80, (this.headerBounds.Width - hireWidth - Gap * 5 - 8) / 4));
@@ -738,8 +813,15 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.allClickableComponents.Add(this.cancelButton);
             this.allClickableComponents.Add(this.confirmButton);
         }
+        else if (this.professionDropdownOpen)
+        {
+            this.allClickableComponents.Add(this.professionDropdownButton);
+            this.allClickableComponents.AddRange(this.professionRows);
+        }
         else
         {
+            if (Context.IsMainPlayer && this.GetSelectedWorker() is not null)
+                this.allClickableComponents.Add(this.professionDropdownButton);
             this.allClickableComponents.Add(this.rosterTabButton);
             this.allClickableComponents.Add(this.jobsTabButton);
             this.allClickableComponents.Add(this.skillsTabButton);
@@ -791,7 +873,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             component.downNeighborID = this.FindNeighbor(component, 0, 1);
         }
         this.currentlySnappedComponent = preferredSnapId is int id ? this.getComponentWithID(id) : null;
-        this.currentlySnappedComponent ??= this.getComponentWithID(this.pendingDismissalId is not null ? CancelId : this.workerRows.Count > 0 ? this.workerRows[0].myID : HireId);
+        this.currentlySnappedComponent ??= this.getComponentWithID(this.professionDropdownOpen ? ProfessionDropdownId : this.pendingDismissalId is not null ? CancelId : this.workerRows.Count > 0 ? this.workerRows[0].myID : HireId);
         if (this.resizeEdges == ResizeEdges.None && Game1.options.SnappyMenus && Game1.options.gamepadControls && this.currentlySnappedComponent is not null)
         {
             this.snapCursorToCurrentSnappedComponent();
@@ -868,64 +950,97 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawText(b, pages, new Rectangle(this.previousButton.bounds.Right + 4, this.previousButton.bounds.Y + 6, this.nextButton.bounds.Left - this.previousButton.bounds.Right - 8, 26), Game1.textColor * 0.75f, centered: true);
     }
 
+    private ProfileLayout GetProfileLayout()
+    {
+        Rectangle content = new(this.detailsBounds.X + Padding, this.detailsBounds.Y + 58,
+            Math.Max(1, this.detailsBounds.Width - Padding * 2), Math.Max(1, this.detailsBounds.Height - 72));
+        bool compact = this.detailsBounds.Height < 160;
+        int metricsY = this.detailsBounds.Bottom - 44;
+        int vitalsWidth = Math.Min(Math.Min(220, Math.Max(96, content.Width / 3)), content.Width / 2);
+        Rectangle vitals = new(content.Right - vitalsWidth, content.Y, vitalsWidth,
+            compact ? content.Height : Math.Max(1, metricsY - content.Y - 10));
+        int portraitSize = compact ? 0 : Math.Min(74, Math.Max(32, metricsY - content.Y - 16));
+        Rectangle portrait = new(content.X, content.Y + 4, portraitSize, portraitSize);
+        int infoX = compact ? content.X : portrait.Right + 16;
+        int infoWidth = Math.Max(1, vitals.Left - Gap - infoX);
+        int lineHeight = compact ? Math.Min(28, Math.Max(1, content.Height / 3)) : 28;
+        int professionWidth = Math.Min(140, Math.Max(1, infoWidth / 2));
+        Rectangle profession = new(infoX + infoWidth - professionWidth, content.Y, professionWidth, lineHeight);
+        Rectangle name = new(infoX, content.Y, Math.Max(1, infoWidth - professionWidth - 6), lineHeight);
+        Rectangle wage = new(infoX, content.Y + lineHeight, infoWidth,
+            compact ? lineHeight : Math.Min(24, Math.Max(1, metricsY - 8 - content.Y - lineHeight)));
+        Rectangle location = compact ? new Rectangle(infoX, content.Y + 2 * lineHeight, infoWidth, lineHeight)
+            : new Rectangle(this.detailsBounds.X + 22, metricsY, this.detailsBounds.Width - 44, 30);
+        return new ProfileLayout(content, portrait, name, profession, wage, location, vitals);
+    }
+
     private void DrawDetails(SpriteBatch b)
     {
         this.DrawPanel(b, this.detailsBounds);
         this.DrawSectionHeading(b, this.detailsBounds, "WORKER PROFILE", string.Empty);
-        WorkerSummarySnapshot? selected = this.GetSelectedWorker();
-        Rectangle content = new(this.detailsBounds.X + Padding, this.detailsBounds.Y + 58, this.detailsBounds.Width - Padding * 2, this.detailsBounds.Height - 72);
-        if (selected is not WorkerSummarySnapshot worker)
+        ProfileLayout layout = this.GetProfileLayout();
+        if (this.GetSelectedWorker() is not WorkerSummarySnapshot worker)
         {
-            this.DrawText(b, "Select a worker to see their profile.", content, MutedInk);
+            this.DrawText(b, "Select a worker to see their profile.", layout.Content, MutedInk);
             return;
         }
-        WorkerStaminaState stamina = this.workerShellManager.GetWorkerStamina(worker.WorkerId);
-        this.workerBehaviorManager.GetWorkerHealth(worker.WorkerId, out int health, out int maxHealth);
-        string wage = $"Daily wage: {this.workerShellManager.GetWorkerDailyWage(worker.WorkerId)}g";
+        if (layout.Portrait.Width > 0)
+        {
+            this.DrawCard(b, layout.Portrait, Paper, false);
+            Rectangle face = layout.Portrait;
+            face.Inflate(-11, -11);
+            this.DrawWorkerFace(b, worker.WorkerId, face);
+            DrawRect(b, new Rectangle(this.detailsBounds.X + 20, layout.Location.Y - 8, this.detailsBounds.Width - 40, 2), PaperShade);
+        }
+        this.DrawSingleLineText(b, worker.DisplayName, layout.Name, Ink);
+        bool enabled = Context.IsMainPlayer;
+        this.DrawCard(b, layout.Profession, enabled ? Paper : PaperShade, this.professionDropdownOpen);
+        Rectangle professionText = layout.Profession;
+        professionText.Inflate(-5, -2);
+        this.DrawSingleLineText(b, WorkerTaskPolicy.GetProfessionLabel(worker.Profession) + "  v",
+            professionText, enabled ? Ink : MutedInk, centered: true);
+        this.DrawSingleLineText(b, $"Daily wage: {this.workerShellManager.GetWorkerDailyWage(worker.WorkerId)}g", layout.Wage, MutedInk);
         string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
-        int vitalsWidth = Math.Min(220, Math.Max(96, content.Width / 3));
-        vitalsWidth = Math.Min(vitalsWidth, content.Width / 2);
-        Rectangle vitals = new(content.Right - vitalsWidth, content.Y, vitalsWidth, content.Height);
-        int profileRight = vitals.Left - Gap;
-        if (this.detailsBounds.Height < 160)
+        this.DrawSingleLineText(b, location, layout.Location, MutedInk);
+        this.workerBehaviorManager.GetWorkerHealth(worker.WorkerId, out int health, out int maxHealth);
+        this.DrawWorkerVitals(b, layout.Vitals, health, maxHealth, this.workerShellManager.GetWorkerStamina(worker.WorkerId));
+    }
+
+    private void DrawProfessionPopup(SpriteBatch b)
+    {
+        this.DrawCard(b, this.professionPopupBounds, Paper, false);
+        WorkerProfession? selected = this.GetSelectedWorker()?.Profession;
+        foreach (ClickableComponent row in this.professionRows)
         {
-            this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}\n{wage}\n{location}",
-                new Rectangle(content.X, content.Y, Math.Max(1, profileRight - content.X), content.Height), Ink);
-            this.DrawWorkerVitals(b, vitals, health, maxHealth, stamina);
-            return;
+            WorkerProfession profession = ProfessionOptions[row.myID - ProfessionRowIdBase];
+            bool highlighted = profession == selected || row.containsPoint(Game1.getMouseX(), Game1.getMouseY())
+                || this.currentlySnappedComponent?.myID == row.myID;
+            this.DrawCard(b, row.bounds, highlighted ? PaperShade : Paper, highlighted);
+            Rectangle text = row.bounds;
+            text.Inflate(-8, -4);
+            this.DrawSingleLineText(b, WorkerTaskPolicy.GetProfessionLabel(profession), text, Ink);
         }
-        int metricsY = this.detailsBounds.Bottom - 44;
-        int portraitSize = Math.Min(74, Math.Max(32, metricsY - content.Y - 16));
-        Rectangle portraitFrame = new(content.X, content.Y + 4, portraitSize, portraitSize);
-        this.DrawCard(b, portraitFrame, Paper, false);
-        this.DrawWorkerFace(b, worker.WorkerId, new Rectangle(portraitFrame.X + 11, portraitFrame.Y + 11, portraitSize - 22, portraitSize - 22));
-        int infoX = portraitFrame.Right + 16;
-        int infoWidth = Math.Max(1, profileRight - infoX);
-        this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}",
-            new Rectangle(infoX, content.Y, infoWidth, 28), Ink);
-        this.DrawText(b, wage, new Rectangle(infoX, content.Y + 28, infoWidth,
-            Math.Min(24, Math.Max(1, metricsY - 8 - content.Y - 28))), MutedInk);
-        vitals.Height = Math.Max(1, metricsY - content.Y - 10);
-        this.DrawWorkerVitals(b, vitals, health, maxHealth, stamina);
-        DrawRect(b, new Rectangle(this.detailsBounds.X + 20, metricsY - 8, this.detailsBounds.Width - 40, 2), PaperShade);
-        this.DrawText(b, location, new Rectangle(this.detailsBounds.X + 22, metricsY, this.detailsBounds.Width - 44, 30), MutedInk);
     }
 
     private void DrawWorkerVitals(SpriteBatch b, Rectangle bounds, int health, int maxHealth, WorkerStaminaState stamina)
     {
         int rowHeight = Math.Max(1, (bounds.Height - 4) / 2);
+        string widestLabel = $"Stamina  {stamina.Maximum:0}.9/{stamina.Maximum:0}";
+        Vector2 labelSize = Game1.smallFont.MeasureString(widestLabel);
+        float labelScale = Math.Min(1f, Math.Min(bounds.Width / Math.Max(1, labelSize.X),
+            Math.Max(1, rowHeight - Math.Clamp(rowHeight / 4, 4, 10) - 3) / Math.Max(1, labelSize.Y)));
         this.DrawVitalBar(b, new Rectangle(bounds.X, bounds.Y, bounds.Width, rowHeight),
-            "Health", health, maxHealth, healthBar: true);
+            "Health", health, maxHealth, healthBar: true, labelScale: labelScale);
         this.DrawVitalBar(b, new Rectangle(bounds.X, bounds.Y + rowHeight + 4, bounds.Width, rowHeight),
-            "Stamina", stamina.Current, stamina.Maximum, healthBar: false);
+            "Stamina", stamina.Current, stamina.Maximum, healthBar: false, labelScale: labelScale);
     }
 
     private void DrawVitalBar(SpriteBatch b, Rectangle row, string label, float current, float maximum,
-        bool healthBar, bool large = false)
+        bool healthBar, bool large = false, float labelScale = 1f)
     {
         int barHeight = large ? Math.Clamp(row.Height - 28, 8, 48) : Math.Clamp(row.Height / 4, 4, 10);
-        this.DrawText(b, $"{label}  {current:0.#}/{maximum:0}",
-            new Rectangle(row.X, row.Y, row.Width, Math.Max(1, row.Height - barHeight - 3)), Ink);
+        this.DrawSingleLineText(b, $"{label}  {current:0.#}/{maximum:0}",
+            new Rectangle(row.X, row.Y, row.Width, Math.Max(1, row.Height - barHeight - 3)), Ink, maximumScale: labelScale);
         Rectangle bar = new(row.X, row.Bottom - barHeight, row.Width, barHeight);
         this.DrawVanillaVitalBar(b, bar, current, maximum, healthBar);
     }
@@ -1331,6 +1446,17 @@ internal sealed class WorkerControlMenu : IClickableMenu
         b.DrawString(Game1.smallFont, wrapped, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 1f);
     }
 
+    private void DrawSingleLineText(SpriteBatch b, string text, Rectangle bounds, Color color,
+        bool centered = false, float maximumScale = 1f)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0) return;
+        Vector2 size = Game1.smallFont.MeasureString(text);
+        float scale = Math.Min(maximumScale, Math.Min(bounds.Width / Math.Max(1f, size.X), bounds.Height / Math.Max(1f, size.Y)));
+        Vector2 position = new(bounds.X, bounds.Y + (bounds.Height - size.Y * scale) / 2f);
+        if (centered) position.X += (bounds.Width - size.X * scale) / 2f;
+        b.DrawString(Game1.smallFont, text, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 1f);
+    }
+
     private void DrawWorkerFace(SpriteBatch b, string workerId, Rectangle bounds)
     {
         if (this.workerShellManager.TryGetWorkerMenuFace(workerId, out Texture2D? texture, out Rectangle sourceRect) && texture is not null)
@@ -1361,6 +1487,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         if (this.selectedWorkerId != workerId)
         {
             this.selectedWorkerId = workerId;
+            this.professionDropdownOpen = false;
             this.feedback = "Choose a daily order below. Close the menu to watch work continue.";
             this.feedbackIsError = false;
             int index = this.workerSnapshots.FindIndex(snapshot => snapshot.WorkerId == workerId);
@@ -1485,7 +1612,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     private ResizeEdges GetResizeEdges(int x, int y)
     {
-        if (this.pendingDismissalId is not null || this.upperRightCloseButton?.containsPoint(x, y) == true)
+        if (this.professionDropdownOpen || this.pendingDismissalId is not null || this.upperRightCloseButton?.containsPoint(x, y) == true)
             return ResizeEdges.None;
 
         Rectangle bounds = this.GetMenuFrameBounds();

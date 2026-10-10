@@ -41,6 +41,10 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private const int DestinationRowIdBase = 92000;
     private const int ForageAreaId = 90023;
     private const int ExplorationAreaId = 90025;
+    // drawDialogueBox starts its visible top border 64 pixels below its supplied Y.
+    private const int FrameTopOffset = 64;
+    private const int ResizeHitPadding = 12;
+    private static Point preferredMenuSize = new(1200, 840);
     private const int Padding = 20;
     private const int Gap = 12;
     private static readonly Color Ink = new(91, 48, 30);
@@ -102,7 +106,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         WorkerBehaviorManager workerBehaviorManager,
         WorkerCustomizationManager workerCustomizationManager,
         string? selectedWorkerId = null)
-        : base(0, 0, GetMenuWidth(1200), GetMenuHeight(840), showUpperRightCloseButton: true)
+        : base(0, 0, GetMenuWidth(preferredMenuSize.X), GetMenuHeight(preferredMenuSize.Y), showUpperRightCloseButton: true)
     {
         this.workerShellManager = workerShellManager;
         this.workerBehaviorManager = workerBehaviorManager;
@@ -138,6 +142,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     public override void gameWindowSizeChanged(Rectangle oldBounds, Rectangle newBounds)
     {
+        this.resizeEdges = ResizeEdges.None;
         this.width = GetMenuWidth(this.width);
         this.height = GetMenuHeight(this.height);
         this.CenterOnScreen();
@@ -467,17 +472,35 @@ internal sealed class WorkerControlMenu : IClickableMenu
         int dy = y - this.resizeStartMouse.Y;
         int widthDelta = (this.resizeEdges & ResizeEdges.Left) != 0 ? -dx : dx;
         int heightDelta = (this.resizeEdges & ResizeEdges.Top) != 0 ? -dy : dy;
-        this.width = GetMenuWidth(this.resizeStartBounds.Width + (((this.resizeEdges & (ResizeEdges.Left | ResizeEdges.Right)) != 0) ? widthDelta : 0));
-        this.height = GetMenuHeight(this.resizeStartBounds.Height + (((this.resizeEdges & (ResizeEdges.Top | ResizeEdges.Bottom)) != 0) ? heightDelta : 0));
-        this.xPositionOnScreen = (this.resizeEdges & ResizeEdges.Left) != 0 ? this.resizeStartBounds.Right - this.width : this.resizeStartBounds.X;
-        this.yPositionOnScreen = (this.resizeEdges & ResizeEdges.Top) != 0 ? this.resizeStartBounds.Bottom - this.height : this.resizeStartBounds.Y;
-        this.xPositionOnScreen = Math.Clamp(this.xPositionOnScreen, 0, Math.Max(0, Game1.uiViewport.Width - this.width));
-        this.yPositionOnScreen = Math.Clamp(this.yPositionOnScreen, 0, Math.Max(0, Game1.uiViewport.Height - this.height));
+        bool fromLeft = (this.resizeEdges & ResizeEdges.Left) != 0;
+        bool fromTop = (this.resizeEdges & ResizeEdges.Top) != 0;
+        // Limit growth against the dragged edge, keeping the opposite edge fixed.
+        int maximumWidth = Math.Min(GetMenuWidth(int.MaxValue), fromLeft
+            ? this.resizeStartBounds.Right - 12
+            : Game1.uiViewport.Width - 12 - this.resizeStartBounds.Left);
+        int maximumHeight = Math.Min(GetMenuHeight(int.MaxValue), fromTop
+            ? this.resizeStartBounds.Bottom + FrameTopOffset - 12
+            : Game1.uiViewport.Height - 12 - this.resizeStartBounds.Top);
+        int nextWidth = (this.resizeEdges & (ResizeEdges.Left | ResizeEdges.Right)) != 0
+            ? Math.Clamp(this.resizeStartBounds.Width + widthDelta, Math.Min(800, maximumWidth), maximumWidth)
+            : this.resizeStartBounds.Width;
+        int nextHeight = (this.resizeEdges & (ResizeEdges.Top | ResizeEdges.Bottom)) != 0
+            ? Math.Clamp(this.resizeStartBounds.Height + heightDelta, Math.Min(560, maximumHeight), maximumHeight)
+            : this.resizeStartBounds.Height;
+        if (nextWidth == this.width && nextHeight == this.height)
+            return;
+
+        this.width = nextWidth;
+        this.height = nextHeight;
+        this.xPositionOnScreen = fromLeft ? this.resizeStartBounds.Right - this.width : this.resizeStartBounds.X;
+        this.yPositionOnScreen = fromTop ? this.resizeStartBounds.Bottom - this.height : this.resizeStartBounds.Y;
         this.RebuildLayout(this.currentlySnappedComponent?.myID);
     }
 
     public override void releaseLeftClick(int x, int y)
     {
+        if (this.resizeEdges != ResizeEdges.None)
+            preferredMenuSize = new Point(this.width, this.height);
         this.resizeEdges = ResizeEdges.None;
         base.releaseLeftClick(x, y);
     }
@@ -487,6 +510,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.hoverText = string.Empty;
         if (this.pendingDismissalId is not null)
         {
+            return;
+        }
+        if (this.resizeEdges != ResizeEdges.None || this.GetResizeEdges(x, y) != ResizeEdges.None)
+        {
+            this.hoverText = "Drag this border or corner to resize the menu.";
             return;
         }
         if (this.hireButton.containsPoint(x, y))
@@ -523,12 +551,13 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawDetails(b);
         this.DrawOrders(b);
         this.DrawFooter(b);
+        this.DrawResizeGrips(b);
         base.draw(b);
         if (this.pendingDismissalId is not null)
         {
             this.DrawDismissalConfirmation(b);
         }
-        else if (this.hoverText.Length > 0)
+        else if (this.resizeEdges == ResizeEdges.None && this.hoverText.Length > 0)
         {
             IClickableMenu.drawHoverText(b, this.hoverText, Game1.smallFont);
         }
@@ -671,6 +700,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.cancelButton = Button(CancelId, new Rectangle(this.confirmationBounds.X + 24, this.confirmationBounds.Bottom - 78, confirmWidth, 54));
         this.confirmButton = Button(ConfirmId, new Rectangle(this.cancelButton.bounds.Right + 20, this.cancelButton.bounds.Y, confirmWidth, 54));
         this.initializeUpperRightCloseButton();
+        this.upperRightCloseButton.bounds.Y += FrameTopOffset;
         this.upperRightCloseButton.myID = IClickableMenu.upperRightCloseButton_ID;
         this.RefreshClickableComponents(preferredSnapId);
     }
@@ -737,7 +767,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         this.currentlySnappedComponent = preferredSnapId is int id ? this.getComponentWithID(id) : null;
         this.currentlySnappedComponent ??= this.getComponentWithID(this.pendingDismissalId is not null ? CancelId : this.workerRows.Count > 0 ? this.workerRows[0].myID : HireId);
-        if (Game1.options.SnappyMenus && Game1.options.gamepadControls && this.currentlySnappedComponent is not null)
+        if (this.resizeEdges == ResizeEdges.None && Game1.options.SnappyMenus && Game1.options.gamepadControls && this.currentlySnappedComponent is not null)
         {
             this.snapCursorToCurrentSnappedComponent();
         }
@@ -1411,19 +1441,71 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.RebuildLayout();
     }
 
+    private Rectangle GetMenuFrameBounds()
+        => new(this.xPositionOnScreen, this.yPositionOnScreen + FrameTopOffset, this.width, this.height - FrameTopOffset);
+
     private ResizeEdges GetResizeEdges(int x, int y)
     {
-        Rectangle bounds = new(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height);
-        if (!bounds.Contains(x, y))
-        {
+        if (this.pendingDismissalId is not null || this.upperRightCloseButton?.containsPoint(x, y) == true)
             return ResizeEdges.None;
-        }
+
+        Rectangle bounds = this.GetMenuFrameBounds();
+        Rectangle hitBounds = bounds;
+        hitBounds.Inflate(ResizeHitPadding, ResizeHitPadding);
+        if (!hitBounds.Contains(x, y))
+            return ResizeEdges.None;
+
+        int left = Math.Abs(x - bounds.Left);
+        int right = Math.Abs(x - bounds.Right);
+        int top = Math.Abs(y - bounds.Top);
+        int bottom = Math.Abs(y - bounds.Bottom);
+        bool nearCorner = Math.Min(left, right) <= 28 && Math.Min(top, bottom) <= 28;
+        int sideReach = nearCorner ? 28 : 20;
+        int endReach = nearCorner ? 28 : ResizeHitPadding;
         ResizeEdges edges = ResizeEdges.None;
-        if (x - bounds.Left < 20) edges |= ResizeEdges.Left;
-        else if (bounds.Right - x < 20) edges |= ResizeEdges.Right;
-        if (y - bounds.Top < 20) edges |= ResizeEdges.Top;
-        else if (bounds.Bottom - y < 20) edges |= ResizeEdges.Bottom;
+        if (left <= sideReach) edges |= ResizeEdges.Left;
+        else if (right <= sideReach) edges |= ResizeEdges.Right;
+        if (top <= endReach) edges |= ResizeEdges.Top;
+        else if (bottom <= endReach) edges |= ResizeEdges.Bottom;
         return edges;
+    }
+
+    private void DrawResizeGrips(SpriteBatch b)
+    {
+        if (this.pendingDismissalId is not null)
+            return;
+
+        Rectangle frame = this.GetMenuFrameBounds();
+        ResizeEdges active = this.resizeEdges != ResizeEdges.None
+            ? this.resizeEdges : this.GetResizeEdges(Game1.getMouseX(), Game1.getMouseY());
+        Color GripColor(ResizeEdges edges) => (active & edges) != 0 ? Paper : MutedInk;
+        void Grip(Rectangle bounds, ResizeEdges edges) => b.Draw(Game1.staminaRect, bounds, GripColor(edges));
+        int centerX = frame.Center.X;
+        int centerY = frame.Center.Y;
+        for (int offset = -4; offset <= 4; offset += 4)
+        {
+            Grip(new Rectangle(frame.Left + 5 + offset + 4, centerY - 12, 2, 24), ResizeEdges.Left);
+            Grip(new Rectangle(frame.Right - 15 + offset + 4, centerY - 12, 2, 24), ResizeEdges.Right);
+            Grip(new Rectangle(centerX - 12, frame.Top + 5 + offset + 4, 24, 2), ResizeEdges.Top);
+            Grip(new Rectangle(centerX - 12, frame.Bottom - 15 + offset + 4, 24, 2), ResizeEdges.Bottom);
+        }
+        for (int column = 0; column < 2; column++)
+        {
+            bool left = column == 0;
+            for (int row = 0; row < 2; row++)
+            {
+                bool top = row == 0;
+                // Leave the close button its own upper-right corner.
+                if (!left && top)
+                    continue;
+                ResizeEdges edges = (left ? ResizeEdges.Left : ResizeEdges.Right) | (top ? ResizeEdges.Top : ResizeEdges.Bottom);
+                int x = left ? frame.Left + 7 : frame.Right - 7;
+                int y = top ? frame.Top + 7 : frame.Bottom - 7;
+                int length = 16;
+                Grip(new Rectangle(left ? x : x - length, y, length, 3), edges);
+                Grip(new Rectangle(x, top ? y : y - length, 3, length), edges);
+            }
+        }
     }
 
     private static string FormatTile(Point? tile) => tile is Point point ? $"{point.X}, {point.Y}" : "--";

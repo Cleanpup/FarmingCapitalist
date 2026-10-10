@@ -3,7 +3,7 @@
   "Author": "Cleanpup",
   "Version": "1.0.0",
   "Description": "Hire skilled helpers to farm, forage, mine, fish, and fight.",
-  "UniqueID": "Cleanpup.FarmingCapitalist",
+  "UniqueID": "Cleanpup.HireSkilledHelpers",
   "EntryDll": "HireSkilledHelpers.dll",
   "MinimumApiVersion": "4.0.0",
   "Dependencies": [

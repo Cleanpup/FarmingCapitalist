@@ -90,6 +90,7 @@ internal sealed class ModEntry : Mod
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        WorkerSaveMigration.Migrate();
         this.workerPermitEvent.Reset();
         this.workerAccess.Load();
         this.workerShellManager.ReloadWorkerAppearance();

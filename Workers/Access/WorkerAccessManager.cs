@@ -17,8 +17,8 @@ internal sealed class WorkerAccessManager
     {
         this.helper = helper;
         this.monitor = monitor;
-        this.saveKey = manifest.UniqueID + ".WorkerPermit";
-        this.mirrorKey = manifest.UniqueID + "/WorkerFeaturesUnlocked";
+        this.saveKey = "Cleanpup.FarmingCapitalist" + ".WorkerPermit";
+        this.mirrorKey = "Cleanpup.FarmingCapitalist" + "/WorkerFeaturesUnlocked";
         this.bypassEvent = bypassEvent;
     }
 

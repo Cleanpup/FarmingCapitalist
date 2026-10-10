@@ -35,10 +35,10 @@ internal sealed class WorkerShellManager
         this.helper = helper;
         this.featuresAvailable = featuresAvailable;
         this.monitor = monitor;
-        this.legacyAppearanceSaveDataKey = $"{manifest.UniqueID}.TestWorkerAppearance";
-        this.rosterSaveDataKey = $"{manifest.UniqueID}.WorkerRoster";
-        this.workerIdDataKey = $"{manifest.UniqueID}/WorkerId";
-        this.rosterMirrorDataKey = $"{manifest.UniqueID}/WorkerRoster";
+        this.legacyAppearanceSaveDataKey = $"Cleanpup.FarmingCapitalist.TestWorkerAppearance";
+        this.rosterSaveDataKey = $"Cleanpup.FarmingCapitalist.WorkerRoster";
+        this.workerIdDataKey = $"Cleanpup.FarmingCapitalist/WorkerId";
+        this.rosterMirrorDataKey = $"Cleanpup.FarmingCapitalist/WorkerRoster";
         this.spriteSheetBuilder = new WorkerSpriteSheetBuilder(monitor);
     }
 

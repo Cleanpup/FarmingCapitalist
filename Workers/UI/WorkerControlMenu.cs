@@ -41,6 +41,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private const int DestinationRowIdBase = 92000;
     private const int ForageAreaId = 90023;
     private const int ExplorationAreaId = 90025;
+    private const int SkillLevelsId = 90026;
+    private const int WorkerPerksId = 90027;
     // drawDialogueBox starts its visible top border 64 pixels below its supplied Y.
     private const int FrameTopOffset = 64;
     private const int ResizeHitPadding = 12;
@@ -78,6 +80,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private ClickableComponent destinationNextButton = null!;
     private ClickableComponent forageAreaButton = null!;
     private ClickableComponent explorationAreaButton = null!;
+    private ClickableComponent skillLevelsButton = null!;
+    private ClickableComponent workerPerksButton = null!;
     private Rectangle headerBounds;
     private Rectangle rosterBounds;
     private Rectangle detailsBounds;
@@ -96,6 +100,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private int firstVisibleDestination;
     private int visibleDestinationCount = 1;
     private bool destinationDropdownOpen;
+    private bool showWorkerPerks;
     private double refreshMilliseconds;
     private ResizeEdges resizeEdges;
     private Point resizeStartMouse;
@@ -276,6 +281,16 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.RebuildLayout(StorageTabId);
             Game1.playSound("smallSelect");
             return;
+        }
+        if (this.currentTab == WorkerMenuTab.Skills)
+        {
+            if (this.skillLevelsButton.containsPoint(x, y) || this.workerPerksButton.containsPoint(x, y))
+            {
+                this.showWorkerPerks = this.workerPerksButton.containsPoint(x, y);
+                this.RefreshClickableComponents(this.showWorkerPerks ? WorkerPerksId : SkillLevelsId);
+                Game1.playSound("smallSelect");
+                return;
+            }
         }
         foreach (ClickableComponent row in this.workerRows)
         {
@@ -677,6 +692,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.ordersBounds.Y + (this.ordersBounds.Height >= 220 ? 60 : 8), this.ordersBounds.Width - 36, areaHeight));
         this.explorationAreaButton = Button(ExplorationAreaId, new Rectangle(this.forageAreaButton.bounds.X,
             this.forageAreaButton.bounds.Y + areaRowHeight, this.forageAreaButton.bounds.Width, areaHeight));
+        int skillTabHeight = this.ordersBounds.Height < 220 ? 28 : 36;
+        int skillTabTop = this.ordersBounds.Y + (this.ordersBounds.Height < 220 ? 10 : 52);
+        int skillTabWidth = Math.Min(160, Math.Max(1, (this.ordersBounds.Width - 48) / 2));
+        this.skillLevelsButton = Button(SkillLevelsId, new Rectangle(this.ordersBounds.X + 20, skillTabTop, skillTabWidth, skillTabHeight));
+        this.workerPerksButton = Button(WorkerPerksId, new Rectangle(this.skillLevelsButton.bounds.Right + 8, skillTabTop, skillTabWidth, skillTabHeight));
         bool tallStoragePanel = this.ordersBounds.Height >= 220;
         this.destinationDropdownButton = Button(DestinationDropdownId, new Rectangle(
             this.ordersBounds.X + 18, this.ordersBounds.Y + (tallStoragePanel ? 70 : 14),
@@ -733,6 +753,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
                     this.allClickableComponents.Add(this.forageAreaButton);
                 if (this.GetSelectedWorker() is { Profession: WorkerProfession.CombatWorker })
                     this.allClickableComponents.Add(this.explorationAreaButton);
+            }
+            if (this.currentTab == WorkerMenuTab.Skills)
+            {
+                this.allClickableComponents.Add(this.skillLevelsButton);
+                this.allClickableComponents.Add(this.workerPerksButton);
             }
             if (this.currentTab == WorkerMenuTab.Storage)
             {
@@ -1026,12 +1051,25 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     private void DrawSkillsPanel(SpriteBatch b)
     {
-        this.DrawSectionHeading(b, this.ordersBounds, "WORKER SKILLS", string.Empty);
+        if (this.ordersBounds.Height >= 220)
+            this.DrawSectionHeading(b, this.ordersBounds, "WORKER SKILLS", string.Empty);
+        this.DrawCard(b, this.skillLevelsButton.bounds, Paper, !this.showWorkerPerks);
+        this.DrawText(b, "Skills", this.skillLevelsButton.bounds, Ink, centered: true);
+        this.DrawCard(b, this.workerPerksButton.bounds, Paper, this.showWorkerPerks);
+        this.DrawText(b, "Perks", this.workerPerksButton.bounds, Ink, centered: true);
+        int top = this.skillLevelsButton.bounds.Bottom + 10;
+        Rectangle content = new(this.ordersBounds.X + Padding, top, this.ordersBounds.Width - Padding * 2,
+            Math.Max(1, this.ordersBounds.Bottom - top - 12));
         WorkerSummarySnapshot? selected = this.GetSelectedWorker();
         if (selected is null)
         {
-            this.DrawText(b, "Select a worker to view their skills.",
-                new Rectangle(this.ordersBounds.X + Padding, this.ordersBounds.Y + 75, this.ordersBounds.Width - Padding * 2, 35), MutedInk);
+            this.DrawText(b, this.showWorkerPerks ? "Select a worker to view their perks." : "Select a worker to view their skills.",
+                content, MutedInk, centered: true);
+            return;
+        }
+        if (this.showWorkerPerks)
+        {
+            this.DrawText(b, "No worker perks are available yet.", content, MutedInk, centered: true);
             return;
         }
 
@@ -1044,14 +1082,15 @@ internal sealed class WorkerControlMenu : IClickableMenu
             ("Foraging", experience.Foraging),
             ("Combat", experience.Combat),
         };
-        int top = this.ordersBounds.Y + (this.ordersBounds.Height < 220 ? 58 : 64);
         int gap = this.ordersBounds.Height < 220 ? 4 : 8;
-        int available = Math.Max(1, this.ordersBounds.Bottom - top - 12);
-        int rowHeight = Math.Max(1, Math.Min(58, (available - gap * (skills.Length - 1)) / skills.Length));
+        int columns = content.Height < 160 ? 2 : 1;
+        int rows = (skills.Length + columns - 1) / columns;
+        int rowHeight = Math.Max(1, Math.Min(58, (content.Height - gap * (rows - 1)) / rows));
+        int rowWidth = Math.Max(1, (content.Width - gap * (columns - 1)) / columns);
         for (int index = 0; index < skills.Length; index++)
         {
-            Rectangle row = new(this.ordersBounds.X + 20, top + index * (rowHeight + gap),
-                this.ordersBounds.Width - 40, rowHeight);
+            Rectangle row = new(content.X + index % columns * (rowWidth + gap), top + index / columns * (rowHeight + gap),
+                rowWidth, rowHeight);
             this.DrawSkillRow(b, row, skills[index].Name, skills[index].Experience);
         }
     }

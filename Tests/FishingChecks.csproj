@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="FishingChecks.cs" />
+    <Compile Include="../Workers/Model/WorkerStaminaState.cs" />
+    <Compile Include="../Workers/Skills/WorkerStaminaPolicy.cs" />
     <Compile Include="../Workers/Fishing/WorkerFishingShorePolicy.cs" />
     <Compile Include="../Workers/Model/WorkerFishingProgress.cs" />
     <Compile Include="../Workers/Fishing/WorkerFishingPolicy.cs" />

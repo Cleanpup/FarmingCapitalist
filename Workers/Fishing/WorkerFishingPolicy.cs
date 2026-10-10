@@ -25,6 +25,7 @@ internal static class WorkerFishingPolicy
         {
             progress.Day = day;
             progress.Minutes = progress.CompletedCatches = progress.CompletedAttempts = 0;
+            progress.CastStarted = false;
             progress.LastObservedMinute = -1;
             changed = true;
         }
@@ -39,11 +40,13 @@ internal static class WorkerFishingPolicy
         int day, bool isHost, bool worldReady, bool paid)
     {
         if (!isHost || !worldReady || !paid || entry.Profession != WorkerProfession.Fisher || entry.AssignedTask != WorkerTaskKind.Fish
+            || !progress.CastStarted || !entry.Fishing.CastStarted
             || progress.Day != day || progress.Minutes < MinutesPerCatch || progress.CompletedAttempts >= MaximumAttemptsPerDay
             || entry.Fishing.Day != day || entry.Fishing.Minutes != progress.Minutes
             || entry.Fishing.CompletedAttempts != progress.CompletedAttempts || entry.Fishing.CompletedCatches != progress.CompletedCatches
             || (catchItem is not null && !WorkerFishingCatchCatalog.IsAllowed(catchItem.ItemId))) return false;
         progress.Minutes -= MinutesPerCatch;
+        progress.CastStarted = false;
         progress.CompletedAttempts++;
         if (catchItem is not null)
         {
@@ -54,6 +57,17 @@ internal static class WorkerFishingPolicy
         entry.Experience.Fishing = (int)Math.Min(int.MaxValue,
             (long)Math.Max(0, entry.Experience.Fishing) + (catchItem is null ? 0 : WorkerFishingCatchCatalog.Experience(catchItem.ItemId)));
         entry.Fishing = progress.Clone();
+        return true;
+    }
+
+    public static bool TryBeginCast(WorkerRosterEntry entry, int day, bool isHost, bool worldReady, bool paid)
+    {
+        if (!isHost || !worldReady || !paid || entry.Profession != WorkerProfession.Fisher
+            || entry.AssignedTask != WorkerTaskKind.Fish || entry.Fishing.Day != day
+            || entry.Fishing.CompletedAttempts >= MaximumAttemptsPerDay) return false;
+        if (entry.Fishing.CastStarted) return true;
+        if (!WorkerStaminaPolicy.TryUse(entry, WorkerStaminaAction.FishingCast, isHost, worldReady, spend: true)) return false;
+        entry.Fishing.CastStarted = true;
         return true;
     }
 }

@@ -826,6 +826,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         WorkerRuntimeSnapshot runtime = this.runtimeSnapshots[worker.WorkerId];
         WorkerSkillExperience experience = this.workerShellManager.GetWorkerExperience(worker.WorkerId);
+        WorkerStaminaState stamina = this.workerShellManager.GetWorkerStamina(worker.WorkerId);
+        string energy = $"Stamina {stamina.Current:0.#}/{WorkerStaminaPolicy.Maximum:0}";
         string skillName = worker.Profession switch
         {
             WorkerProfession.Forager => "Foraging",
@@ -846,7 +848,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
         if (this.detailsBounds.Height < 160)
         {
-            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)}\n{runtime.Status}\n{skillName} Lv. {skillLevel} | {location} | Done: {runtime.CompletedToday}", content, Ink);
+            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)} | {energy}\n{runtime.Status}\n{skillName} Lv. {skillLevel} | {location} | Done: {runtime.CompletedToday}", content, Ink);
             return;
         }
         Rectangle portraitFrame = new(content.X, content.Y + 4, 74, 74);
@@ -859,7 +861,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         int badgeWidth = showFarmingBadge ? Math.Min(270, infoWidth / 2) : 0;
         int topLineWidth = showFarmingBadge ? infoWidth - badgeWidth - 16 : infoWidth;
         this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}", new Rectangle(infoX, content.Y, topLineWidth, 30), Ink);
-        this.DrawText(b, GetTaskLabel(runtime.AssignedTask), new Rectangle(infoX, content.Y + 34, topLineWidth, 28), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
+        this.DrawText(b, $"{GetTaskLabel(runtime.AssignedTask)} • {energy}", new Rectangle(infoX, content.Y + 34, topLineWidth, 28), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
         string status = worker.Profession == WorkerProfession.Forager
             ? $"{runtime.Status} • {WorkerForageAreaCatalog.GetDisplayName(worker.ForageLocationName)}"
             : worker.Profession == WorkerProfession.CombatWorker

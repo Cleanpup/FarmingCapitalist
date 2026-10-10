@@ -30,6 +30,7 @@
 - Preserve harvested items and vanilla crop/regrowth rules. Never silently discard produce.
 - Use existing NPC/game APIs where practical and keep policy, movement, persistence and UI separate.
 - Storage choices belong to each worker, including combat/exploration/dismissal delivery; schema 4 migrates shared choices from older and combat schema-3 saves.
+- `WorkerStaminaPolicy` owns the default 270-point pool, vanilla uncharged tool/cast costs using worker skill levels, and idle recovery. Charge validated tool impacts (each hit), not windups/draw hooks; swords, scythes, harvesting and picking up forage/loose gems are free. Fishing saves its charged cast flag with progress. Save/mirror stamina per worker; only the host may spend or recover it. Exhausted workers keep their assignment and resume after resting; menu/event time cannot recover energy.
 - Treat legacy roster saves as supported input. Avoid duplicate workers and repeated daily charges.
 
 ## Work and validation

@@ -110,6 +110,15 @@ internal sealed class WorkerFishingManager
         else if (WorkerFishingPolicy.ObserveClock(progress, Game1.Date.TotalDays, Game1.timeOfDay, accrue: true))
             this.shell.RecordFishingProgress(workerId, progress);
 
+        // One charged cast per simulation attempt; visual pose loops aren't new casts.
+        if (!this.shell.TryBeginFishingCast(workerId))
+        {
+            this.Suspend(workerId);
+            snapshot = snapshot with { State = "Waiting", Status = "Waiting for stamina or the next fishing day" };
+            return false;
+        }
+        progress = this.shell.GetFishingProgress(workerId);
+
         int ticks = this.castTicks.GetValueOrDefault(workerId) + 1;
         this.castTicks[workerId] = ticks;
         // State is mirrored through NPC modData. Draw hooks never advance time or roll catches.
@@ -118,6 +127,7 @@ internal sealed class WorkerFishingManager
         while (progress.Minutes >= WorkerFishingPolicy.MinutesPerCatch && progress.CompletedAttempts < WorkerFishingPolicy.MaximumAttemptsPerDay)
         {
             if (!this.Deliver(workerId)) break;
+            if (!this.shell.TryBeginFishingCast(workerId)) break;
             progress = this.shell.GetFishingProgress(workerId);
             int seed = unchecked((int)Game1.uniqueIDForThisGame + progress.Day * 397 + progress.CompletedAttempts * 7919);
             foreach (char c in workerId + area) seed = unchecked(seed * 31 + c);

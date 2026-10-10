@@ -280,7 +280,8 @@ internal sealed class ModEntry : Mod
         foreach (WorkerSummarySnapshot worker in workers)
         {
             var activity = this.workerBehaviorManager.GetRuntimeSnapshot(worker.WorkerId);
-            this.Monitor.Log($"{worker.DisplayName} [{worker.WorkerId}] — {worker.Profession}, {this.workerShellManager.GetAssignedTask(worker.WorkerId)}; {activity}; location: {worker.CurrentLocationName ?? "not spawned"}, tile: {worker.CurrentTile?.ToString() ?? "unknown"}; paid today: {this.workerShellManager.CanWorkerWorkToday(worker.WorkerId)}.", LogLevel.Info);
+            var stamina = this.workerShellManager.GetWorkerStamina(worker.WorkerId);
+            this.Monitor.Log($"{worker.DisplayName} [{worker.WorkerId}] — {worker.Profession}, {this.workerShellManager.GetAssignedTask(worker.WorkerId)}; {activity}; stamina: {stamina.Current:0.#}/{WorkerStaminaPolicy.Maximum:0}; location: {worker.CurrentLocationName ?? "not spawned"}, tile: {worker.CurrentTile?.ToString() ?? "unknown"}; paid today: {this.workerShellManager.CanWorkerWorkToday(worker.WorkerId)}.", LogLevel.Info);
         }
     }
 

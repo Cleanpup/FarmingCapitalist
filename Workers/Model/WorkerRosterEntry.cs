@@ -31,6 +31,8 @@ internal sealed class WorkerRosterEntry
 
     public WorkerSkillExperience Experience { get; set; } = new();
 
+    public WorkerStaminaState Stamina { get; set; } = new();
+
     /// <summary>Chest used for this worker's gathered items; null sends them to the shipping bin.</summary>
     public WorkerHarvestDestination? HarvestDestination { get; set; }
 
@@ -73,6 +75,7 @@ internal sealed class WorkerRosterEntry
             Fishing = this.Fishing?.Clone() ?? new(),
             AssignedTask = this.AssignedTask,
             Experience = this.Experience?.Clone() ?? new WorkerSkillExperience(),
+            Stamina = this.Stamina?.Clone() ?? new(),
             HarvestDestination = this.HarvestDestination?.Clone(),
             DailyWage = this.DailyWage,
             LastPaidDay = this.LastPaidDay,

@@ -287,11 +287,23 @@ internal sealed class WorkerShellManager
         return true;
     }
 
+    public bool TryBeginFishingCast(string workerId)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry) return false;
+        bool started = entry.Fishing.CastStarted;
+        bool resting = entry.Stamina.Resting;
+        bool result = WorkerFishingPolicy.TryBeginCast(entry, Game1.Date.TotalDays,
+            Context.IsMainPlayer, Context.IsWorldReady, this.CanWorkerWorkToday(workerId));
+        if (entry.Fishing.CastStarted != started || entry.Stamina.Resting != resting) this.PersistRoster();
+        return result;
+    }
+
     public void CancelFishing(string workerId)
     {
         WorkerFishingProgress progress = this.GetFishingProgress(workerId);
-        if (progress.Minutes == 0 && progress.LastObservedMinute == -1) return;
+        if (progress.Minutes == 0 && progress.LastObservedMinute == -1 && !progress.CastStarted) return;
         progress.Minutes = 0;
+        progress.CastStarted = false;
         progress.LastObservedMinute = -1;
         this.RecordFishingProgress(workerId, progress);
     }
@@ -318,6 +330,26 @@ internal sealed class WorkerShellManager
 
     public WorkerSkillExperience GetWorkerExperience(string workerId)
         => this.GetWorkerEntry(workerId)?.Experience?.Clone() ?? new WorkerSkillExperience();
+
+    public WorkerStaminaState GetWorkerStamina(string workerId)
+        => this.GetWorkerEntry(workerId)?.Stamina?.Clone() ?? new();
+
+    public void ObserveWorkerStamina(string workerId, bool recovering)
+    {
+        if (!Context.IsWorldReady || !Context.IsMainPlayer || this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry) return;
+        if (WorkerStaminaPolicy.Observe(entry.Stamina, Game1.Date.TotalDays, Game1.timeOfDay, recovering))
+            this.PersistRoster();
+    }
+
+    public bool TryUseWorkerStamina(string workerId, WorkerStaminaAction action, bool spend = true)
+    {
+        if (this.GetWorkerEntry(workerId) is not WorkerRosterEntry entry) return false;
+        float before = entry.Stamina.Current;
+        bool resting = entry.Stamina.Resting;
+        bool allowed = WorkerStaminaPolicy.TryUse(entry, action, Context.IsMainPlayer, Context.IsWorldReady, spend);
+        if (entry.Stamina.Current != before || entry.Stamina.Resting != resting) this.PersistRoster();
+        return allowed;
+    }
 
     /// <summary>Only the host can change persistent skill progress.</summary>
     public bool TryAwardFarmingHarvestExperience(string workerId, bool confirmedCropChange, int itemsCollected)
@@ -610,6 +642,7 @@ internal sealed class WorkerShellManager
         bool changed = false;
         foreach (WorkerRosterEntry entry in this.savedWorkers)
         {
+            changed |= WorkerStaminaPolicy.Observe(entry.Stamina, today, Game1.timeOfDay, recovering: false);
             if (!WorkerWagePolicy.ShouldAttemptPayment(entry.LastPaidDay, entry.LastWageAttemptDay, today, retryUnpaid))
             {
                 continue;
@@ -1090,6 +1123,10 @@ internal sealed class WorkerShellManager
 
             WorkerRosterEntry normalized = entry.Clone();
             normalized.Experience = entry.Experience?.Clone() ?? new WorkerSkillExperience();
+            normalized.Stamina = entry.Stamina?.Clone() ?? new();
+            WorkerStaminaPolicy.Observe(normalized.Stamina, Game1.Date.TotalDays, Game1.timeOfDay, recovering: false);
+            // Loading establishes a fresh clock baseline; offline/menu time earns no recovery.
+            normalized.Stamina.LastObservedMinute = WorkerStaminaPolicy.Minute(Game1.timeOfDay);
             normalized.WorkerId = workerId;
             normalized.DisplayName = string.IsNullOrWhiteSpace(entry.DisplayName)
                 ? $"Worker {normalizedEntries.Count + 1}"

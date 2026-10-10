@@ -190,5 +190,7 @@ Four visual refinement passes replace custom pixel-grid symbols with vanilla men
 T. More worker conversation variety — implemented in 1.8.3
 Expanded the dialogue asset from 33 to 111 distinct lines. Every existing task/default/fishing-context pool is tripled, with six new lines each for debris clearing and monster fighting instead of generic fallback. Existing lines and worker/date-based selection remain unchanged, as do obstacle-report priority, native dialogue portraits and gameplay. JSON/key uniqueness, nonempty/native-safe text, exact pool multipliers and daily rotation reachability checks passed. See TESTING.md check 106.
 
-U. Hire Skilled Helpers rebrand — implemented in 1.9.0
+U. Hire Skilled Helpers rebrand — released as 1.0.0
 Project/solution, assembly/entry DLL, C# namespaces, manifest display/description, source folders, install folder and release archive now use Hire Skilled Helpers / HireSkilledHelpers. The manifest UniqueID remains Cleanpup.FarmingCapitalist, along with existing save/mod-data keys, native permit event ID and public dialogue asset, so existing farms and content patches retain compatibility. Namespace-only source comparisons, the renamed solution build, worker experience/stamina/perk/profession/unlock/save checks and fishing checks passed. Git origin follows the user-renamed Cleanpup/HireSkilledHelpers GitHub repository. See TESTING.md check 107.
+
+The renamed mod starts its release numbering at 1.0.0. Manifest and project release version match; assembly/file metadata and the archive are generated from this release number. Earlier version numbers above describe development builds.

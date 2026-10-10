@@ -1516,7 +1516,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private static string GetTaskDescription(WorkerTaskKind task) => task switch
     {
         WorkerTaskKind.WaterCrops => "Walk to dry, growing crops on the farm and water them. Rain and already-watered crops are skipped.",
-        WorkerTaskKind.HarvestCrops => "Walk to ripe crops on the farm and harvest them. The worker checks again when there is no work left.",
+        WorkerTaskKind.HarvestCrops => "Walk to ripe crops on the farm and harvest them. When finished, the worker wanders the Farm and repeats this order tomorrow.",
         WorkerTaskKind.TendCrops => "Harvest ripe crops and water growing crops on the farm. Workers share available jobs.",
         WorkerTaskKind.CollectForage => "Walk to the nearest reachable wild forage item in the selected outdoor area and collect it.",
         WorkerTaskKind.ChopTrees => "Walk to the nearest reachable ordinary tree in the selected area, cut it down, and store its drops.",

@@ -317,7 +317,7 @@ internal sealed class WorkerShellManager
         // Valid destinations remain browseable; the Fish assignment checks access before starting work.
         this.CancelFishing(workerId);
         entry.FishingArea = area;
-        entry.AssignedTask = WorkerTaskKind.Idle;
+        WorkerTaskPolicy.AssignTask(entry, WorkerTaskKind.Idle, Game1.Date.TotalDays);
         this.PersistRoster();
         message = $"{entry.DisplayName} will fish at {WorkerFishingAreaCatalog.Label(area)}. Choose Fish to begin.";
         return true;
@@ -416,7 +416,7 @@ internal sealed class WorkerShellManager
         }
         // Selection sets Idle only. Mining assignments retain the unlock/location checks.
         entry.MiningArea = area;
-        entry.AssignedTask = WorkerTaskKind.Idle;
+        WorkerTaskPolicy.AssignTask(entry, WorkerTaskKind.Idle, Game1.Date.TotalDays);
         this.PersistRoster();
         message = $"{entry.DisplayName} will mine in {WorkerMiningPolicy.GetLabel(area)}. Choose a mining job to begin.";
         return true;
@@ -470,7 +470,7 @@ internal sealed class WorkerShellManager
         }
         this.CancelExploration(workerId);
         entry.ExplorationArea = area;
-        entry.AssignedTask = WorkerTaskKind.Idle;
+        WorkerTaskPolicy.AssignTask(entry, WorkerTaskKind.Idle, Game1.Date.TotalDays);
         this.PersistRoster();
         message = $"{entry.DisplayName} will explore {WorkerExplorationAreaCatalog.GetLabel(area)}. Choose Explore Area to begin.";
         return true;
@@ -521,7 +521,7 @@ internal sealed class WorkerShellManager
             return false;
         }
         entry.CombatArea = area;
-        entry.AssignedTask = WorkerTaskKind.Idle;
+        WorkerTaskPolicy.AssignTask(entry, WorkerTaskKind.Idle, Game1.Date.TotalDays);
         this.PersistRoster();
         message = $"{entry.DisplayName} will work in {WorkerCombatAreaCatalog.GetLabel(area)}. Choose a new order to begin.";
         return true;
@@ -596,13 +596,13 @@ internal sealed class WorkerShellManager
         }
 
         entry.ForageLocationName = locationName;
-        entry.AssignedTask = WorkerTaskKind.Idle;
+        WorkerTaskPolicy.AssignTask(entry, WorkerTaskKind.Idle, Game1.Date.TotalDays);
         this.PersistRoster();
         message = $"{entry.DisplayName} will now work in {WorkerForageAreaCatalog.GetDisplayName(locationName)}. Choose a new order to begin.";
         return true;
     }
 
-    public bool TrySetAssignedTask(string workerId, WorkerTaskKind task)
+    public bool TrySetAssignedTask(string workerId, WorkerTaskKind task, bool completedDailyOrder = false)
     {
         if (!this.CanManageWorkers(out _) || !Enum.IsDefined(typeof(WorkerTaskKind), task))
         {
@@ -618,7 +618,7 @@ internal sealed class WorkerShellManager
         if (!WorkerTaskPolicy.IsTaskAllowed(entry.Profession, task))
             return false;
 
-        entry.AssignedTask = task;
+        WorkerTaskPolicy.AssignTask(entry, task, Game1.Date.TotalDays, completedDailyOrder);
         this.PersistRoster();
         return true;
     }
@@ -642,6 +642,7 @@ internal sealed class WorkerShellManager
         bool changed = false;
         foreach (WorkerRosterEntry entry in this.savedWorkers)
         {
+            changed |= WorkerTaskPolicy.RestoreDailyOrder(entry, today);
             changed |= WorkerStaminaPolicy.Observe(entry.Stamina, today, Game1.timeOfDay, recovering: false);
             if (!WorkerWagePolicy.ShouldAttemptPayment(entry.LastPaidDay, entry.LastWageAttemptDay, today, retryUnpaid))
             {
@@ -1143,6 +1144,9 @@ internal sealed class WorkerShellManager
             {
                 normalized.AssignedTask = WorkerTaskKind.Idle;
             }
+            WorkerTaskPolicy.NormalizeCompletedOrder(normalized, Game1.Date.TotalDays);
+            if (Context.IsMainPlayer)
+                WorkerTaskPolicy.RestoreDailyOrder(normalized, Game1.Date.TotalDays);
             if (!WorkerForageAreaCatalog.IsValidLocation(normalized.ForageLocationName))
             {
                 normalized.ForageLocationName = WorkerForageAreaCatalog.DefaultLocationName;

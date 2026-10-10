@@ -24,6 +24,40 @@ internal static class WorkerTaskPolicy
 
     public static bool IsWithinWorkHours(int timeOfDay) => timeOfDay >= 600 && timeOfDay < WorkDayEndsAt;
 
+    /// <summary>Only a completed daytime order becomes Idle; breaks and overnight returns retain their job.</summary>
+    public static bool ShouldIdleAfterWorkComplete(WorkerTaskKind assignment, int timeOfDay,
+        bool canWorkToday, bool restingForStamina, bool defeatedToday)
+        => assignment != WorkerTaskKind.Idle && IsWithinWorkHours(timeOfDay)
+            && canWorkToday && !restingForStamina && !defeatedToday;
+
+    public static void AssignTask(WorkerRosterEntry entry, WorkerTaskKind task, int today, bool completedDailyOrder = false)
+    {
+        entry.NextDayTask = completedDailyOrder && task == WorkerTaskKind.Idle
+            && entry.AssignedTask != WorkerTaskKind.Idle ? entry.AssignedTask : null;
+        entry.CompletedTaskDay = entry.NextDayTask is not null ? today : -1;
+        entry.AssignedTask = task;
+    }
+
+    public static void NormalizeCompletedOrder(WorkerRosterEntry entry, int today)
+    {
+        if (entry.AssignedTask != WorkerTaskKind.Idle || entry.NextDayTask is not WorkerTaskKind task
+            || task == WorkerTaskKind.Idle || !IsTaskAllowed(entry.Profession, task)
+            || entry.CompletedTaskDay < 0 || entry.CompletedTaskDay > today)
+        {
+            entry.NextDayTask = null;
+            entry.CompletedTaskDay = -1;
+        }
+    }
+
+    public static bool RestoreDailyOrder(WorkerRosterEntry entry, int today)
+    {
+        NormalizeCompletedOrder(entry, today);
+        if (entry.NextDayTask is not WorkerTaskKind task || today <= entry.CompletedTaskDay)
+            return false;
+        AssignTask(entry, task, today);
+        return true;
+    }
+
     public static WorkerTaskKind SelectCropAction(WorkerTaskKind assignment, bool alive, bool harvestable, bool needsWater)
     {
         if (!alive)

@@ -14,6 +14,57 @@ static void Check(bool value, string scenario)
     if (!value) throw new Exception(scenario);
 }
 
+foreach (WorkerProfession profession in Enum.GetValues<WorkerProfession>())
+{
+    foreach (WorkerTaskKind task in WorkerTaskPolicy.GetTasks(profession))
+    {
+        Equal(task != WorkerTaskKind.Idle,
+            WorkerTaskPolicy.ShouldIdleAfterWorkComplete(task, 1200, true, false, false),
+            $"{profession} completed {task} switches to Idle");
+        Check(!WorkerTaskPolicy.ShouldIdleAfterWorkComplete(task, 1200, true, true, false),
+            $"{task} stamina break retains assignment");
+        Check(!WorkerTaskPolicy.ShouldIdleAfterWorkComplete(task, 2200, true, false, false),
+            $"{task} end-of-shift return retains daily assignment");
+        Check(!WorkerTaskPolicy.ShouldIdleAfterWorkComplete(task, 2400, true, false, false),
+            $"{task} midnight return retains assignment");
+        Check(!WorkerTaskPolicy.ShouldIdleAfterWorkComplete(task, 1200, false, false, false),
+            $"{task} unpaid worker remains off duty");
+        Check(!WorkerTaskPolicy.ShouldIdleAfterWorkComplete(task, 1200, true, false, true),
+            $"{task} defeated worker remains off duty");
+    }
+}
+Check(!WorkerTaskPolicy.ShouldIdleAfterWorkComplete(WorkerTaskKind.WaterCrops, 550, true, false, false),
+    "before-work return does not start daytime wandering");
+Check(WorkerTaskPolicy.ShouldIdleAfterWorkComplete(WorkerTaskKind.WaterCrops, 600, true, false, false),
+    "completed morning job starts idle movement");
+Check(WorkerTaskPolicy.ShouldIdleAfterWorkComplete(WorkerTaskKind.WaterCrops, 2150, true, false, false),
+    "last daytime completion still switches to Idle");
+
+var dailyWorker = new WorkerRosterEntry { AssignedTask = WorkerTaskKind.WaterCrops };
+WorkerTaskPolicy.AssignTask(dailyWorker, WorkerTaskKind.Idle, 100, completedDailyOrder: true);
+Equal(WorkerTaskKind.Idle, dailyWorker.AssignedTask, "completed work becomes actual Idle");
+Equal<WorkerTaskKind?>(WorkerTaskKind.WaterCrops, dailyWorker.NextDayTask, "daily watering job remembered");
+Check(!WorkerTaskPolicy.RestoreDailyOrder(dailyWorker, 100), "same-day callback cannot restart completed job");
+var savedDaily = JsonSerializer.Deserialize<WorkerRosterEntry>(JsonSerializer.Serialize(dailyWorker))!;
+Equal<WorkerTaskKind?>(WorkerTaskKind.WaterCrops, savedDaily.Clone().NextDayTask, "clone and save preserve remembered order");
+Check(!WorkerTaskPolicy.RestoreDailyOrder(savedDaily, 100), "same-day reload remains Idle");
+Check(WorkerTaskPolicy.RestoreDailyOrder(savedDaily, 101), "following morning restores daily job");
+Equal(WorkerTaskKind.WaterCrops, savedDaily.AssignedTask, "original daily job restored");
+Equal<WorkerTaskKind?>(null, savedDaily.NextDayTask, "restore clears completed-day marker");
+Check(!WorkerTaskPolicy.RestoreDailyOrder(savedDaily, 101), "duplicate day-start callback does not restore again");
+WorkerTaskPolicy.AssignTask(dailyWorker, WorkerTaskKind.Idle, 100);
+Check(!WorkerTaskPolicy.RestoreDailyOrder(dailyWorker, 101), "explicit Idle cancels remembered daily job");
+WorkerTaskPolicy.AssignTask(dailyWorker, WorkerTaskKind.WaterCrops, 101);
+WorkerTaskPolicy.AssignTask(dailyWorker, WorkerTaskKind.Idle, 101, completedDailyOrder: true);
+WorkerTaskPolicy.AssignTask(dailyWorker, WorkerTaskKind.HarvestCrops, 101);
+Check(!WorkerTaskPolicy.RestoreDailyOrder(dailyWorker, 102), "new order replaces remembered daily job");
+Equal(WorkerTaskKind.HarvestCrops, dailyWorker.AssignedTask, "new order is not overwritten tomorrow");
+var invalidDaily = new WorkerRosterEntry { Profession = WorkerProfession.Farmer, NextDayTask = WorkerTaskKind.Fish, CompletedTaskDay = 100 };
+Check(!WorkerTaskPolicy.RestoreDailyOrder(invalidDaily, 101), "invalid profession order cannot restore");
+Equal<WorkerTaskKind?>(null, invalidDaily.NextDayTask, "invalid saved pending task cleared");
+var legacyDaily = JsonSerializer.Deserialize<WorkerRosterEntry>("{\"AssignedTask\":1}")!;
+Check(!WorkerTaskPolicy.RestoreDailyOrder(legacyDaily, 101), "legacy save has no pending completed order");
+
 var first = new WorkerRosterEntry { WorkerId = "first" };
 var second = new WorkerRosterEntry { WorkerId = "second" };
 first.HarvestDestination = new WorkerHarvestDestination { LocationName = "Farm", TileX = 5, TileY = 7 };

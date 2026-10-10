@@ -29,6 +29,11 @@ internal sealed class WorkerRosterEntry
 
     public WorkerTaskKind AssignedTask { get; set; } = WorkerTaskKind.Idle;
 
+    /// <summary>The daily job to restore tomorrow after automatically switching to Idle.</summary>
+    public WorkerTaskKind? NextDayTask { get; set; }
+
+    public int CompletedTaskDay { get; set; } = -1;
+
     public WorkerSkillExperience Experience { get; set; } = new();
 
     public WorkerStaminaState Stamina { get; set; } = new();
@@ -74,6 +79,8 @@ internal sealed class WorkerRosterEntry
             FishingArea = this.FishingArea,
             Fishing = this.Fishing?.Clone() ?? new(),
             AssignedTask = this.AssignedTask,
+            NextDayTask = this.NextDayTask,
+            CompletedTaskDay = this.CompletedTaskDay,
             Experience = this.Experience?.Clone() ?? new WorkerSkillExperience(),
             Stamina = this.Stamina?.Clone() ?? new(),
             HarvestDestination = this.HarvestDestination?.Clone(),

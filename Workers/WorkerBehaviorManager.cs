@@ -422,6 +422,9 @@ internal sealed class WorkerBehaviorManager
     }
 
     public bool TryAssignTask(string workerId, WorkerTaskKind task, out string message)
+        => this.TryAssignTask(workerId, task, out message, preserveDailyOrder: false);
+
+    private bool TryAssignTask(string workerId, WorkerTaskKind task, out string message, bool preserveDailyOrder)
     {
         message = string.Empty;
         if (!Enum.IsDefined(typeof(WorkerTaskKind), task) || !this.workerShellManager.TryGetWorker(workerId, out NPC? worker) || worker is null)
@@ -450,7 +453,7 @@ internal sealed class WorkerBehaviorManager
             message = miningReason + ".";
             return false;
         }
-        if (!this.workerShellManager.TrySetAssignedTask(workerId, task))
+        if (!this.workerShellManager.TrySetAssignedTask(workerId, task, preserveDailyOrder))
         {
             message = "Only the host can assign worker tasks.";
             return false;
@@ -803,6 +806,19 @@ internal sealed class WorkerBehaviorManager
 
     private void BeginReturnHome(NPC worker, string workerId, ReturnHomeReason reason)
     {
+        if (reason == ReturnHomeReason.WorkComplete
+            && WorkerTaskPolicy.ShouldIdleAfterWorkComplete(this.workerShellManager.GetAssignedTask(workerId),
+                Game1.timeOfDay, this.workerShellManager.CanWorkerWorkToday(workerId),
+                this.workerShellManager.GetWorkerStamina(workerId).Resting,
+                this.workerShellManager.WasDefeatedToday(workerId))
+            && this.TryAssignTask(workerId, WorkerTaskKind.Idle, out _, preserveDailyOrder: true))
+        {
+            // Use the exact manual Idle transition: persist the order, clear job state,
+            // leave generated floors safely, and let daytime Farm wandering take over.
+            this.LogState(workerId, worker, "work complete; switched to idle/return home");
+            return;
+        }
+
         this.idleMovement.Stop(workerId);
         if (this.workerShellManager.GetWorkerProfession(workerId) == WorkerProfession.Miner)
             this.dungeonTravel.ExitGeneratedFloorForReturn(worker, this.workerShellManager.GetMiningArea(workerId),

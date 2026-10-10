@@ -851,30 +851,11 @@ internal sealed class WorkerControlMenu : IClickableMenu
         Rectangle content = new(this.detailsBounds.X + Padding, this.detailsBounds.Y + 58, this.detailsBounds.Width - Padding * 2, this.detailsBounds.Height - 72);
         if (selected is not WorkerSummarySnapshot worker)
         {
-            this.DrawText(b, "Select a worker to see their assignment and today's progress.", content, MutedInk);
+            this.DrawText(b, "Select a worker to see their profile.", content, MutedInk);
             return;
         }
-        WorkerRuntimeSnapshot runtime = this.runtimeSnapshots[worker.WorkerId];
-        WorkerSkillExperience experience = this.workerShellManager.GetWorkerExperience(worker.WorkerId);
         WorkerStaminaState stamina = this.workerShellManager.GetWorkerStamina(worker.WorkerId);
         this.workerBehaviorManager.GetWorkerHealth(worker.WorkerId, out int health, out int maxHealth);
-        string skillName = worker.Profession switch
-        {
-            WorkerProfession.Forager => "Foraging",
-            WorkerProfession.CombatWorker => "Combat",
-            WorkerProfession.Miner => "Mining",
-            WorkerProfession.Fisher => "Fishing",
-            _ => "Farming",
-        };
-        int skillExperience = worker.Profession switch
-        {
-            WorkerProfession.Forager => experience.Foraging,
-            WorkerProfession.CombatWorker => experience.Combat,
-            WorkerProfession.Miner => experience.Mining,
-            WorkerProfession.Fisher => experience.Fishing,
-            _ => experience.Farming,
-        };
-        int skillLevel = WorkerExperiencePolicy.GetLevel(skillExperience);
         string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
         int vitalsWidth = Math.Min(220, Math.Max(96, content.Width / 3));
         vitalsWidth = Math.Min(vitalsWidth, content.Width / 2);
@@ -882,7 +863,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         int profileRight = vitals.Left - Gap;
         if (this.detailsBounds.Height < 160)
         {
-            this.DrawText(b, $"{worker.DisplayName} | {GetTaskLabel(runtime.AssignedTask)}\n{runtime.Status}\n{skillName} Lv. {skillLevel} | {location}",
+            this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}\n{location}",
                 new Rectangle(content.X, content.Y, Math.Max(1, profileRight - content.X), content.Height), Ink);
             this.DrawWorkerVitals(b, vitals, health, maxHealth, stamina);
             return;
@@ -896,15 +877,6 @@ internal sealed class WorkerControlMenu : IClickableMenu
         int infoWidth = Math.Max(1, profileRight - infoX);
         this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}",
             new Rectangle(infoX, content.Y, infoWidth, 28), Ink);
-        this.DrawText(b, $"{GetTaskLabel(runtime.AssignedTask)} • {skillName} Lv. {skillLevel}",
-            new Rectangle(infoX, content.Y + 28, infoWidth, 24), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
-        string status = worker.Profession == WorkerProfession.Forager
-            ? $"{runtime.Status} • {WorkerForageAreaCatalog.GetDisplayName(worker.ForageLocationName)}"
-            : worker.Profession == WorkerProfession.CombatWorker
-                ? $"{runtime.Status} • {(runtime.AssignedTask == WorkerTaskKind.ExploreArea
-                    ? WorkerExplorationAreaCatalog.GetLabel(worker.ExplorationArea) : WorkerCombatAreaCatalog.GetLabel(worker.CombatArea))}"
-            : runtime.Status;
-        this.DrawText(b, status, new Rectangle(infoX, content.Y + 52, infoWidth, 24), MutedInk);
         vitals.Height = Math.Max(1, metricsY - content.Y - 10);
         this.DrawWorkerVitals(b, vitals, health, maxHealth, stamina);
         DrawRect(b, new Rectangle(this.detailsBounds.X + 20, metricsY - 8, this.detailsBounds.Width - 40, 2), PaperShade);

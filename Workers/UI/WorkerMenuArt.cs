@@ -4,109 +4,65 @@ using StardewValley;
 
 namespace FarmingCapitalist.Workers;
 
-/// <summary>Small pixel motifs for the worker ledger, drawn from a fixed palette at whole-pixel scale.</summary>
+/// <summary>Vanilla menu and item sprites, fitted without changing their aspect ratio.</summary>
 internal static class WorkerMenuArt
 {
-    internal enum Icon { Sprout, Water, Harvest, Tend, Home, Coin, Ledger, Chest }
-
-    private static readonly string[] Sprout =
+    internal enum Icon
     {
-        "............", "....gg......", "...gllg.gg..", "..gllllgllg.",
-        "..gllllllg..", "...gllgg....", ".....s......", ".....s......",
-        ".....s......", "....sss.....", "...ooooo....", "............",
-    };
-
-    private static readonly string[] Water =
-    {
-        "............", "......ooo...", ".....obbo...", "....obbbbo..",
-        "...obbbhbo..", "..obbbbbbo..", ".obbbbbbbbbo", "obbbbbbbbbo.",
-        "obbbbbbbbo..", ".oooooooo...", ".........b..", "........bbb.",
-    };
-
-    private static readonly string[] Harvest =
-    {
-        ".....o......", "....oyo.....", "...oyyyo....", ".....s......",
-        "..o..s..o...", ".oyo.s.oyo..", "oyyyosoyyyo.", "..s..s..s...",
-        "..s..s..s...", "..s..s..s...", ".oooooooooo.", "............",
-    };
-
-    private static readonly string[] Tend =
-    {
-        ".......bbb..", "......bbhb..", ".....bbb....", "....bbb.....",
-        "...bbb..gg..", "..bbb..gllg.", ".bbb....gg..", "........s...",
-        "........s...", "...oooooooo.", "...oyyyyyyo.", "...oooooooo.",
-    };
-
-    private static readonly string[] Home =
-    {
-        ".....oo.....", "....oyyo....", "...oyyyyo...", "..oyyyyyyo..",
-        ".oyyyyyyyyo.", "oooooooooooo", ".owwwwwwwwo.", ".owwwwwwwwo.",
-        ".owwwoowwwo.", ".owwwoowwwo.", ".oooooooooo.", "............",
-    };
-
-    private static readonly string[] Coin =
-    {
-        "....oooo....", "..ooyyyyo...", ".oyyyyyyyyo.", ".oyyhyyhyyo.",
-        "oyyhyyyyhyyo", "oyyyhyyhyyyo", "oyyyhyyhyyyo", "oyyhyyyyhyyo",
-        ".oyyhyyhyyo.", ".oyyyyyyyyo.", "..ooyyyyo...", "....oooo....",
-    };
-
-    private static readonly string[] Ledger =
-    {
-        "..oooooooo..", "..owwwwwwo..", "..owoooooo..", "..owwwwwwo..",
-        "..owoooooo..", "..owwwwwwo..", "..owoooooo..", "..owwwwwwo..",
-        "..owoooooo..", "..owwwwwwo..", "..oooooooo..", "............",
-    };
-
-    private static readonly string[] Chest =
-    {
-        "............", ".oooooooooo.", ".oyyyyyyyyo.", ".oyyyyyyyyo.",
-        ".oooooooooo.", ".oyyyyyyyyo.", ".oyyyoooyyo.", ".oyyyoooyyo.",
-        ".oyyyyyyyyo.", ".oyyyyyyyyo.", ".oooooooooo.", "............",
-    };
-
-    private static readonly Color Ink = new(91, 48, 30);
-    private static readonly Color Leaf = new(70, 119, 54);
-    private static readonly Color LeafLight = new(151, 182, 77);
-    private static readonly Color Stem = new(131, 91, 44);
-    private static readonly Color Blue = new(70, 132, 168);
-    private static readonly Color Highlight = new(168, 219, 230);
-    private static readonly Color Gold = new(221, 160, 53);
-    private static readonly Color Paper = new(255, 237, 193);
+        Sprout, Water, Harvest, Tend, Home, Coin, Ledger, Chest,
+        Roster, Skills, Mining, Fishing, Foraging, Combat, Hardwood, Explore, Perk,
+    }
 
     internal static void Draw(SpriteBatch batch, Icon icon, int x, int y, int pixelSize = 3)
-    {
-        string[] rows = icon switch
-        {
-            Icon.Water => Water,
-            Icon.Harvest => Harvest,
-            Icon.Tend => Tend,
-            Icon.Home => Home,
-            Icon.Coin => Coin,
-            Icon.Ledger => Ledger,
-            Icon.Chest => Chest,
-            _ => Sprout,
-        };
+        => Draw(batch, icon, new Rectangle(x, y, 12 * pixelSize, 12 * pixelSize));
 
-        for (int row = 0; row < rows.Length; row++)
+    internal static void Draw(SpriteBatch batch, Icon icon, Rectangle bounds, float opacity = 1f)
+    {
+        // SkillsPage and GameMenu are the source of the cursor-sheet rectangles.
+        Rectangle source = icon switch
         {
-            for (int col = 0; col < rows[row].Length; col++)
+            Icon.Sprout => new Rectangle(10, 428, 10, 10),
+            Icon.Mining => new Rectangle(30, 428, 10, 10),
+            Icon.Fishing => new Rectangle(20, 428, 10, 10),
+            Icon.Foraging => new Rectangle(60, 428, 10, 10),
+            Icon.Combat => new Rectangle(120, 428, 10, 10),
+            Icon.Coin => new Rectangle(338, 400, 8, 8),
+            Icon.Home => new Rectangle(653, 880, 10, 10),
+            Icon.Roster => new Rectangle(32, 368, 16, 16),
+            Icon.Skills => new Rectangle(16, 368, 16, 16),
+            Icon.Explore => new Rectangle(48, 368, 16, 16),
+            Icon.Perk => new Rectangle(50, 428, 10, 10),
+            Icon.Ledger => new Rectangle(80, 368, 16, 16),
+            _ => Rectangle.Empty,
+        };
+        Texture2D texture = Game1.mouseCursors;
+        if (source == Rectangle.Empty)
+        {
+            string itemId = icon switch
             {
-                Color? color = rows[row][col] switch
-                {
-                    'o' => Ink,
-                    'g' => Leaf,
-                    'l' => LeafLight,
-                    's' => Stem,
-                    'b' => Blue,
-                    'h' => Highlight,
-                    'y' => Gold,
-                    'w' => Paper,
-                    _ => null,
-                };
-                if (color is Color tint)
-                    batch.Draw(Game1.staminaRect, new Rectangle(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize), tint);
-            }
+                Icon.Water => "(T)WateringCan",
+                Icon.Harvest => "(O)24", // Parsnip.
+                Icon.Tend => "(T)Hoe",
+                Icon.Hardwood => "(O)709",
+                _ => "(BC)130", // Chest.
+            };
+            var data = ItemRegistry.GetDataOrErrorItem(itemId);
+            texture = data.GetTexture();
+            source = data.GetSourceRect();
         }
+        DrawSprite(batch, texture, source, bounds, opacity);
+    }
+
+    internal static void DrawSprite(SpriteBatch batch, Texture2D texture, Rectangle source, Rectangle bounds, float opacity = 1f)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0) return;
+        float scale = Math.Min((float)bounds.Width / source.Width, (float)bounds.Height / source.Height);
+        // Whole-pixel sprite scaling when space permits keeps native art crisp.
+        if (scale >= 1f) scale = MathF.Floor(scale);
+        int width = Math.Max(1, (int)(source.Width * scale));
+        int height = Math.Max(1, (int)(source.Height * scale));
+        Rectangle destination = new(bounds.X + (bounds.Width - width) / 2,
+            bounds.Y + (bounds.Height - height) / 2, width, height);
+        batch.Draw(texture, destination, source, Color.White * opacity);
     }
 }

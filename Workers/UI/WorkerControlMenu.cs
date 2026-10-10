@@ -591,6 +591,20 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.hoverText = "Drag this border or corner to resize the menu.";
             return;
         }
+        foreach (ClickableComponent row in this.workerRows)
+        {
+            if (row.containsPoint(x, y))
+            {
+                WorkerSummarySnapshot worker = this.workerSnapshots[row.myID - WorkerRowIdBase];
+                this.hoverText = $"{worker.DisplayName}\n{this.runtimeSnapshots[worker.WorkerId].State}";
+                return;
+            }
+        }
+        if (this.GetProfileLayout().Name.Contains(x, y) && this.GetSelectedWorker() is WorkerSummarySnapshot selected)
+        {
+            this.hoverText = selected.DisplayName;
+            return;
+        }
         if (this.hireButton.containsPoint(x, y))
         {
             this.hoverText = Context.IsMainPlayer
@@ -722,7 +736,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             for (int i = 0; i < ProfessionOptions.Length; i++)
                 this.professionRows.Add(Button(ProfessionRowIdBase + i,
                     new Rectangle(popupX + 6, popupY + 6 + i * 36, popupWidth - 12, 34)));
-        int hireWidth = Math.Min(240, this.headerBounds.Width / 3);
+        int hireWidth = Math.Min(220, this.headerBounds.Width / 4);
         this.hireButton = Button(HireId, new Rectangle(right - hireWidth, this.headerBounds.Y + 4, hireWidth, 56));
         int tabWidth = Math.Min(150, Math.Max(80, (this.headerBounds.Width - hireWidth - Gap * 5 - 8) / 4));
         this.rosterTabButton = Button(RosterTabId, new Rectangle(this.headerBounds.X + 4, this.headerBounds.Y + 4, tabWidth, 56));
@@ -907,11 +921,20 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private void DrawHeader(SpriteBatch b)
     {
         this.DrawPanel(b, this.headerBounds);
-        this.DrawButton(b, this.rosterTabButton, "Roster", true, Color.White, WorkerMenuArt.Icon.Ledger, this.currentTab == WorkerMenuTab.Roster);
+        this.DrawButton(b, this.rosterTabButton, "Roster", true, Color.White, WorkerMenuArt.Icon.Roster, this.currentTab == WorkerMenuTab.Roster);
         this.DrawButton(b, this.jobsTabButton, "Jobs", true, Color.White, WorkerMenuArt.Icon.Sprout, this.currentTab == WorkerMenuTab.Jobs);
-        this.DrawButton(b, this.skillsTabButton, "Skills", true, Color.White, WorkerMenuArt.Icon.Ledger, this.currentTab == WorkerMenuTab.Skills);
+        this.DrawButton(b, this.skillsTabButton, "Skills", true, Color.White, WorkerMenuArt.Icon.Skills, this.currentTab == WorkerMenuTab.Skills);
         this.DrawButton(b, this.storageTabButton, "Storage", true, Color.White, WorkerMenuArt.Icon.Chest, this.currentTab == WorkerMenuTab.Storage);
-        this.DrawButton(b, this.hireButton, $"Hire worker  {WorkerEmploymentTerms.HiringCost}g", Context.IsMainPlayer, Color.White, WorkerMenuArt.Icon.Coin);
+        this.DrawCard(b, this.hireButton.bounds, Context.IsMainPlayer && this.IsControlHighlighted(this.hireButton) ? PaperShade : Paper, false);
+        int hireTextX = this.hireButton.bounds.X + 12;
+        if (this.hireButton.bounds.Width >= 160)
+        {
+            WorkerMenuArt.Draw(b, WorkerMenuArt.Icon.Coin, hireTextX, this.hireButton.bounds.Y + 16, 2);
+            hireTextX += 32;
+        }
+        int hireTextWidth = this.hireButton.bounds.Right - hireTextX - 12;
+        this.DrawSingleLineText(b, "Hire worker", new Rectangle(hireTextX, this.hireButton.bounds.Y + 6, hireTextWidth, 25), Context.IsMainPlayer ? Ink : MutedInk, centered: true);
+        this.DrawSingleLineText(b, $"{WorkerEmploymentTerms.HiringCost}g", new Rectangle(hireTextX, this.hireButton.bounds.Y + 30, hireTextWidth, 20), MutedInk, centered: true, maximumScale: 0.85f);
         Rectangle title = new(this.storageTabButton.bounds.Right + 12, this.headerBounds.Y + 14, this.hireButton.bounds.Left - this.storageTabButton.bounds.Right - 24, 34);
         if (title.Width > 90)
             this.DrawText(b, "FARM CREW", title, Ink, centered: true);
@@ -930,14 +953,14 @@ internal sealed class WorkerControlMenu : IClickableMenu
         {
             WorkerSummarySnapshot snapshot = this.workerSnapshots[row.myID - WorkerRowIdBase];
             bool selected = snapshot.WorkerId == this.selectedWorkerId;
-            this.DrawCard(b, row.bounds, selected ? new Color(255, 222, 150) : Paper, selected);
+            this.DrawCard(b, row.bounds, selected || this.IsControlHighlighted(row) ? PaperShade : Paper, selected);
             int faceSize = Math.Min(52, row.bounds.Height - 20);
             Rectangle faceFrame = new(row.bounds.X + 10, row.bounds.Y + (row.bounds.Height - faceSize - 6) / 2, faceSize + 6, faceSize + 6);
             DrawRect(b, faceFrame, Wood);
             Rectangle face = new(faceFrame.X + 3, faceFrame.Y + 3, faceSize, faceSize);
             this.DrawWorkerFace(b, snapshot.WorkerId, face);
             int textX = faceFrame.Right + 10;
-            this.DrawText(b, snapshot.DisplayName, new Rectangle(textX, row.bounds.Y + 10, row.bounds.Right - textX - 10, 27), Ink);
+            this.DrawSingleLineText(b, snapshot.DisplayName, new Rectangle(textX, row.bounds.Y + 10, row.bounds.Right - textX - 10, 27), Ink, ellipsize: true);
             WorkerRuntimeSnapshot runtime = this.runtimeSnapshots[snapshot.WorkerId];
             DrawRect(b, new Rectangle(textX, row.bounds.Y + 43, 7, 7), runtime.AssignedTask == WorkerTaskKind.Idle ? MutedInk : Leaf);
             this.DrawText(b, runtime.State, new Rectangle(textX + 12, row.bounds.Y + 36, row.bounds.Right - textX - 22, Math.Max(1, row.bounds.Height - 42)), MutedInk);
@@ -954,7 +977,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
     {
         Rectangle content = new(this.detailsBounds.X + Padding, this.detailsBounds.Y + 58,
             Math.Max(1, this.detailsBounds.Width - Padding * 2), Math.Max(1, this.detailsBounds.Height - 72));
-        bool compact = this.detailsBounds.Height < 160;
+        bool compact = this.detailsBounds.Height < 160 || content.Width < 540;
         int metricsY = this.detailsBounds.Bottom - 44;
         int vitalsWidth = Math.Min(Math.Min(220, Math.Max(96, content.Width / 3)), content.Width / 2);
         Rectangle vitals = new(content.Right - vitalsWidth, content.Y, vitalsWidth,
@@ -992,14 +1015,24 @@ internal sealed class WorkerControlMenu : IClickableMenu
             this.DrawWorkerFace(b, worker.WorkerId, face);
             DrawRect(b, new Rectangle(this.detailsBounds.X + 20, layout.Location.Y - 8, this.detailsBounds.Width - 40, 2), PaperShade);
         }
-        this.DrawSingleLineText(b, worker.DisplayName, layout.Name, Ink);
+        this.DrawSingleLineText(b, worker.DisplayName, layout.Name, Ink, ellipsize: true);
         bool enabled = Context.IsMainPlayer;
-        this.DrawCard(b, layout.Profession, enabled ? Paper : PaperShade, this.professionDropdownOpen);
+        this.DrawCard(b, layout.Profession, enabled && this.IsControlHighlighted(this.professionDropdownButton) ? PaperShade : Paper, this.professionDropdownOpen);
         Rectangle professionText = layout.Profession;
-        professionText.Inflate(-5, -2);
-        this.DrawSingleLineText(b, WorkerTaskPolicy.GetProfessionLabel(worker.Profession) + "  v",
+        professionText.Inflate(-7, -2);
+        professionText.Width = Math.Max(1, professionText.Width - 20);
+        WorkerMenuArt.DrawSprite(b, Game1.mouseCursors, OptionsDropDown.dropDownButtonSource,
+            new Rectangle(layout.Profession.Right - 23, layout.Profession.Y + 3, 20, Math.Max(1, layout.Profession.Height - 6)), enabled ? 1f : 0.5f);
+        this.DrawSingleLineText(b, WorkerTaskPolicy.GetProfessionLabel(worker.Profession),
             professionText, enabled ? Ink : MutedInk, centered: true);
-        this.DrawSingleLineText(b, $"Daily wage: {this.workerShellManager.GetWorkerDailyWage(worker.WorkerId)}g", layout.Wage, MutedInk);
+        Rectangle wageText = layout.Wage;
+        if (wageText.Width >= 230 && wageText.Height >= 20)
+        {
+            WorkerMenuArt.Draw(b, WorkerMenuArt.Icon.Coin, new Rectangle(wageText.X, wageText.Y, 16, wageText.Height));
+            wageText.X += 22;
+            wageText.Width -= 22;
+        }
+        this.DrawSingleLineText(b, $"Daily wage: {this.workerShellManager.GetWorkerDailyWage(worker.WorkerId)}g", wageText, MutedInk);
         string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
         this.DrawSingleLineText(b, location, layout.Location, MutedInk);
         this.workerBehaviorManager.GetWorkerHealth(worker.WorkerId, out int health, out int maxHealth);
@@ -1017,8 +1050,12 @@ internal sealed class WorkerControlMenu : IClickableMenu
                 || this.currentlySnappedComponent?.myID == row.myID;
             this.DrawCard(b, row.bounds, highlighted ? PaperShade : Paper, highlighted);
             Rectangle text = row.bounds;
-            text.Inflate(-8, -4);
+            text.Inflate(-10, -5);
+            text.Width -= 24;
             this.DrawSingleLineText(b, WorkerTaskPolicy.GetProfessionLabel(profession), text, Ink);
+            if (profession == selected)
+                WorkerMenuArt.DrawSprite(b, Game1.mouseCursors, OptionsCheckbox.sourceRectChecked,
+                    new Rectangle(row.bounds.Right - 28, row.bounds.Y + 8, 18, 18));
         }
     }
 
@@ -1138,25 +1175,25 @@ internal sealed class WorkerControlMenu : IClickableMenu
         if (selectedWorker is { Profession: WorkerProfession.Forager } forager)
         {
             this.DrawButton(b, this.forageAreaButton,
-                $"Forage area: {WorkerForageAreaCatalog.GetDisplayName(forager.ForageLocationName)}  >",
+                $"Forage area: {WorkerForageAreaCatalog.GetDisplayName(forager.ForageLocationName)}",
                 enabled, Color.White, WorkerMenuArt.Icon.Sprout);
         }
         if (selectedWorker is { Profession: WorkerProfession.Fisher } fisher)
-            this.DrawButton(b, this.forageAreaButton, $"Fishing area: {WorkerFishingAreaCatalog.Label(fisher.FishingArea)}  >",
-                Context.IsMainPlayer, Color.White, WorkerMenuArt.Icon.Water);
+            this.DrawButton(b, this.forageAreaButton, $"Fishing area: {WorkerFishingAreaCatalog.Label(fisher.FishingArea)}",
+                Context.IsMainPlayer, Color.White, WorkerMenuArt.Icon.Fishing);
         if (selectedWorker is { Profession: WorkerProfession.Miner } miner)
         {
-            this.DrawButton(b, this.forageAreaButton, $"Mining area: {WorkerMiningPolicy.GetLabel(miner.MiningArea)}  >",
-                enabled, Color.White, WorkerMenuArt.Icon.Tend);
+            this.DrawButton(b, this.forageAreaButton, $"Mining area: {WorkerMiningPolicy.GetLabel(miner.MiningArea)}",
+                enabled, Color.White, WorkerMenuArt.Icon.Mining);
         }
         if (selectedWorker is { Profession: WorkerProfession.CombatWorker } combat)
         {
             this.DrawButton(b, this.forageAreaButton,
-                $"Combat area: {WorkerCombatAreaCatalog.GetLabel(combat.CombatArea)}  >",
-                enabled, Color.White, WorkerMenuArt.Icon.Ledger);
+                $"Combat area: {WorkerCombatAreaCatalog.GetLabel(combat.CombatArea)}",
+                enabled, Color.White, WorkerMenuArt.Icon.Combat);
             this.DrawButton(b, this.explorationAreaButton,
-                $"Explore area: {WorkerExplorationAreaCatalog.GetLabel(combat.ExplorationArea)}  >",
-                enabled, Color.White, WorkerMenuArt.Icon.Ledger);
+                $"Explore area: {WorkerExplorationAreaCatalog.GetLabel(combat.ExplorationArea)}",
+                enabled, Color.White, WorkerMenuArt.Icon.Explore);
         }
         IReadOnlyList<WorkerTaskKind> tasks = this.GetSelectedTasks();
         for (int i = 0; i < this.orderButtons.Count; i++)
@@ -1171,10 +1208,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
     {
         if (this.ordersBounds.Height >= 220)
             this.DrawSectionHeading(b, this.ordersBounds, "WORKER SKILLS", string.Empty);
-        this.DrawCard(b, this.skillLevelsButton.bounds, Paper, !this.showWorkerPerks);
-        this.DrawText(b, "Skills", this.skillLevelsButton.bounds, Ink, centered: true);
-        this.DrawCard(b, this.workerPerksButton.bounds, Paper, this.showWorkerPerks);
-        this.DrawText(b, "Perks", this.workerPerksButton.bounds, Ink, centered: true);
+        this.DrawButton(b, this.skillLevelsButton, "Skills", true, Color.White, selected: !this.showWorkerPerks);
+        this.DrawButton(b, this.workerPerksButton, "Perks", true, Color.White, selected: this.showWorkerPerks);
         int top = this.skillLevelsButton.bounds.Bottom + 10;
         Rectangle content = new(this.ordersBounds.X + Padding, top, this.ordersBounds.Width - Padding * 2,
             Math.Max(1, this.ordersBounds.Bottom - top - 12));
@@ -1216,26 +1251,36 @@ internal sealed class WorkerControlMenu : IClickableMenu
     private void DrawWorkerPerks(SpriteBatch b, Rectangle content, WorkerSkillExperience experience)
     {
         int gap = content.Height < 160 ? 8 : 12;
-        int rowHeight = Math.Max(1, Math.Min(128, (content.Height - gap) / 2));
-        bool compact = rowHeight < 72;
-        Rectangle stamina = new(content.X, content.Y, content.Width, rowHeight);
-        Rectangle health = new(content.X, stamina.Bottom + gap, content.Width, rowHeight);
-        this.DrawPerkCard(b, stamina, "Endurance", WorkerPerkPolicy.HasStaminaPerk(experience),
+        bool sideBySide = content.Height < 160 && content.Width >= 380;
+        int rowHeight = Math.Max(1, Math.Min(128, sideBySide ? content.Height : (content.Height - gap) / 2));
+        int cardWidth = sideBySide ? (content.Width - gap) / 2 : content.Width;
+        bool compact = rowHeight < 72 || sideBySide;
+        Rectangle stamina = new(content.X, content.Y, cardWidth, rowHeight);
+        Rectangle health = sideBySide ? new Rectangle(stamina.Right + gap, content.Y, cardWidth, rowHeight)
+            : new Rectangle(content.X, stamina.Bottom + gap, cardWidth, rowHeight);
+        this.DrawPerkCard(b, stamina, "Endurance", WorkerMenuArt.Icon.Perk, WorkerPerkPolicy.HasStaminaPerk(experience),
             compact ? "Any work skill Lv. 5: stamina 270 → 540"
                 : "Farming, Mining, Fishing or Foraging Lv. 5\nMaximum stamina: 270 → 540. Applies once.");
-        this.DrawPerkCard(b, health, "Vitality", WorkerPerkPolicy.HasHealthPerk(experience),
+        this.DrawPerkCard(b, health, "Vitality", WorkerMenuArt.Icon.Combat, WorkerPerkPolicy.HasHealthPerk(experience),
             "Combat Lv. 5: maximum health 100 → 200");
     }
 
-    private void DrawPerkCard(SpriteBatch b, Rectangle row, string name, bool unlocked, string description)
+    private void DrawPerkCard(SpriteBatch b, Rectangle row, string name, WorkerMenuArt.Icon icon, bool unlocked, string description)
     {
-        this.DrawCard(b, row, unlocked ? new Color(244, 221, 165) : Paper, unlocked);
-        int inset = row.Height < 72 ? 8 : 14;
+        this.DrawCard(b, row, unlocked ? PaperShade : Paper, unlocked);
+        int inset = row.Height < 72 ? 9 : 14;
+        int iconSize = row.Height >= 90 && row.Width >= 360 ? 40 : 0;
+        int textX = row.X + inset + (iconSize > 0 ? iconSize + 12 : 0);
+        if (iconSize > 0)
+            WorkerMenuArt.Draw(b, icon, new Rectangle(row.X + inset, row.Y + inset, iconSize, iconSize), unlocked ? 1f : 0.5f);
         int titleHeight = Math.Min(28, Math.Max(1, (row.Height - inset * 2) / 2));
-        this.DrawText(b, $"{name} — {(unlocked ? "Unlocked" : "Locked • Lv. 5")}",
-            new Rectangle(row.X + inset, row.Y + inset, row.Width - inset * 2, titleHeight), unlocked ? Leaf : Ink);
-        this.DrawText(b, description, new Rectangle(row.X + inset, row.Y + inset + titleHeight + 2,
-            row.Width - inset * 2, Math.Max(1, row.Height - inset * 2 - titleHeight - 2)), MutedInk);
+        int statusWidth = Math.Min(116, (row.Right - inset - textX) / 3);
+        this.DrawSingleLineText(b, name,
+            new Rectangle(textX, row.Y + inset, Math.Max(1, row.Right - inset - statusWidth - textX - 8), titleHeight), Ink);
+        this.DrawSingleLineText(b, unlocked ? "Unlocked" : "Locked",
+            new Rectangle(row.Right - inset - statusWidth, row.Y + inset, statusWidth, titleHeight), unlocked ? Leaf : MutedInk, centered: true, maximumScale: 0.85f);
+        this.DrawText(b, description, new Rectangle(textX, row.Y + inset + titleHeight + 4,
+            row.Right - inset - textX, Math.Max(1, row.Height - inset * 2 - titleHeight - 4)), MutedInk);
     }
 
     private void DrawSkillRow(SpriteBatch b, Rectangle row, string name, int experience)
@@ -1243,18 +1288,32 @@ internal sealed class WorkerControlMenu : IClickableMenu
         this.DrawCard(b, row, Paper, false);
         int level = WorkerExperiencePolicy.GetLevel(experience);
         bool stacked = row.Height >= 42;
-        int labelWidth = stacked ? row.Width - 36 : Math.Min(180, row.Width / 2);
-        this.DrawText(b, $"{name}  Lv. {level}",
-            new Rectangle(row.X + 18, row.Y + (stacked ? 4 : 2), labelWidth, Math.Min(28, row.Height - 4)), Ink);
+        int iconSize = stacked && row.Width >= 260 ? 30 : 0;
+        WorkerMenuArt.Icon icon = name switch
+        {
+            "Mining" => WorkerMenuArt.Icon.Mining,
+            "Fishing" => WorkerMenuArt.Icon.Fishing,
+            "Foraging" => WorkerMenuArt.Icon.Foraging,
+            "Combat" => WorkerMenuArt.Icon.Combat,
+            _ => WorkerMenuArt.Icon.Sprout,
+        };
+        if (iconSize > 0)
+            WorkerMenuArt.Draw(b, icon, new Rectangle(row.X + 12, row.Y + (row.Height - iconSize) / 2, iconSize, iconSize));
+        int textX = row.X + 12 + (iconSize > 0 ? iconSize + 10 : 0);
+        int textWidth = Math.Max(1, row.Right - 12 - textX);
+        int levelWidth = Math.Min(76, textWidth / 3);
+        int labelHeight = stacked ? Math.Min(26, row.Height - 22) : Math.Max(1, row.Height - 11);
+        this.DrawSingleLineText(b, name, new Rectangle(textX, row.Y + (stacked ? 6 : 4), Math.Max(1, textWidth - levelWidth - 8), labelHeight), Ink);
+        this.DrawSingleLineText(b, $"Lv. {level}", new Rectangle(row.Right - 12 - levelWidth, row.Y + (stacked ? 6 : 4), levelWidth, labelHeight), MutedInk, centered: true);
         int low = WorkerExperiencePolicy.GetThreshold(level);
         int high = level == WorkerExperiencePolicy.MaximumLevel ? low : WorkerExperiencePolicy.GetThreshold(level + 1);
         float fraction = high == low ? 1f : Math.Clamp((float)(experience - low) / (high - low), 0f, 1f);
-        Rectangle bar = stacked
-            ? new Rectangle(row.X + 18, row.Bottom - 15, Math.Max(1, row.Width - 36), 8)
-            : new Rectangle(row.X + labelWidth + 30, row.Y + (row.Height - 8) / 2,
-                Math.Max(1, row.Width - labelWidth - 48), 8);
-        DrawRect(b, bar, PaperShade);
-        DrawRect(b, new Rectangle(bar.X, bar.Y, (int)(bar.Width * fraction), bar.Height), Leaf);
+        // A quiet, inset XP track keeps progress distinct from the native health/stamina HUD bars.
+        Rectangle bar = new(textX, row.Bottom - (stacked ? 14 : 5), textWidth, stacked ? 7 : 2);
+        DrawRect(b, bar, Wood * 0.45f);
+        Rectangle inner = new(bar.X + 1, bar.Y + 1, Math.Max(1, bar.Width - 2), Math.Max(1, bar.Height - 2));
+        DrawRect(b, inner, PaperShade);
+        DrawRect(b, new Rectangle(inner.X, inner.Y, (int)(inner.Width * fraction), inner.Height), Leaf);
     }
 
     private void DrawStoragePanel(SpriteBatch b)
@@ -1269,7 +1328,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             option.LocationName == destination.LocationName && option.Tile == destination.Tile);
         string selectedLabel = destination is null ? "Shipping bin" : selectedChest?.Label ?? "Missing chest — using shipping bin";
         string workerLabel = this.GetSelectedWorker()?.DisplayName ?? "Select a worker";
-        this.DrawButton(b, this.destinationDropdownButton, $"{workerLabel}: {selectedLabel}  {(this.destinationDropdownOpen ? "^" : "v")}",
+        this.DrawButton(b, this.destinationDropdownButton, $"{workerLabel}: {selectedLabel}",
             Context.IsMainPlayer && this.selectedWorkerId is not null, Color.White,
             destination is null ? WorkerMenuArt.Icon.Coin : WorkerMenuArt.Icon.Chest);
 
@@ -1289,7 +1348,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerChestOption? option = index == 0 ? null : this.chestOptions[index - 1];
             bool isSelected = index == 0 ? destination is null
                 : destination is not null && option!.LocationName == destination.LocationName && option.Tile == destination.Tile;
-            this.DrawCard(b, row.bounds, isSelected ? new Color(244, 221, 165) : Paper, isSelected);
+            this.DrawCard(b, row.bounds, isSelected || this.IsControlHighlighted(row) ? PaperShade : Paper, isSelected);
             WorkerMenuArt.Draw(b, index == 0 ? WorkerMenuArt.Icon.Coin : WorkerMenuArt.Icon.Chest, row.bounds.X + 10, row.bounds.Y + 10, 2);
             this.DrawText(b, index == 0 ? "Shipping bin (default)" : option!.Label,
                 new Rectangle(row.bounds.X + 43, row.bounds.Y + 6, row.bounds.Width - 53, row.bounds.Height - 12), Ink);
@@ -1339,38 +1398,71 @@ internal sealed class WorkerControlMenu : IClickableMenu
 
     private void DrawCard(SpriteBatch b, Rectangle bounds, Color fill, bool selected)
     {
-        DrawRect(b, bounds, new Color(106, 56, 31));
-        DrawRect(b, new Rectangle(bounds.X + 3, bounds.Y + 3, bounds.Width - 6, bounds.Height - 6), fill);
-        DrawRect(b, new Rectangle(bounds.X + 4, bounds.Y + 4, bounds.Width - 8, 3), Color.White * 0.45f);
-        DrawRect(b, new Rectangle(bounds.X + 4, bounds.Bottom - 8, bounds.Width - 8, 4), selected ? Leaf : PaperShade);
+        if (bounds.Width < 2 || bounds.Height < 2) return;
+        // The vanilla options/shop button nine-slice keeps the same pixel vocabulary
+        // as the surrounding dialogue frame without adding another heavy wood border.
+        Color tint = fill == Paper ? Color.White
+            : fill == Color.LightPink ? Color.LightPink
+            : fill == new Color(211, 190, 158) ? new Color(210, 205, 195)
+            : new Color(255, 235, 190);
+        float scale = Math.Min(2f, Math.Min(bounds.Width, bounds.Height) / 6f);
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
+            bounds.X, bounds.Y, bounds.Width, bounds.Height, tint, scale, drawShadow: false);
+        if (selected)
+            DrawRect(b, new Rectangle(bounds.X + 7, bounds.Bottom - 6, bounds.Width - 14, 3), Leaf);
+    }
+
+    private bool IsControlHighlighted(ClickableComponent button)
+    {
+        if (this.pendingDismissalId is not null && button.myID != ConfirmId && button.myID != CancelId) return false;
+        if (this.professionDropdownOpen && button.myID != ProfessionDropdownId
+            && (button.myID < ProfessionRowIdBase || button.myID >= ProfessionRowIdBase + ProfessionOptions.Length)) return false;
+        return button.containsPoint(Game1.getMouseX(), Game1.getMouseY()) || this.currentlySnappedComponent?.myID == button.myID;
     }
 
     private void DrawSectionHeading(SpriteBatch b, Rectangle panel, string heading, string note)
     {
         bool showNote = note.Length > 0 && panel.Width > 280;
-        this.DrawText(b, heading, new Rectangle(panel.X + Padding, panel.Y + 14, Math.Max(1, panel.Width - Padding * 2 - (showNote ? 115 : 0)), 30), Ink);
+        this.DrawSingleLineText(b, heading, new Rectangle(panel.X + Padding, panel.Y + 14, Math.Max(1, panel.Width - Padding * 2 - (showNote ? 115 : 0)), 30), Ink);
         if (showNote)
-            this.DrawText(b, note, new Rectangle(panel.Right - 135, panel.Y + 18, 110, 24), MutedInk, centered: true);
+            this.DrawSingleLineText(b, note, new Rectangle(panel.Right - 135, panel.Y + 18, 110, 24), MutedInk, centered: true);
         DrawRect(b, new Rectangle(panel.X + 18, panel.Y + 50, panel.Width - 36, 2), PaperShade);
     }
 
     private void DrawButton(SpriteBatch b, ClickableComponent button, string label, bool enabled, Color color, WorkerMenuArt.Icon? icon = null, bool selected = false)
     {
-        bool hovered = this.pendingDismissalId is null && button.containsPoint(Game1.getMouseX(), Game1.getMouseY());
+        bool hovered = this.IsControlHighlighted(button);
         Color fill = !enabled ? new Color(211, 190, 158) : selected ? new Color(245, 216, 145) : hovered ? new Color(255, 236, 187) : color == Color.White ? Paper : color;
         this.DrawCard(b, button.bounds, fill, selected);
         int textX = button.bounds.X + 10;
-        if (icon is WorkerMenuArt.Icon motif && button.bounds.Width >= 110)
+        if (icon is WorkerMenuArt.Icon motif && button.bounds.Width >= 135)
         {
-            WorkerMenuArt.Draw(b, motif, button.bounds.X + 12, button.bounds.Y + (button.bounds.Height - 24) / 2, 2);
+            WorkerMenuArt.Draw(b, motif, new Rectangle(button.bounds.X + 12, button.bounds.Y + (button.bounds.Height - 24) / 2, 24, 24), enabled ? 1f : 0.5f);
             textX += 30;
         }
-        this.DrawText(b, label, new Rectangle(textX, button.bounds.Y + 8, Math.Max(1, button.bounds.Right - textX - 10), Math.Max(1, button.bounds.Height - 16)), enabled ? Ink : MutedInk * 0.75f, centered: true);
+        Rectangle labelBounds = new(textX, button.bounds.Y + 5, Math.Max(1, button.bounds.Right - textX - 10), Math.Max(1, button.bounds.Height - 10));
+        if (button.myID is DestinationDropdownId or ForageAreaId or ExplorationAreaId)
+        {
+            Rectangle arrow = new(button.bounds.Right - 30, button.bounds.Y + (button.bounds.Height - 22) / 2, 20, 22);
+            Rectangle source = button.myID == DestinationDropdownId ? OptionsDropDown.dropDownButtonSource : new Rectangle(365, 495, 12, 11);
+            WorkerMenuArt.DrawSprite(b, Game1.mouseCursors, source, arrow, enabled ? 1f : 0.5f);
+            labelBounds.Width = Math.Max(1, labelBounds.Width - 26);
+        }
+        if (label is "<" or ">")
+        {
+            WorkerMenuArt.DrawSprite(b, Game1.mouseCursors,
+                new Rectangle(label == "<" ? 352 : 365, 495, 12, 11), labelBounds, enabled ? 1f : 0.4f);
+            return;
+        }
+        if (button.myID is DestinationDropdownId or ForageAreaId or ExplorationAreaId)
+            this.DrawText(b, label, labelBounds, enabled ? Ink : MutedInk, centered: true);
+        else
+            this.DrawSingleLineText(b, label, labelBounds, enabled ? Ink : MutedInk, centered: true);
     }
 
     private void DrawOrderCard(SpriteBatch b, ClickableComponent button, WorkerTaskKind task, bool enabled, bool selected)
     {
-        bool hovered = this.pendingDismissalId is null && button.containsPoint(Game1.getMouseX(), Game1.getMouseY());
+        bool hovered = this.IsControlHighlighted(button);
         Color fill = !enabled ? new Color(211, 190, 158) : selected ? new Color(244, 221, 165) : hovered ? new Color(255, 239, 198) : Paper;
         this.DrawCard(b, button.bounds, fill, selected);
         WorkerMenuArt.Icon icon = task switch
@@ -1378,31 +1470,35 @@ internal sealed class WorkerControlMenu : IClickableMenu
             WorkerTaskKind.WaterCrops => WorkerMenuArt.Icon.Water,
             WorkerTaskKind.HarvestCrops => WorkerMenuArt.Icon.Harvest,
             WorkerTaskKind.TendCrops => WorkerMenuArt.Icon.Tend,
-            WorkerTaskKind.CollectForage => WorkerMenuArt.Icon.Harvest,
-            WorkerTaskKind.ChopTrees => WorkerMenuArt.Icon.Tend,
-            WorkerTaskKind.ChopHardwood => WorkerMenuArt.Icon.Ledger,
-            WorkerTaskKind.ClearDebris => WorkerMenuArt.Icon.Tend,
-            WorkerTaskKind.MineRocks or WorkerTaskKind.MineOreGems or WorkerTaskKind.FindLadder => WorkerMenuArt.Icon.Tend,
-            WorkerTaskKind.SlayMonsters => WorkerMenuArt.Icon.Ledger,
-            WorkerTaskKind.ExploreArea => WorkerMenuArt.Icon.Ledger,
-            WorkerTaskKind.Fish => WorkerMenuArt.Icon.Water,
+            WorkerTaskKind.CollectForage => WorkerMenuArt.Icon.Foraging,
+            WorkerTaskKind.ChopTrees => WorkerMenuArt.Icon.Foraging,
+            WorkerTaskKind.ChopHardwood => WorkerMenuArt.Icon.Hardwood,
+            WorkerTaskKind.ClearDebris => WorkerMenuArt.Icon.Foraging,
+            WorkerTaskKind.MineRocks or WorkerTaskKind.MineOreGems or WorkerTaskKind.FindLadder => WorkerMenuArt.Icon.Mining,
+            WorkerTaskKind.SlayMonsters => WorkerMenuArt.Icon.Combat,
+            WorkerTaskKind.ExploreArea => WorkerMenuArt.Icon.Explore,
+            WorkerTaskKind.Fish => WorkerMenuArt.Icon.Fishing,
             _ => WorkerMenuArt.Icon.Home,
         };
         if (button.bounds.Height < 90)
         {
-            WorkerMenuArt.Draw(b, icon, button.bounds.X + 10, button.bounds.Y + (button.bounds.Height - 24) / 2, 2);
-            this.DrawText(b, GetTaskLabel(task), new Rectangle(button.bounds.X + 44, button.bounds.Y + 5, button.bounds.Width - 52, Math.Max(1, button.bounds.Height - 10)), enabled ? Ink : MutedInk);
+            bool showIcon = button.bounds.Width >= 180 && button.bounds.Height >= 36;
+            if (showIcon)
+                WorkerMenuArt.Draw(b, icon, new Rectangle(button.bounds.X + 10, button.bounds.Y + (button.bounds.Height - 24) / 2, 24, 24), enabled ? 1f : 0.5f);
+            int inset = showIcon ? 44 : 10;
+            this.DrawText(b, GetTaskLabel(task), new Rectangle(button.bounds.X + inset, button.bounds.Y + 7,
+                button.bounds.Width - inset - 10, Math.Max(1, button.bounds.Height - 14)), enabled ? Ink : MutedInk, centered: !showIcon);
             return;
         }
         int iconSize = 3;
         WorkerMenuArt.Draw(b, icon, button.bounds.X + 17, button.bounds.Y + 15, iconSize);
         int titleX = button.bounds.X + 17 + 12 * iconSize + 13;
-        int titleWidth = Math.Max(1, button.bounds.Right - titleX - (selected ? 58 : 15));
-        this.DrawText(b, GetTaskLabel(task), new Rectangle(titleX, button.bounds.Y + 18, titleWidth, 32), enabled ? Ink : MutedInk);
+        int titleWidth = Math.Max(1, button.bounds.Right - titleX - (selected ? 40 : 15));
+        this.DrawSingleLineText(b, GetTaskLabel(task), new Rectangle(titleX, button.bounds.Y + 18, titleWidth, 32), enabled ? Ink : MutedInk);
         if (selected && button.bounds.Width > 190)
         {
-            DrawRect(b, new Rectangle(button.bounds.Right - 56, button.bounds.Y + 13, 42, 24), Leaf);
-            this.DrawText(b, "SET", new Rectangle(button.bounds.Right - 54, button.bounds.Y + 14, 38, 21), Color.White, centered: true);
+            WorkerMenuArt.DrawSprite(b, Game1.mouseCursors, OptionsCheckbox.sourceRectChecked,
+                new Rectangle(button.bounds.Right - 32, button.bounds.Y + 20, 18, 18));
         }
         if (button.bounds.Height >= 100)
         {
@@ -1435,9 +1531,17 @@ internal sealed class WorkerControlMenu : IClickableMenu
         {
             return;
         }
-        string wrapped = Game1.parseText(text, Game1.smallFont, bounds.Width);
-        Vector2 size = Game1.smallFont.MeasureString(wrapped);
-        float scale = Math.Min(1f, Math.Min(bounds.Width / Math.Max(1f, size.X), bounds.Height / Math.Max(1f, size.Y)));
+        string wrapped = text;
+        Vector2 size = Vector2.Zero;
+        float scale = 1f;
+        for (int step = 0; step <= 10; step++)
+        {
+            scale = 1f - step * 0.05f;
+            wrapped = Game1.parseText(text, Game1.smallFont, Math.Max(1, (int)(bounds.Width / scale)));
+            size = Game1.smallFont.MeasureString(wrapped);
+            if (size.X * scale <= bounds.Width && size.Y * scale <= bounds.Height) break;
+        }
+        scale = Math.Min(scale, Math.Min(bounds.Width / Math.Max(1f, size.X), bounds.Height / Math.Max(1f, size.Y)));
         Vector2 position = new(bounds.X, bounds.Y);
         if (centered)
         {
@@ -1447,10 +1551,22 @@ internal sealed class WorkerControlMenu : IClickableMenu
     }
 
     private void DrawSingleLineText(SpriteBatch b, string text, Rectangle bounds, Color color,
-        bool centered = false, float maximumScale = 1f)
+        bool centered = false, float maximumScale = 1f, bool ellipsize = false)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
         Vector2 size = Game1.smallFont.MeasureString(text);
+        if (ellipsize)
+        {
+            float readableScale = Math.Min(maximumScale, Math.Min(0.8f, bounds.Height / Math.Max(1f, size.Y)));
+            string fullText = text;
+            if (size.X * readableScale > bounds.Width)
+            {
+                while (text.Length > 1 && Game1.smallFont.MeasureString(text + "...").X * readableScale > bounds.Width)
+                    text = text[..^1];
+                if (text != fullText) text += "...";
+            }
+            size = Game1.smallFont.MeasureString(text);
+        }
         float scale = Math.Min(maximumScale, Math.Min(bounds.Width / Math.Max(1f, size.X), bounds.Height / Math.Max(1f, size.Y)));
         Vector2 position = new(bounds.X, bounds.Y + (bounds.Height - size.Y * scale) / 2f);
         if (centered) position.X += (bounds.Width - size.X * scale) / 2f;

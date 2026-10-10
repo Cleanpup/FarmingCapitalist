@@ -6,7 +6,6 @@
   "UniqueID": "Cleanpup.FarmingCapitalist",
   "EntryDll": "HireSkilledHelpers.dll",
   "MinimumApiVersion": "4.0.0",
-  "UpdateKeys": [],
   "Dependencies": [
     {
       "UniqueID": "spacechase0.GenericModConfigMenu",

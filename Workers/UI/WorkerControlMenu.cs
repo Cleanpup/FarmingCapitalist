@@ -885,23 +885,51 @@ internal sealed class WorkerControlMenu : IClickableMenu
     {
         int rowHeight = Math.Max(1, (bounds.Height - 4) / 2);
         this.DrawVitalBar(b, new Rectangle(bounds.X, bounds.Y, bounds.Width, rowHeight),
-            "Health", health, maxHealth, new Color(171, 58, 48));
+            "Health", health, maxHealth, healthBar: true);
         this.DrawVitalBar(b, new Rectangle(bounds.X, bounds.Y + rowHeight + 4, bounds.Width, rowHeight),
-            "Stamina", stamina.Current, WorkerStaminaPolicy.Maximum,
-            stamina.Resting ? new Color(207, 142, 43) : Leaf);
+            "Stamina", stamina.Current, WorkerStaminaPolicy.Maximum, healthBar: false);
     }
 
-    private void DrawVitalBar(SpriteBatch b, Rectangle row, string label, float current, float maximum, Color fill)
+    private void DrawVitalBar(SpriteBatch b, Rectangle row, string label, float current, float maximum,
+        bool healthBar, bool large = false)
     {
-        int barHeight = Math.Clamp(row.Height / 4, 4, 10);
+        int barHeight = large ? Math.Clamp(row.Height - 28, 8, 48) : Math.Clamp(row.Height / 4, 4, 10);
         this.DrawText(b, $"{label}  {current:0.#}/{maximum:0}",
             new Rectangle(row.X, row.Y, row.Width, Math.Max(1, row.Height - barHeight - 3)), Ink);
         Rectangle bar = new(row.X, row.Bottom - barHeight, row.Width, barHeight);
-        DrawRect(b, bar, Wood);
-        Rectangle inner = new(bar.X + 1, bar.Y + 1, Math.Max(1, bar.Width - 2), Math.Max(1, bar.Height - 2));
-        DrawRect(b, inner, PaperShade);
+        this.DrawVanillaVitalBar(b, bar, current, maximum, healthBar);
+    }
+
+    private void DrawVanillaVitalBar(SpriteBatch b, Rectangle bar, float current, float maximum, bool healthBar)
+    {
+        // Game1.drawHUD's cap/middle/cap artwork, rotated 90 degrees. Rotating
+        // clockwise makes the native bottom-to-top fill run left-to-right.
+        int sourceX = healthBar ? 268 : 256;
+        float thicknessScale = bar.Height / 12f;
+        float capLength = Math.Min(16 * thicknessScale, bar.Width / 2f);
+        Vector2 capScale = new(thicknessScale, capLength / 16f);
+        b.Draw(Game1.mouseCursors, new Vector2(bar.Right, bar.Y), new Rectangle(sourceX, 408, 12, 16),
+            Color.White, MathHelper.PiOver2, Vector2.Zero, capScale, SpriteEffects.None, 1f);
+        float middleLength = bar.Width - capLength * 2;
+        if (middleLength > 0)
+            b.Draw(Game1.mouseCursors, new Vector2(bar.Right - capLength, bar.Y), new Rectangle(sourceX, 424, 12, 16),
+                Color.White, MathHelper.PiOver2, Vector2.Zero, new Vector2(thicknessScale, middleLength / 16f), SpriteEffects.None, 1f);
+        b.Draw(Game1.mouseCursors, new Vector2(bar.Left + capLength, bar.Y), new Rectangle(sourceX, 448, 12, 16),
+            Color.White, MathHelper.PiOver2, Vector2.Zero, capScale, SpriteEffects.None, 1f);
+
+        int leftInset = Math.Max(1, (int)Math.Round(2 * thicknessScale));
+        int rightInset = Math.Max(1, (int)Math.Round(12 * thicknessScale));
+        Rectangle inner = new(bar.Left + leftInset, bar.Y + (int)Math.Round(3 * thicknessScale),
+            Math.Max(0, bar.Width - leftInset - rightInset), Math.Max(1, (int)Math.Round(6 * thicknessScale)));
         float fraction = maximum > 0 ? Math.Clamp(current / maximum, 0, 1) : 0;
-        DrawRect(b, new Rectangle(inner.X, inner.Y, (int)(inner.Width * fraction), inner.Height), fill);
+        Color fill = Utility.getRedToGreenLerpColor(fraction);
+        int filledWidth = (int)(inner.Width * fraction);
+        DrawRect(b, new Rectangle(inner.X, inner.Y, filledWidth, inner.Height), fill);
+        // Match the native darker leading edge of the energy/health fill.
+        fill.R = (byte)Math.Max(0, fill.R - 50);
+        fill.G = (byte)Math.Max(0, fill.G - 50);
+        int edgeWidth = Math.Min(filledWidth, Math.Max(1, (int)Math.Round(thicknessScale)));
+        DrawRect(b, new Rectangle(inner.X + filledWidth - edgeWidth, inner.Y, edgeWidth, inner.Height), fill);
     }
 
     private void DrawOrders(SpriteBatch b)
@@ -919,30 +947,36 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         if (this.currentTab != WorkerMenuTab.Jobs)
         {
-            this.DrawSectionHeading(b, this.ordersBounds, "A DAY ON THE FARM", string.Empty);
-            if (this.ordersBounds.Height < 240)
+            if (this.ordersBounds.Height >= 180)
+                this.DrawSectionHeading(b, this.ordersBounds, "WORKER VITALS", string.Empty);
+            WorkerSummarySnapshot? currentWorker = this.GetSelectedWorker();
+            if (currentWorker is not WorkerSummarySnapshot selected)
             {
-                WorkerMenuArt.Draw(b, WorkerMenuArt.Icon.Sprout, this.ordersBounds.Center.X - 18, this.ordersBounds.Y + 55);
-                this.DrawText(b, "Choose Jobs to set a daily order.", new Rectangle(this.ordersBounds.X + Padding, this.ordersBounds.Y + 105, this.ordersBounds.Width - Padding * 2, 45), Ink, centered: true);
+                this.DrawText(b, "Select a worker to view health and stamina.",
+                    new Rectangle(this.ordersBounds.X + Padding, this.ordersBounds.Y + 60,
+                        this.ordersBounds.Width - Padding * 2, 45), Ink, centered: true);
                 return;
             }
-            int iconY = this.ordersBounds.Y + Math.Max(72, this.ordersBounds.Height / 3);
-            int centerX = this.ordersBounds.Center.X;
-            WorkerMenuArt.Draw(b, WorkerMenuArt.Icon.Harvest, centerX - 114, iconY);
-            WorkerMenuArt.Draw(b, WorkerMenuArt.Icon.Sprout, centerX - 18, iconY - 10);
-            WorkerMenuArt.Draw(b, WorkerMenuArt.Icon.Water, centerX + 78, iconY);
-            this.DrawText(b, "HARVEST", new Rectangle(centerX - 143, iconY + 48, 96, 28), MutedInk, centered: true);
-            this.DrawText(b, "GROW", new Rectangle(centerX - 48, iconY + 48, 96, 28), MutedInk, centered: true);
-            this.DrawText(b, "WATER", new Rectangle(centerX + 48, iconY + 48, 96, 28), MutedInk, centered: true);
-            this.DrawText(b, "Choose Jobs to set a daily order.", new Rectangle(this.ordersBounds.X + Padding, iconY + 105, this.ordersBounds.Width - Padding * 2, 54), Ink, centered: true);
+            this.workerBehaviorManager.GetWorkerHealth(selected.WorkerId, out int health, out int maxHealth);
+            WorkerStaminaState stamina = this.workerShellManager.GetWorkerStamina(selected.WorkerId);
+            bool showOrder = this.ordersBounds.Height >= 330;
+            int top = this.ordersBounds.Y + (this.ordersBounds.Height >= 180 ? 66 : 20);
+            int bottom = this.ordersBounds.Bottom - (showOrder ? 110 : 20);
+            int availableHeight = Math.Max(1, bottom - top);
+            int gap = availableHeight >= 120 ? 16 : 4;
+            int rowHeight = Math.Max(1, Math.Min(100, (availableHeight - gap) / 2));
+            top += Math.Max(0, (availableHeight - rowHeight * 2 - gap) / 2);
+            int inset = Math.Min(38, this.ordersBounds.Width / 10);
+            Rectangle healthRow = new(this.ordersBounds.X + inset, top, this.ordersBounds.Width - inset * 2, rowHeight);
+            Rectangle staminaRow = new(healthRow.X, top + rowHeight + gap, healthRow.Width, rowHeight);
+            bool large = rowHeight >= 48;
+            this.DrawVitalBar(b, healthRow, "Health", health, maxHealth, healthBar: true, large: large);
+            this.DrawVitalBar(b, staminaRow, "Stamina", stamina.Current, WorkerStaminaPolicy.Maximum, healthBar: false, large: large);
             if (this.ordersBounds.Height >= 330)
             {
                 Rectangle orderSummary = new(this.ordersBounds.X + 38, this.ordersBounds.Bottom - 90, this.ordersBounds.Width - 76, 63);
                 this.DrawCard(b, orderSummary, Paper, false);
-                WorkerSummarySnapshot? currentWorker = this.GetSelectedWorker();
-                WorkerTaskKind currentOrder = currentWorker is WorkerSummarySnapshot summaryWorker
-                    ? this.runtimeSnapshots[summaryWorker.WorkerId].AssignedTask
-                    : WorkerTaskKind.Idle;
+                WorkerTaskKind currentOrder = this.runtimeSnapshots[selected.WorkerId].AssignedTask;
                 WorkerMenuArt.Draw(b, currentOrder == WorkerTaskKind.Idle ? WorkerMenuArt.Icon.Home : WorkerMenuArt.Icon.Ledger, orderSummary.X + 18, orderSummary.Y + 13, 3);
                 this.DrawText(b, "CURRENT ORDER", new Rectangle(orderSummary.X + 69, orderSummary.Y + 8, orderSummary.Width - 85, 23), MutedInk);
                 this.DrawText(b, currentWorker is null ? "Select a worker" : GetTaskLabel(currentOrder), new Rectangle(orderSummary.X + 69, orderSummary.Y + 29, orderSummary.Width - 85, 26), Ink);

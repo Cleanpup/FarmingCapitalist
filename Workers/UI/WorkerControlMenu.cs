@@ -881,6 +881,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         }
         WorkerStaminaState stamina = this.workerShellManager.GetWorkerStamina(worker.WorkerId);
         this.workerBehaviorManager.GetWorkerHealth(worker.WorkerId, out int health, out int maxHealth);
+        string wage = $"Daily wage: {this.workerShellManager.GetWorkerDailyWage(worker.WorkerId)}g";
         string location = worker.IsSpawned ? $"{worker.CurrentLocationName ?? "Unknown"} ({FormatTile(worker.CurrentTile)})" : "Waiting to appear";
         int vitalsWidth = Math.Min(220, Math.Max(96, content.Width / 3));
         vitalsWidth = Math.Min(vitalsWidth, content.Width / 2);
@@ -888,7 +889,7 @@ internal sealed class WorkerControlMenu : IClickableMenu
         int profileRight = vitals.Left - Gap;
         if (this.detailsBounds.Height < 160)
         {
-            this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}\n{location}",
+            this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}\n{wage}\n{location}",
                 new Rectangle(content.X, content.Y, Math.Max(1, profileRight - content.X), content.Height), Ink);
             this.DrawWorkerVitals(b, vitals, health, maxHealth, stamina);
             return;
@@ -902,6 +903,8 @@ internal sealed class WorkerControlMenu : IClickableMenu
         int infoWidth = Math.Max(1, profileRight - infoX);
         this.DrawText(b, $"{worker.DisplayName} — {WorkerTaskPolicy.GetProfessionLabel(worker.Profession)}",
             new Rectangle(infoX, content.Y, infoWidth, 28), Ink);
+        this.DrawText(b, wage, new Rectangle(infoX, content.Y + 28, infoWidth,
+            Math.Min(24, Math.Max(1, metricsY - 8 - content.Y - 28))), MutedInk);
         vitals.Height = Math.Max(1, metricsY - content.Y - 10);
         this.DrawWorkerVitals(b, vitals, health, maxHealth, stamina);
         DrawRect(b, new Rectangle(this.detailsBounds.X + 20, metricsY - 8, this.detailsBounds.Width - 40, 2), PaperShade);

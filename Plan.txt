@@ -172,3 +172,5 @@ The 1.6.4 completed-work fix changes a finished daytime order to the saved Idle 
 The 1.6.5 worker profile cleanup removes assignment, skill-level and activity text beneath the worker's name/profession in both regular and compact layouts. Portrait, name/profession, location/coordinates and right-side Health/Stamina bars remain. Jobs, Skills and roster activity retain their own displays. See TESTING.md check 93.
 
 The 1.6.6 Skills panel adds two inner tabs, Skills and Perks, without adding a top-level menu tab. Skills retains all five worker levels and XP bars; Perks shows a clear empty state until gameplay perks are implemented. Both tabs support mouse/controller focus, no-worker selection, worker switching and resizing; compact Skills uses two columns to preserve row space. The profile cleanup is included. See TESTING.md check 94.
+
+The 1.6.7 profile adds Daily wage directly beneath name/profession in both regular and compact layouts, using the selected worker's saved DailyWage rather than a separate UI price. Location/coordinates and vitals remain. See TESTING.md check 95.

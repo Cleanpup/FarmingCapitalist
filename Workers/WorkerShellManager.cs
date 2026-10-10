@@ -389,6 +389,9 @@ internal sealed class WorkerShellManager
         return this.GetWorkerEntry(workerId)?.AssignedTask ?? WorkerTaskKind.Idle;
     }
 
+    public int GetWorkerDailyWage(string workerId)
+        => this.GetWorkerEntry(workerId)?.DailyWage ?? WorkerEmploymentTerms.DailyWage;
+
     public WorkerProfession GetWorkerProfession(string workerId)
     {
         return this.GetWorkerEntry(workerId)?.Profession ?? WorkerProfession.Farmer;
